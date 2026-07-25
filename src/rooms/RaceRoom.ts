@@ -527,6 +527,12 @@ export class RaceRoom extends Room {
         const other = this.state.players.get(c.sessionId);
         if (other && other.clientId === player.clientId) {
           this.dedupKicking.add(c.sessionId);
+          // Remove from the synced state SYNCHRONOUSLY so the duplicate never
+          // shows in the roster, not even for the one broadcast before the
+          // async connection close lands - otherwise a continuous Switch-Lobby
+          // spam keeps a transient duplicate visible the whole time. onLeave's
+          // own delete then no-ops.
+          this.state.players.delete(c.sessionId);
           c.leave(CloseCode.CONSENTED);
         }
       }
