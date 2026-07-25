@@ -1213,3 +1213,23 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   into a room where X is already sitting (with backlog) - Z's visible chat
   ends up completely empty, no "X joined", no old messages; (2) regression -
   a merge into a populated room still shows "Pat joined the lobby". Both pass.
+- 2026-07-25: Deployment prep (free hosting decision made: Render's free web
+  service tier - always WebSocket-capable, one instance, which matches this
+  codebase's existing single-process assumption around `RaceRoom.instances`/
+  room merging; sleeps after 15 min idle, acceptable since an idle server has
+  no live race to lose anyway). Collapsed the app to a single deployable
+  process/URL rather than a separate static host for the client:
+  - `app.config.ts`: `defineServer`'s `express` callback now mounts
+    `express.static(client/)`, so the same Colyseus server serves
+    `index.html` at its root alongside the WebSocket endpoint.
+  - `client/index.html`: `ENDPOINT` changed from a hardcoded
+    `http://localhost:2567` to `window.location.origin`, so the client works
+    unmodified both locally (dev server serves itself) and once deployed (no
+    per-environment URL editing, no CORS/mixed-content setup since page and
+    WebSocket share an origin).
+  - Verified locally: `npm start`'s server now returns the client HTML at
+    `/` (curl), and the served page reflects the same-origin `ENDPOINT`.
+  - Initialized the git repo (none existed before) with a `.gitignore`
+    (`node_modules/`, `.env*`) and a first commit, since Render deploys from
+    a Git remote. Pushing to GitHub and creating the Render service are
+    manual steps (external accounts) still to do.
