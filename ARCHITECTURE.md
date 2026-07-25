@@ -1313,3 +1313,30 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   heavier / 190 lighter split. Verified: no duplicates, all 50-300 chars
   (62-203 actual spread), `tsc --noEmit` and the running dev server both
   stayed clean.
+- 2026-07-25: Quote pool extended again (still not replaced) with ~120 more
+  quotes from a different category of source entirely, per a follow-up
+  request: news sites, educational/science sites, and idea-driven blogs,
+  rather than forum posts. Checked a spread of sources: BBC, Smithsonian,
+  Atlas Obscura, Big Think, and Aeon all blocked (403s, or 429 on Aeon), but
+  NASA, MIT News, Quanta Magazine, The Conversation, History.com, and the
+  Farnam Street blog were all reachable with real substance. Farnam Street's
+  mental-models reference page in particular was unusually productive, a
+  70-entry catalog of thinking tools (first principles, inversion, Occam's
+  razor, feedback loops, emergence, and so on) that translated well into
+  standalone one or two sentence explanations. Added five sections: (1) ~39
+  mental models/thinking tools rewritten as explanatory quotes, (2) ~35
+  science/space/math items from NASA, Quanta, and MIT News, (3) ~25 history
+  facts inspired by History.com headlines (Berlin Wall, Carthage's war
+  elephants, the Sea Peoples, Jell-O salad's brief prestige, standardized
+  time zones, etc.), (4) ~10 literary/philosophical ideas (waiting versus
+  living, aging into patience, Chesterton's fence, writing craft advice)
+  restated generically without attribution, since the source site (The
+  Marginalian) was quoting specific named authors' actual words rather than
+  paraphrasing, so those specific quotes weren't reused, only the underlying
+  idea, in original wording. Skipped two politically contentious Conversation
+  headlines (an abortion-pill ad ban, FEMA funding legality) as out of scope
+  for quote content. Pool is now 501 total. Verified: no duplicates, all
+  50-300 chars (62-203 actual spread; one false-positive "13 chars" flagged
+  by the length-checker script turned out to be a quoted phrase inside a
+  comment, not an actual array entry, fixed by rewording the comment);
+  `tsc --noEmit` and the running dev server both stayed clean.
