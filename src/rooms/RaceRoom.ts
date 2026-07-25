@@ -636,10 +636,22 @@ export class RaceRoom extends Room {
   private cancelCountdown() {
     this.countdownTimer?.clear();
     this.countdownTimer = null;
-    this.resetToWaiting();
+    // Keep the same quote: the countdown was cancelled before any race
+    // actually ran (e.g. the only queued racer clicked Join then Spectate),
+    // so there's nothing to reroll. The quote should only change after a race
+    // is actually run (see resetToWaiting's callers) or on a lobby switch
+    // (which lands you in a different room's quote entirely).
+    this.resetToWaiting(false);
   }
 
-  private resetToWaiting() {
+  /**
+   * Returns the room to "waiting". `pickNewQuote` controls whether the next
+   * quote is rerolled: true after a race has actually run (post-results, or a
+   * mid-race abort where everyone left/idled out), false when a countdown was
+   * cancelled before the race started - in that case the previewed quote
+   * should stay put rather than switch out from under everyone.
+   */
+  private resetToWaiting(pickNewQuote: boolean = true) {
     this.countdownTimer?.clear();
     this.countdownTimer = null;
     this.wpmTicker?.clear();
@@ -653,9 +665,10 @@ export class RaceRoom extends Room {
     // Defensive: covers the countdown being cancelled while already locked
     // (e.g. players bail out past the 5-second mark). A no-op otherwise.
     this.unlock();
-    // Pick the next race's quote right away so it's visible during
-    // "waiting" too, not just once someone queues and the countdown starts.
-    this.assignNewQuote();
+    // Pick the next race's quote right away so it's visible during "waiting"
+    // too, not just once someone queues and the countdown starts - but only
+    // when a race actually ran (see the doc comment / pickNewQuote).
+    if (pickNewQuote) this.assignNewQuote();
 
     // Clear last race's stats immediately (not just at the next startRace())
     // so the leaderboard doesn't show stale wpm/progress/place while sitting
