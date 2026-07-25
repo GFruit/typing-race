@@ -732,6 +732,9 @@
     const client = new Colyseus.Client(ENDPOINT);
     let room = null;
     let connected = false;
+    // True between clicking "Switch Lobby" and actually landing in the next
+    // room, to swallow rapid repeat clicks (see switchLobbyBtn.onclick).
+    let switching = false;
     // Used to detect "a new race just started" and clear the input. Keyed on
     // quoteId, not the quote text itself: the quote pool is small enough that
     // two consecutive races can land on the identical text, which would
@@ -932,6 +935,7 @@
       sessionStorage.setItem(RECONNECT_TOKEN_KEY, room.reconnectionToken);
       connected = true;
       joinBtn.disabled = false;
+      switching = false; // we've landed in a room; allow Switch Lobby again
 
       // A newly attached room runs its OWN independent quoteId sequence, not
       // comparable to whatever room we just left. Clear the typing state so a
@@ -1545,9 +1549,22 @@
     // spectating (see RaceRoom.ts's "switchLobby" handler) - the server
     // replies with a "redirect" (handled in attachRoom above), which is what
     // actually moves us; this just sends the request.
+    //
+    // `switching` guards against rapid clicks: without it, several
+    // `switchLobby` sends go out before `room` is reassigned, the server
+    // replies with several "redirect"s, and the player gets spawned 2-3 times
+    // in the target lobby (reported bug). We ignore further clicks until the
+    // switch actually lands (attachRoom clears it) - stopping the duplicate
+    // sends at the source. The redirect handler's own `redirecting` guard is
+    // the backup that catches any duplicate redirects that still slip through.
     switchLobbyBtn.onclick = () => {
-      if (!room) return;
+      if (!room || switching) return;
+      switching = true;
       room.send("switchLobby");
+      // Safety net: switchLobby always replies with a redirect (so attachRoom
+      // clears this normally), but never leave the button wedged if one is
+      // somehow lost.
+      setTimeout(() => { switching = false; }, 8000);
     };
 
     // --- Emoji avatar picker ---------------------------------------------------

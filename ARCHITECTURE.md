@@ -931,7 +931,22 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   `room` is reassigned, so the server replies with several "redirect" messages
   and each ran its own joinById() = multiple sessions in the target lobby.
   Fixed with a reentrancy guard (`if (redirecting) return;`) in the client's
-  redirect handler so only the first redirect per room is honored.
+  redirect handler so only the first redirect per room is honored, PLUS a
+  `switching` flag on the button that swallows rapid repeat clicks so the
+  duplicate `switchLobby` sends never go out in the first place (cleared in
+  attachRoom on landing; 8s safety timeout).
+- 2026-07-25: Drove the real Chrome (puppeteer-core against the existing
+  install, no browser download) to verify these end-to-end on localhost, since
+  the earlier fixes were shipped un-play-tested: (a) a tab close fires the
+  beacon, the server receives it and the reconnection TOKEN MATCHES
+  (`[beacon] OK ... -> terminate`), and the player is removed at ~1523ms (the
+  1.5s unload grace) - confirming both the token-format matching and that
+  terminate() removes promptly (it's server-local, so it'll fire on Render too
+  where the WS close frame never arrives; the localhost proxy-less case can't
+  reproduce the ~14s itself); (b) two players in separate rooms, one
+  rapid-clicking Switch Lobby x3, lands exactly ONE session in the target
+  roster. The `[beacon]` server logs are kept for one live Render confirmation,
+  then to be removed.
 - 2026-07-25: The close-code split above worked on a direct connection but NOT
   live on Render (user: ~14s to leave). Root cause: Render sits behind a
   WebSocket proxy that doesn't forward the browser's WS close frame, so the
