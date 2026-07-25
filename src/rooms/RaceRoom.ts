@@ -234,6 +234,11 @@ export class RaceRoom extends Room {
   // grace: the terminate surfaces as an abnormal 1006 close, which would
   // otherwise look like a network blip and get the longer grace.
   private beaconLeaving = new Set<string>();
+  // sessionIds we're kicking as duplicates of the same browser tab (see
+  // onJoin's clientId dedup); onLeave checks this to skip the "left the lobby"
+  // announcement for them (the tab isn't actually leaving, just shedding a
+  // stale duplicate session).
+  private dedupKicking = new Set<string>();
 
   onCreate(options: any) {
     this.state.phase = "waiting";
@@ -507,6 +512,26 @@ export class RaceRoom extends Room {
       this.countRacers() < MAX_RACERS;
     player.status = canResumeRacing ? "racing" : "watching";
     this.state.players.set(client.sessionId, player);
+
+    // Dedup by clientId: one browser tab (its persistent clientId) must never
+    // appear twice in the same room. A rare client-side race on rapid Switch
+    // Lobby can land two sessions for the same tab; kick the older one(s) so
+    // the player never shows up duplicated in a lobby. Only runs when a real
+    // clientId was sent - the sessionId fallback is unique per session, so this
+    // can never false-match across genuinely different tabs. The kicked
+    // session's "left the lobby" is suppressed (see dedupKicking / onLeave):
+    // the tab isn't leaving, just shedding a stale duplicate.
+    if (options?.clientId) {
+      for (const c of this.clients) {
+        if (c.sessionId === client.sessionId) continue;
+        const other = this.state.players.get(c.sessionId);
+        if (other && other.clientId === player.clientId) {
+          this.dedupKicking.add(c.sessionId);
+          c.leave(CloseCode.CONSENTED);
+        }
+      }
+    }
+
     this.postSystemMessage(`${player.name} joined the lobby.`, player.clientId, false);
     console.log(`[RaceRoom] ${player.name} joined, ${this.state.players.size} online`);
     if (player.status === "racing") this.onRosterChanged();
@@ -550,15 +575,18 @@ export class RaceRoom extends Room {
     // Reached either for a consented leave, or once a dropped client's
     // reconnection window (see onDrop) elapses without them coming back.
     const player = this.state.players.get(client.sessionId);
-    // Skip during a post-race merge's mass teardown (see attemptMerge's
-    // `isMerging` flag): every remaining client leaves simultaneously as
-    // part of the SAME event there, not individually, and the whole point
-    // of a merge is that it never reads as anyone "leaving" - they're
-    // framed as joining wherever they land instead (see onJoin). Not
+    // Skip the "left" announcement during a post-race merge's mass teardown
+    // (see attemptMerge's `isMerging` flag): every remaining client leaves
+    // simultaneously as part of the SAME event there, not individually, and
+    // the whole point of a merge is that it never reads as anyone "leaving" -
+    // they're framed as joining wherever they land instead (see onJoin). Not
     // gated by close code: a Switch Lobby departure ALSO uses
     // CloseCode.CONSENTED (same as a merge's mass disconnect) but SHOULD
     // post "left the lobby" here, so the two can't be told apart that way.
-    if (player && !this.isMerging) {
+    // Also skip it for a duplicate-session kick (see onJoin's clientId dedup):
+    // the tab isn't leaving, we're just shedding a stale duplicate of it.
+    const wasDedupKick = this.dedupKicking.delete(client.sessionId);
+    if (player && !this.isMerging && !wasDedupKick) {
       this.postSystemMessage(`${player.name} left the lobby.`, player.clientId, true);
     }
     this.state.players.delete(client.sessionId);

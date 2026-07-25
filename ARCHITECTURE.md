@@ -918,6 +918,18 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   churn. Verified via a temporary close-code log that a real browser tab close
   hits the clean-close (fast) path, then removed the log; an unexpected code
   falls back to the 3s path harmlessly regardless.
+- 2026-07-25: Switch-Lobby duplicate spawn, robust server-side backstop. The
+  client `switching` flag + redirect reentrancy guard reduced it (3x -> at most
+  a rare 1 duplicate) but couldn't fully close the race. Added a hard guarantee
+  in onJoin: one browser tab (its persistent clientId) can never appear twice in
+  a room - on join, any OTHER session in the room with the same clientId is
+  kicked (CloseCode.CONSENTED). Only runs when a real clientId was sent (the
+  sessionId fallback is unique, so no false-match across different tabs), and
+  the kicked session's "left the lobby" is suppressed (dedupKicking Set) since
+  the tab isn't leaving, just shedding a stale duplicate. Verified with real
+  Chrome: two sessions forced to share a clientId land in one room -> the older
+  is kicked instantly, roster shows one. Reconnects (same sessionId) don't
+  re-trigger onJoin so they're unaffected; distinct clients never match.
 - 2026-07-25: KEY INSIGHT (user): the slow ~14s "left" happened when closing an
   INCOGNITO tab; a normal tab left fast. Corrected diagnosis (verified by
   driving real Chrome, puppeteer): a graceful close (normal tab, browser process
