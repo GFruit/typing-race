@@ -142,7 +142,8 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   - [x] Solo instant-start.
   - [x] Post-race room merging (the "Anchor Host" illusion's backbone).
   - [x] Instant leave on tab close (was riding the reconnection grace
-        window; see Status log).
+        window; then a split-grace by close code; finally a pagehide HTTP
+        beacon so it also works behind a WS proxy like Render - see Status log).
   - **Descoped per user decision (2026-07-23):** match-making.md's "kick
         idle spectators to global idle after a whole round untouched" -
         not wanted, spectating with no action taken isn't something that
@@ -917,6 +918,23 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   churn. Verified via a temporary close-code log that a real browser tab close
   hits the clean-close (fast) path, then removed the log; an unexpected code
   falls back to the 3s path harmlessly regardless.
+- 2026-07-25: The close-code split above worked on a direct connection but NOT
+  live on Render (user: ~14s to leave). Root cause: Render sits behind a
+  WebSocket proxy that doesn't forward the browser's WS close frame, so the
+  server never sees the clean 1001 - it only notices via its ping-timeout
+  (default pingInterval 3s x pingMaxRetries 2 ≈ 9-12s) and THEN adds the grace
+  ≈ ~14s. Fix (user chose it): a pagehide HTTP beacon. On pagehide the client
+  `navigator.sendBeacon()`s POST /leave?roomId&sessionId&token (plain HTTP,
+  which the proxy forwards promptly); `RaceRoom.handleLeaveBeacon` authenticates
+  via the per-session reconnection token (a secret not in synced state, so
+  nobody can beacon another player out - matched as any ":"-delimited segment to
+  be robust to the "roomId:token" client format) and calls `client.leave(1001)`,
+  routing through onDrop's SHORT (1.5s) grace. Crucially this is NOT the old
+  reverted consented-leave-on-pagehide: it uses a grace, so a refresh (which
+  fires pagehide too) still reconnects within the window and never churns. A
+  real network blip fires no pagehide, so it keeps the ping-timeout + longer
+  grace fallback. No regression risk: if the beacon never arrives (blocked/hard
+  crash), behavior is exactly the previous ping-timeout path.
 - 2026-07-25: Replaced the "Race in progress" phase banner with a large live
   WPM readout (`#wpmDisplay`, your own server-computed `wpm`), shown only while
   you're actually racing. Toggleable in Settings (`#wpmToggle`, "Large WPM

@@ -1073,17 +1073,32 @@
       }
     }
 
-    // Tried sending an explicit consented leave() on "pagehide" here so a
-    // real tab close would skip the reconnection grace window entirely.
-    // Reverted: "pagehide" also fires on an ordinary page REFRESH (there's
-    // no way to tell the two apart from client JS), so it was sending a
-    // final, non-reconnectable leave on every refresh too - the saved
-    // reconnection token then had nothing valid left to resume, every
-    // refresh fell back to a brand new join, and each one posted its own
-    // "X joined the lobby" message (found via user feedback). See
-    // RECONNECTION_GRACE_SECONDS in RaceRoom.ts for the (much shorter, as
-    // of this fix) alternative: just don't make anyone wait as long before
-    // a real close is treated as final.
+    // Leave beacon: make a real tab close disappear from the lobby fast even
+    // when the server can't see the WebSocket close promptly. Behind a proxy
+    // (e.g. Render) the WS close frame isn't forwarded, so the server would
+    // otherwise only notice via a ~9-12s ping-timeout before the reconnect
+    // grace even begins (the ~14s a user hit live). On pagehide we fire a tiny
+    // HTTP beacon (plain HTTP, which the proxy DOES forward) so the server
+    // starts the leave immediately (see RaceRoom.handleLeaveBeacon / the POST
+    // /leave route). The reconnection token authenticates it, so only we can
+    // trigger our own leave.
+    //
+    // NOTE this is deliberately NOT the earlier reverted approach of a
+    // *consented* leave on pagehide: the server routes this beacon through the
+    // SHORT reconnect grace (not an instant, non-reconnectable leave), so an
+    // ordinary REFRESH - which fires pagehide too - still reconnects within the
+    // window and never churns "X left / X joined". `pagehide` (not
+    // `visibilitychange`) so merely switching tabs never triggers it; a genuine
+    // network blip fires no pagehide at all and keeps the longer grace.
+    window.addEventListener("pagehide", () => {
+      if (!room || !connected || !navigator.sendBeacon) return;
+      const params = new URLSearchParams({
+        roomId: room.roomId,
+        sessionId: room.sessionId,
+        token: room.reconnectionToken || "",
+      });
+      navigator.sendBeacon(`${ENDPOINT}/leave?${params.toString()}`);
+    });
 
     // --- Render ---------------------------------------------------------------
     function render(state) {

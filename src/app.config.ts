@@ -20,6 +20,20 @@ export const server = defineServer({
   // the deployed site is one process/one URL: no separate static host, and
   // no cross-origin WebSocket setup for the client to get right.
   express: (app) => {
+    // Leave beacon (see RaceRoom.handleLeaveBeacon). The client fires
+    // navigator.sendBeacon() here on pagehide - a plain HTTP POST, which a
+    // WebSocket proxy (e.g. Render) forwards promptly even when it won't
+    // forward the WS close frame - so a tab close is noticed right away
+    // instead of waiting out the ~9-12s ping-timeout. sendBeacon always POSTs;
+    // the identifying params ride in the query string (no body parser needed).
+    // Registered before the static handler so it isn't shadowed by it.
+    app.post("/leave", (req, res) => {
+      const q = req.query as Record<string, string | undefined>;
+      if (q.roomId && q.sessionId && q.token) {
+        RaceRoom.handleLeaveBeacon(String(q.roomId), String(q.sessionId), String(q.token));
+      }
+      res.sendStatus(204);
+    });
     app.use(express.static(path.join(__dirname, "..", "client")));
   },
 });

@@ -848,6 +848,45 @@ export class RaceRoom extends Room {
   }
 
   /**
+   * Handles a client's "I'm leaving" beacon (see client/index.html's pagehide
+   * handler, and app.config.ts's POST /leave route that calls this). On a host
+   * behind a WebSocket proxy (e.g. Render), a browser tab close's WS close
+   * frame isn't delivered to us promptly, so we'd otherwise only notice the
+   * client is gone via the ping-timeout (~9-12s) before the reconnect grace
+   * even starts - the ~14s a user reported. The client instead fires a tiny
+   * HTTP beacon on pagehide (plain HTTP, which the proxy DOES forward), and we
+   * start the leave immediately here.
+   *
+   * Auth: the reconnection token is a per-session secret that (unlike
+   * sessionId, which lives in synced state visible to everyone) is never shared
+   * with other clients, so only the real owner can trigger their OWN leave -
+   * nobody can beacon another player out. The client's `room.reconnectionToken`
+   * may be formatted "roomId:rawToken" while we store just the raw token, so we
+   * accept either form.
+   *
+   * Routes through `client.leave(1001)` - a clean-close code - so it takes the
+   * SHORT UNLOAD grace via onDrop. That's what makes it safe for refreshes too:
+   * a refresh fires this same beacon, but reconnects within the grace and so
+   * never churns (unlike the old, reverted "consented leave on pagehide" that
+   * skipped the grace entirely). A genuine network blip fires no pagehide/beacon
+   * at all, so it still falls back to ping-timeout + the longer grace.
+   */
+  static handleLeaveBeacon(roomId: string, sessionId: string, token: string): void {
+    const room = RaceRoom.instances.get(roomId);
+    if (!room) return;
+    const client = room.clients.find((c) => c.sessionId === sessionId);
+    if (!client) return;
+    // The client's `room.reconnectionToken` joins the raw token with the roomId
+    // via ":" (e.g. "roomId:rawToken"); we store just the raw token. Accept the
+    // beacon if the raw token equals the whole value or appears as any ":"-
+    // delimited segment - robust to the exact join order/format while still
+    // requiring knowledge of the per-session secret (so nobody can forge it).
+    const raw = client.reconnectionToken;
+    if (token !== raw && !token.split(":").includes(raw)) return; // missing/forged token: ignore
+    client.leave(1001);
+  }
+
+  /**
    * Copies another (dying) room's chat history into this room's, so the
    * merged room doesn't lose context. Only real messages (`system: false`)
    * are copied - "X joined the lobby" announcements describe an arrival
