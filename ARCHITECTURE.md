@@ -1271,3 +1271,23 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   variety (short deadpan lines, dialogue exchanges, long run-on rants,
   trivia, hot takes); `tsc --noEmit` and the running dev server both stayed
   clean after the swap.
+- 2026-07-25: Quote pool rewritten a third time per feedback: the tweet-meme
+  tone itself was the problem, not just repetitiveness, the user explicitly
+  wanted a mature/reflective/idea-driven voice instead, and asked whether any
+  forum besides Reddit could supply that. Checked Hacker News and
+  MetaFilter: MetaFilter's AskMeFi returned 403, but Hacker News is fully
+  reachable, both its regular pages and, more reliably, its public Algolia
+  search API (`hn.algolia.com/api/v1/search`) which returns comment text as
+  structured JSON, no OCR needed, and sidesteps the rate limiting that direct
+  `news.ycombinator.com` page fetches kept hitting under parallel requests
+  (429s; sequential retries with a short pause didn't clear it, the API
+  host wasn't affected at all). Ran ~10 topic searches (career mistakes,
+  burnout, aging, startup failures, imposter syndrome, best decisions,
+  counterintuitive lessons, reading/intellectual growth, parenting, salary
+  negotiation, mentorship, moving abroad) and gathered real, substantive
+  comment text across all of them. Rewrote all 200 quotes in that register:
+  most adapted from real HN comments (usernames stripped, wording changed,
+  nothing verbatim), the rest newly written to match the same reflective,
+  experience-driven tone, explicitly avoiding meme/social-media humor this
+  time. Verified: 200 entries, no duplicates, all in range, spread 62-203
+  characters; `tsc --noEmit` and the running dev server both stayed clean.
