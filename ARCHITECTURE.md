@@ -62,6 +62,14 @@ race state and stats; clients only send *intents* (e.g. "I want to race",
     message; sanitized server-side either way (trim, cap at 20 chars, empty
     falls back to `"guest"`). Client persists its own name in
     `localStorage` so it survives reloads.
+  - `emoji: string`, the racer's avatar that rides along its progress bar
+    (purely cosmetic personality). Assigned a random one from a fixed pool
+    (`EMOJIS` in RaceRoom) on join, changeable any time via the `"setEmoji"`
+    message; restricted server-side to that same pool so a client can't
+    inject arbitrary text. Client persists its own choice (including a first
+    server-assigned random one, captured from synced state) in `localStorage`
+    and sends it back as a join option, so an avatar stays stable across
+    reloads.
   - `status: string`: `"watching"` (spectating) or `"racing"` (in/awaiting race).
     Joining is only allowed while `phase` is `"waiting"`/`"countdown"`; bailing
     out to `"watching"` is always allowed, even mid-race.
@@ -847,6 +855,59 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   countdown-bump banner (a real, otherwise-unexplained discontinuity: the
   timer visibly ticking back UP is not routine behavior the way a new
   quote is) is unaffected and still uses it.
+- 2026-07-25: Cosmetic polish (user request): taller progress bars + per-racer
+  emoji avatars. `.racer-track` grew from 6px to 14px (leaderboard row gap
+  bumped 10px->16px to breathe). Added `Player.emoji`, assigned a random one
+  from a fixed `EMOJIS` pool on join and changeable via a new `"setEmoji"`
+  message (server validates against the pool, so it can never hold arbitrary
+  text). The avatar rides the leading edge of each racer's fill (a
+  `.racer-emoji` absolutely positioned in a new `.racer-track-wrap`, sitting
+  a touch taller than the bar and inset by its half-width so it stays on the
+  track at 0%/100%); the always-present name row between tracks plus the row
+  gap keep one avatar's slight vertical overhang clear of the neighbouring
+  track's, so stacked bars never collide. Header gained an emoji button
+  (left of the username, carrying the `margin-left:auto` that used to be on
+  the username box) that opens an 8-col grid popover to pick from the same
+  pool. Client persists the choice - including a first server-assigned random
+  one captured from synced state - in localStorage and sends it back as a
+  join option, so an avatar stays stable across reloads. Server typechecks
+  clean; couldn't screenshot (a dev server was already holding :2567, and no
+  browser automation in this environment), but the Colyseus process loaded
+  the new schema/room without error before the expected EADDRINUSE.
+- 2026-07-25: EXPERIMENTAL (user trying it out, may be reverted): "show other
+  racers' live carets on your own text" - each other racer gets a thin caret
+  at their position in the quote with their emoji as a lollipop above it, so
+  you can see the pack move through the text. Deliberately built as a pure,
+  fully self-contained CLIENT-ONLY view: it reads the already-synced
+  `Player.progress` (caret index ≈ progress × quote.length), so there is NO
+  new server/schema state and nothing to desync. Rendered into its own
+  overlay layer (`#ghostLayer`, a sibling of `#quote` inside a new
+  `#quoteWrap`) so it never touches the quote's per-keystroke render; the
+  overlay is recomputed on state change + resize from the char spans'
+  geometry. Toggleable via a `#ghostToggle` header button (persisted in
+  localStorage, default ON so it gets tried); the wider line-height that makes
+  room for the lollipops only applies while it's on (`#quote[data-ghosts=1]`),
+  so turning it off restores the exact original layout. Everything is tagged
+  "EXPERIMENTAL" in the source (CSS block, markup, refs, JS block) for a clean
+  one-shot revert if it doesn't feel good in practice. Client syntax-checks
+  clean; not yet play-tested by feel (the whole point of shipping it behind a
+  toggle). Follow-ups from live feel-testing: (a) tightened the ghost
+  line-height 2.4 -> 2.0 and shrank the lollipop 16 -> 15px (the gaps felt too
+  large); (b) reorganized the header - added a settings gear (top-right, next
+  to the emoji picker) opening a small popover that now holds BOTH the username
+  field (replacing the old centered #usernameModal, which was deleted) and the
+  "show racers on text" toggle (now a slider switch instead of the old header
+  pill). Username saves on Enter / on panel close via `setName` (no Save
+  button); the name still shows in the status line. Emoji picker left where it
+  was, per user request. Later: put the username back as a read-only header
+  label (between the emoji and the gear) since the user still wanted it
+  visible; clicking it opens Settings focused on the name field.
+- 2026-07-25: Replaced the "Race in progress" phase banner with a large live
+  WPM readout (`#wpmDisplay`, your own server-computed `wpm`), shown only while
+  you're actually racing. Toggleable in Settings (`#wpmToggle`, "Large WPM
+  display"), default ON. Client-only view over the already-synced `Player.wpm`
+  - no server change. The banner is now hidden during "racing" (other phases
+  keep theirs); with the toggle off, racing simply shows no banner.
 - 2026-07-23: Found and fixed a real exploit in the countdown-bump feature
   (reported by the user from live testing): `onRosterChanged()` bumped the
   timer back up whenever racerCount increased during `"countdown"`, with

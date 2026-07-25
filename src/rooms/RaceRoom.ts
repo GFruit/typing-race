@@ -128,6 +128,48 @@ import { QUOTES } from "./quotes";
 
 const COUNTDOWN_SECONDS = 10;
 const MAX_RACERS = 5;
+// A curated pool of racer avatars, used for two things: the random avatar
+// each player gets on join (see onJoin), and the quick-pick suggestions the
+// client shows in its picker. Players are NOT limited to this list - the
+// "setEmoji" handler accepts any emoji (see isEmoji) - so it's just a
+// pleasant starting set, not the set of allowed values.
+const EMOJIS = [
+  "🚀", "🏎️", "🐎", "🐆", "🐇", "🦊", "🐢", "🐌", "🦄", "🐉", "🦕", "🐬",
+  "🦅", "🦉", "🐝", "🦋", "🚗", "🚴", "🏃", "⚡", "🔥", "⭐", "👾", "🤖",
+  "🎮", "🐙", "🦈", "🐧", "🦁", "🐯", "🐸", "🍕",
+];
+
+function randomEmoji(): string {
+  return EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
+}
+
+/**
+ * Loose "is this a single emoji, and nothing but" check, so a client can pick
+ * ANY emoji for its avatar (not just the EMOJIS quick-pick pool) while still
+ * being prevented from stuffing arbitrary text/markup into Player.emoji.
+ * Accepts pictographic characters plus the usual emoji building blocks - ZWJ,
+ * the emoji variation selector, skin-tone modifiers, regional indicators
+ * (flags), and keycap sequences (0-9 # * followed by U+20E3) - and caps the
+ * total code-point count so a whole run of emoji (or a sentence) can't be
+ * crammed in either. Requires at least one actually-pictographic code point,
+ * so bare digits/joiners on their own are rejected.
+ */
+function isEmoji(s: string): boolean {
+  const cps = Array.from(s);
+  if (cps.length === 0 || cps.length > 12) return false;
+  let hasPictographic = false;
+  for (const ch of cps) {
+    const cp = ch.codePointAt(0)!;
+    if (/\p{Extended_Pictographic}/u.test(ch)) { hasPictographic = true; continue; }
+    if (cp >= 0x1f1e6 && cp <= 0x1f1ff) { hasPictographic = true; continue; } // regional indicators (flags)
+    if (cp === 0x20e3) { hasPictographic = true; continue; }                  // keycap combiner (1️⃣, #️⃣): marks a keycap emoji
+    if (cp === 0x200d || cp === 0xfe0f) continue;                             // ZWJ, VS16
+    if (cp >= 0x1f3fb && cp <= 0x1f3ff) continue;                             // skin-tone modifiers
+    if ((cp >= 0x30 && cp <= 0x39) || cp === 0x23 || cp === 0x2a) continue;   // 0-9 # * (keycap bases)
+    return false;
+  }
+  return hasPictographic;
+}
 // Governs three things uniformly, all "is this room open to someone who
 // isn't already sitting in it": pulling the room out of Colyseus's own
 // matchmaking once the countdown gets this low (new visitors), excluding
@@ -246,6 +288,18 @@ export class RaceRoom extends Room {
       player.name = name || "guest";
     },
 
+    // Lets a client pick its own racer avatar, any time. Cosmetic only, so no
+    // phase gate. Any single emoji is accepted (see isEmoji); anything that
+    // isn't one is silently ignored, so Player.emoji can never hold arbitrary
+    // client-supplied text.
+    setEmoji: (client: Client, payload: { emoji?: string }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const emoji = (payload?.emoji ?? "").toString().trim();
+      if (!isEmoji(emoji)) return;
+      player.emoji = emoji;
+    },
+
     sendChat: (client: Client, payload: { text?: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
@@ -255,6 +309,7 @@ export class RaceRoom extends Room {
       const msg = new ChatMessage();
       msg.sessionId = client.sessionId;
       msg.name = player.name;
+      msg.emoji = player.emoji;
       msg.text = text;
       msg.sentAt = Date.now();
       this.pushChatMessage(msg);
@@ -402,9 +457,15 @@ export class RaceRoom extends Room {
     }
   }
 
-  onJoin(client: Client, options: { name?: string; resumeRacing?: boolean; clientId?: string }) {
+  onJoin(client: Client, options: { name?: string; resumeRacing?: boolean; clientId?: string; emoji?: string }) {
     const player = new Player();
     player.name = (options?.name || "guest").toString().slice(0, 20);
+    // Honor a client-remembered avatar if it's one of ours (a returning
+    // visitor sends back whatever they had last time, including a random
+    // one the server assigned before - so it stays stable across reloads),
+    // otherwise assign a fresh random one.
+    const requestedEmoji = (options?.emoji ?? "").toString().trim();
+    player.emoji = isEmoji(requestedEmoji) ? requestedEmoji : randomEmoji();
     // Falls back to the (session-scoped) sessionId if the client somehow
     // didn't send one; only degrades the "don't re-announce a known
     // teammate" feature for that one join, doesn't break anything else.
@@ -785,6 +846,7 @@ export class RaceRoom extends Room {
       const copy = new ChatMessage();
       copy.sessionId = msg.sessionId; // stale once merged; harmless, just won't match anyone's "is this me" styling
       copy.name = msg.name;
+      copy.emoji = msg.emoji;
       copy.text = msg.text;
       copy.sentAt = msg.sentAt;
       this.pushChatMessage(copy);

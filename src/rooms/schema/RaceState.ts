@@ -15,6 +15,16 @@ export class Player extends Schema {
   @type("string") name: string = "guest";
 
   /**
+   * The little avatar that rides along this player's progress bar, purely
+   * cosmetic personality. Assigned a random one from a curated pool on join
+   * (see RaceRoom's EMOJIS / onJoin) and changeable any time via the
+   * "setEmoji" message to ANY emoji. Validated server-side (see RaceRoom's
+   * isEmoji) to be a single emoji and nothing else, so a client can't inject
+   * arbitrary text/markup here - but not limited to the curated pool.
+   */
+  @type("string") emoji: string = "🚀";
+
+  /**
    * "watching" = spectating; "racing" = joined the next/current race.
    * Only the SERVER may change this (via the "setStatus" message handler).
    */
@@ -62,6 +72,14 @@ export class Player extends Schema {
 export class ChatMessage extends Schema {
   @type("string") sessionId: string = ""; // lets clients tell "is this me" for styling; only meaningful for a real (non-system) message
   @type("string") name: string = "";
+  /**
+   * The sender's avatar at send time (see RaceRoom's "sendChat"), so the
+   * client can show it before the name and tint the name to match the
+   * racer's track color. Baked in per-message rather than looked up live, so
+   * it stays correct even after the sender changes emoji or leaves. Empty for
+   * system announcements.
+   */
+  @type("string") emoji: string = "";
   @type("string") text: string = "";
   @type("number") sentAt: number = 0;
 

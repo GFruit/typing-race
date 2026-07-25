@@ -33,45 +33,126 @@
        without reading server logs. */
     #roomInfo { color: #475569; font-size: 12px; font-family: ui-monospace, monospace; }
 
-    /* Username, top-right of the header — plain display only; editing
-       happens in a centered modal (below) so the header never resizes or
-       shifts when you go to change it. */
-    #usernameBox { margin-left: auto; }
+    /* Emoji avatar picker, top-right of the header, just left of the settings
+       gear. The button shows your current racer avatar (the same one that
+       rides your progress bar); clicking it opens a grid popover to change it.
+       position:relative anchors the popover under the button. */
+    /* Right-aligned header cluster: the emoji avatar picker + the settings
+       (gear) button, pushed to the right edge together. */
+    #identityBox { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+    #settingsBox { position: relative; }
+    #settingsBtn {
+      cursor: pointer; font-size: 18px; line-height: 1;
+      background: transparent; border: 0; border-radius: 8px;
+      padding: 3px 5px; transition: transform .15s ease-out;
+    }
+    #settingsBtn:hover { transform: rotate(25deg) scale(1.1); }
+    #settingsBtn:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    /* Read-only username shown in the header so you can always see your name at
+       a glance; editing lives in Settings, and clicking it just opens that. */
     #usernameDisplay {
-      cursor: pointer; display: inline-block; color: #e2e8f0;
-      padding: 4px 10px; border-radius: 8px; border: 1px solid transparent;
-      font-size: 13px; font-weight: 600;
+      cursor: pointer; color: #e2e8f0; font-size: 13px; font-weight: 600;
+      padding: 4px 8px; border-radius: 8px; border: 1px solid transparent;
+      max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     #usernameDisplay:hover { background: #1e293b; border-color: #334155; }
     #usernameDisplay:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
-    #usernameDisplay::after { content: " ✎"; opacity: .5; font-weight: 400; font-size: 11px; }
+    #emojiBox { position: relative; }
+    #emojiBtn {
+      cursor: pointer; font-size: 20px; line-height: 1;
+      background: transparent; border: 0; border-radius: 8px;
+      padding: 3px 5px; transition: transform .12s ease-out;
+    }
+    #emojiBtn:hover { transform: scale(1.18); }
+    #emojiBtn:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    /* Anchored to the button's right edge (right:0) so the popover grows
+       leftward and stays on-screen next to the viewport's right side. */
+    #emojiPicker {
+      display: none; position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
+      flex-direction: column; overflow: hidden;
+      background: #111a2e; border: 1px solid #1e293b; border-radius: 12px;
+      padding: 0; width: min(348px, 92vw);
+      box-shadow: 0 12px 32px rgba(2, 6, 16, .6);
+    }
+    #emojiPicker[data-open="1"] { display: flex; }
 
-    /* Centered "change your name" popup. */
-    #usernameModal {
-      display: none; position: fixed; inset: 0; z-index: 50;
-      background: rgba(2, 6, 16, .6); align-items: center; justify-content: center;
+    /* Tab shortcuts: a row of emoji icons that jump to (scroll to) each
+       group. The active one is whichever group is currently at the top of
+       the scroll area (see updateActiveTab). */
+    #emojiTabs {
+      display: flex; gap: 2px; padding: 8px 8px 6px; flex-shrink: 0;
+      border-bottom: 1px solid #1e293b;
     }
-    #usernameModal[data-open="1"] { display: flex; }
-    #usernameModal .modal-box {
-      background: #111a2e; border: 1px solid #1e293b; border-radius: 14px;
-      padding: 22px; width: min(340px, 90vw);
+    .emoji-tab {
+      position: relative; flex: 1; font-size: 17px; line-height: 1; padding: 6px 0;
+      cursor: pointer; background: transparent; border: 0; border-radius: 8px; opacity: .55;
     }
-    #usernameModal h2 { margin: 0 0 14px; font-size: 15px; font-weight: 650; }
-    #usernameModalInput {
-      box-sizing: border-box; width: 100%; padding: 10px 12px;
-      border-radius: 10px; background: #0b1120; border: 1px solid #334155;
-      color: #e2e8f0; font-size: 15px; font-family: inherit; outline: none;
+    .emoji-tab:hover { background: #1e293b; opacity: 1; }
+    .emoji-tab[data-active="1"] { opacity: 1; background: #1e293b; }
+    .emoji-tab[data-active="1"]::after {
+      content: ""; position: absolute; left: 24%; right: 24%; bottom: 1px;
+      height: 2px; background: #7dd3fc; border-radius: 2px;
     }
-    #usernameModalInput:focus { border-color: #7dd3fc; }
-    #usernameModal .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
-    #usernameModal .modal-actions button {
-      padding: 8px 16px; border-radius: 8px; border: 0;
-      font-size: 14px; font-weight: 650; cursor: pointer;
+
+    /* Scrollable grouped grid. Uses the same thin scrollbar as the chat (see
+       the shared scrollbar rules near the bottom of this stylesheet). */
+    #emojiScroll { position: relative; overflow-y: auto; max-height: 300px; padding: 0 10px 10px; }
+    /* Each group's title sticks to the top of the scroll area while that
+       group is in view, so you always know which section you're looking at. */
+    .emoji-group-title {
+      position: sticky; top: 0; z-index: 1; background: #111a2e;
+      font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+      color: #94a3b8; font-weight: 600; padding: 8px 2px 6px;
     }
-    #usernameCancelBtn { background: #1e293b; color: #e2e8f0; }
-    #usernameCancelBtn:hover { background: #334155; }
-    #usernameSaveBtn { background: #22c55e; color: #052e16; }
-    #usernameSaveBtn:hover { opacity: .9; }
+    .emoji-group-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+    .emoji-cell {
+      position: relative; font-size: 20px; line-height: 1; padding: 5px 0; cursor: pointer;
+      background: transparent; border: 1px solid transparent; border-radius: 8px;
+      transition: transform .1s ease-out;
+    }
+    /* Pop the emoji on hover (raised above its neighbours) instead of a box. */
+    .emoji-cell:hover { transform: scale(1.4); z-index: 2; }
+    /* Current avatar: a clean cyan ring, no fill. */
+    .emoji-cell[data-selected="1"] { border-color: #7dd3fc; }
+    .emoji-empty { grid-column: 1 / -1; color: #64748b; font-size: 12px; font-style: italic; padding: 4px 2px; }
+
+    /* Settings popover, opened by the header gear. Anchored to the button's
+       right edge so it stays on-screen. Holds the username field and the
+       "show racers on text" toggle. */
+    #settingsPanel {
+      display: none; position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
+      background: #111a2e; border: 1px solid #1e293b; border-radius: 12px;
+      padding: 14px; width: min(280px, 92vw);
+      box-shadow: 0 12px 32px rgba(2, 6, 16, .6);
+    }
+    #settingsPanel[data-open="1"] { display: block; }
+    #settingsPanel h3 {
+      margin: 0 0 12px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+      color: #94a3b8; font-weight: 650;
+    }
+    .settings-field { margin-bottom: 14px; }
+    .settings-label { display: block; font-size: 13px; color: #e2e8f0; font-weight: 600; margin-bottom: 5px; }
+    #settingsUsername {
+      box-sizing: border-box; width: 100%; padding: 8px 10px;
+      border-radius: 8px; background: #0b1120; border: 1px solid #334155;
+      color: #e2e8f0; font-size: 14px; font-family: inherit; outline: none;
+    }
+    #settingsUsername:focus { border-color: #7dd3fc; }
+    .settings-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .settings-row .settings-label { margin-bottom: 2px; }
+    .settings-hint { font-size: 11px; color: #64748b; max-width: 180px; line-height: 1.4; }
+    /* On/off slider switch (used by the "show racers" toggle; #ghostToggle). */
+    .switch {
+      position: relative; flex-shrink: 0; width: 40px; height: 22px; margin-top: 1px;
+      border: 0; border-radius: 999px; background: #334155; cursor: pointer;
+      transition: background .15s ease-out;
+    }
+    .switch::after {
+      content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+      border-radius: 50%; background: #e2e8f0; transition: transform .15s ease-out;
+    }
+    .switch[data-on="1"] { background: #22c55e; }
+    .switch[data-on="1"]::after { transform: translateX(18px); }
 
     /* Twitch-style layout: main content (quote) fills the remaining space,
        the sidebar (join button + player lists) hugs the right edge. Fills
@@ -91,13 +172,36 @@
       padding: 24px;
       display: flex; flex-direction: column; align-items: center;
     }
+    /* Fixed-height slot holding the top-of-arena status: either the phase
+       banner OR the large WPM readout. A constant height means swapping one
+       for the other (e.g. countdown -> racing) never pushes the text down.
+       Only reserves the taller WPM height when that display is enabled
+       (data-reserve="1"); otherwise it's just banner-height. */
+    #statusSlot {
+      min-height: 34px; margin-bottom: 16px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    #statusSlot[data-reserve="1"] { min-height: 64px; }
     #phaseBanner {
       display: inline-block; font-weight: 650; font-size: 13px;
-      padding: 5px 12px; border-radius: 999px; margin-bottom: 16px;
+      padding: 5px 12px; border-radius: 999px;
       background: #1e293b; color: #94a3b8;
     }
     #phaseBanner[data-phase="countdown"] { background: #422006; color: #fdba74; }
     #phaseBanner[data-phase="racing"] { background: #052e16; color: #86efac; }
+
+    /* Large live WPM readout shown in place of the "Race in progress" banner
+       while racing (toggleable in Settings via #wpmToggle). */
+    #wpmDisplay { display: none; text-align: center; }
+    #wpmDisplay[data-visible="1"] { display: block; }
+    #wpmDisplay .wpm-number {
+      font-size: 44px; font-weight: 700; line-height: 1;
+      color: #86efac; font-variant-numeric: tabular-nums;
+    }
+    #wpmDisplay .wpm-label {
+      margin-top: 2px; font-size: 11px; letter-spacing: .12em;
+      text-transform: uppercase; color: #64748b; font-weight: 650;
+    }
 
     /* Subtle race-timeout clock, tucked in the corner so it doesn't compete
        with the countdown/results banner for attention. */
@@ -110,13 +214,39 @@
     /* Progress bars + wpm for the racers, shown above the text. */
     #leaderboard {
       width: 100%; max-width: 640px; margin-bottom: 20px;
-      display: flex; flex-direction: column; gap: 10px;
+      display: flex; flex-direction: column; gap: 16px;
     }
     .racer-name { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
     .racer-wpm { color: #94a3b8; }
-    .racer-track { background: #1e293b; border-radius: 999px; height: 6px; overflow: hidden; }
-    .racer-fill { background: #22c55e; height: 100%; transition: width .25s ease-out; }
+    /* Wrapper so the avatar can ride ON the bar (and overhang it a little)
+       without being clipped by the track's own overflow:hidden - that clip
+       exists to keep the fill inside the rounded track. position:relative
+       anchors the absolutely-positioned emoji to the track's width. */
+    .racer-track-wrap { position: relative; }
+    .racer-track { background: #1e293b; border-radius: 999px; height: 14px; overflow: hidden; }
+    .racer-fill { background: #22c55e; height: 100%; border-radius: 999px; transition: width .25s ease-out; }
     .racer-fill.finished { background: #7dd3fc; }
+    /* The avatar IS the racer, sitting right at the front of its own colored
+       trail. Its `left` is set per-render to the exact progress point (see
+       fillLeaderboard) and the translate centers the glyph on that point,
+       both horizontally and vertically - so the fill (which ends at that same
+       point) connects straight into the emoji with no gap, reading as the
+       racer actively coloring the track as it advances. The transition is
+       matched to the fill's so the two move together. Rows are spaced (see
+       #leaderboard's gap) with a full name-row between every track, so an
+       avatar's slight vertical overhang never reaches the neighbouring
+       track's avatar. */
+    .racer-emoji {
+      position: absolute; top: 50%; left: 0;
+      font-size: 20px; line-height: 1;
+      /* Emoji glyphs render a little below their line-box center (font
+         baseline metrics), so a plain -50% leaves them sitting low on the
+         track; the extra -2px nudges the glyph back to the true center. */
+      transform: translate(-50%, calc(-50% - 2px));
+      transition: left .25s ease-out;
+      pointer-events: none; user-select: none;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5));
+    }
     /* Idled out mid-race: row stays in place (not removed/reshuffled), just
        dimmed, with the bar going gray and "AFK" where wpm normally shows. */
     .racer-row.afk { opacity: .55; }
@@ -124,6 +254,30 @@
 
     /* The quote block is centered as a whole within the arena, but its lines
        stay left-aligned (ragged right) rather than centered individually. */
+    /* --- EXPERIMENTAL: other racers' live carets on your text -----------------
+       Fully self-contained. #ghostLayer is an overlay sibling of #quote (both
+       fill #quoteWrap), so the carets are drawn on their own layer and never
+       touch the quote's per-keystroke render. The wider line-height only kicks
+       in while the feature is on (data-ghosts="1"), so turning it off restores
+       the exact original reading layout. To revert the whole feature: delete
+       this block, #ghostToggle above, the #quoteWrap/#ghostLayer wrapper in the
+       markup, and the renderGhostCarets code. */
+    #quoteWrap { position: relative; width: 100%; max-width: 640px; }
+    #ghostLayer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+    .ghost-caret {
+      position: absolute; width: 2px; border-radius: 2px; background: #7dd3fc;
+      transition: left .18s ease-out, top .18s ease-out;
+    }
+    .ghost-caret-emoji {
+      position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
+      margin-bottom: 1px; font-size: 15px; line-height: 1;
+      filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .55));
+    }
+    /* Just enough leading to seat a lollipop in the inter-line gap (line-height
+       minus font-size ≈ 20px of gap for a 15px emoji); the base quote is 1.7. */
+    #quote[data-ghosts="1"] { line-height: 2.0; }
+    /* --- end experimental block ---------------------------------------------- */
+
     #quote {
       width: 100%; max-width: 640px; text-align: left;
       font-size: 20px; line-height: 1.7; color: #64748b; letter-spacing: .2px;
@@ -158,8 +312,12 @@
        short/uneven blinks. */
     #quote span.cursor.blinking { animation: caret-blink 1s step-end infinite; }
     /* Mirrors whatever's selected in the input box (e.g. Ctrl+A) onto the
-       race text, so the two stay visually in sync. */
-    #quote span.selected { background: rgba(125, 211, 252, .25); border-radius: 2px; }
+       race text, so the two stay visually in sync. No border-radius: the
+       highlight is drawn per character, so rounded corners would leave a
+       scalloped/notched edge along the top and bottom where the boxes tile
+       together. Square corners let adjacent characters merge into one clean
+       rectangle. */
+    #quote span.selected { background: rgba(125, 211, 252, .25); }
 
     #typeInput {
       display: none; width: 100%; max-width: 640px; margin-top: 18px; padding: 12px 14px;
@@ -269,13 +427,13 @@
     /* Custom scrollbar: thin, flat (no rounding, matching the rest of the
        sidebar), and transparent-tracked so it doesn't add its own visible
        gutter next to the screen edge. */
-    .arena, #chatMessages { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
-    .arena::-webkit-scrollbar, #chatMessages::-webkit-scrollbar { width: 8px; }
-    .arena::-webkit-scrollbar-track, #chatMessages::-webkit-scrollbar-track { background: transparent; }
-    .arena::-webkit-scrollbar-thumb, #chatMessages::-webkit-scrollbar-thumb {
+    .arena, #chatMessages, #emojiScroll { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    .arena::-webkit-scrollbar, #chatMessages::-webkit-scrollbar, #emojiScroll::-webkit-scrollbar { width: 8px; }
+    .arena::-webkit-scrollbar-track, #chatMessages::-webkit-scrollbar-track, #emojiScroll::-webkit-scrollbar-track { background: transparent; }
+    .arena::-webkit-scrollbar-thumb, #chatMessages::-webkit-scrollbar-thumb, #emojiScroll::-webkit-scrollbar-thumb {
       background: #334155; border-radius: 0;
     }
-    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover, #emojiScroll::-webkit-scrollbar-thumb:hover { background: #475569; }
     .btn-send {
       padding: 8px 14px; border-radius: 8px; border: 0;
       background: #22c55e; color: #052e16; font-size: 13px; font-weight: 650; cursor: pointer;
@@ -288,29 +446,55 @@
     <h1>Typing Race</h1>
     <div id="status">Connecting…</div>
     <div id="roomInfo"></div>
-    <div id="usernameBox">
-      <span id="usernameDisplay" tabindex="0" title="Click to change your name"></span>
-    </div>
-  </header>
-
-  <div id="usernameModal">
-    <div class="modal-box">
-      <h2>Change your name</h2>
-      <input id="usernameModalInput" type="text" maxlength="20" autocomplete="off" spellcheck="false" />
-      <div class="modal-actions">
-        <button id="usernameCancelBtn">Cancel</button>
-        <button id="usernameSaveBtn">Save</button>
+    <div id="identityBox">
+      <div id="emojiBox">
+        <button id="emojiBtn" type="button" title="Choose your racer avatar">🚀</button>
+        <div id="emojiPicker"></div>
+      </div>
+      <span id="usernameDisplay" tabindex="0" title="Change your name in Settings"></span>
+      <div id="settingsBox">
+        <button id="settingsBtn" type="button" title="Settings">⚙️</button>
+        <div id="settingsPanel">
+          <h3>Settings</h3>
+          <div class="settings-field">
+            <label class="settings-label" for="settingsUsername">Username</label>
+            <input id="settingsUsername" type="text" maxlength="20" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Large WPM display</div>
+              <div class="settings-hint">Show your live speed while racing.</div>
+            </div>
+            <button id="wpmToggle" class="switch" type="button" role="switch" aria-label="Large WPM display"></button>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Show racers on text</div>
+              <div class="settings-hint">See everyone's live caret as they type.</div>
+            </div>
+            <!-- EXPERIMENTAL: toggles other racers' live carets on the text -->
+            <button id="ghostToggle" class="switch" type="button" role="switch" aria-label="Show racers on text"></button>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
+  </header>
 
   <div class="layout">
     <!-- Left: the "stream". Race text is always visible here for everyone. -->
     <section class="arena">
-      <div id="phaseBanner"></div>
+      <div id="statusSlot">
+        <div id="phaseBanner"></div>
+        <div id="wpmDisplay"><div class="wpm-number">0</div><div class="wpm-label">WPM</div></div>
+      </div>
       <div id="raceTimer"></div>
       <div id="leaderboard"></div>
-      <div id="quote"></div>
+      <!-- EXPERIMENTAL: #quote wrapped so #ghostLayer can overlay other racers'
+           carets without touching the quote's own render (see renderGhostCarets) -->
+      <div id="quoteWrap">
+        <div id="quote"></div>
+        <div id="ghostLayer"></div>
+      </div>
       <input id="typeInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" />
     </section>
 
@@ -366,6 +550,16 @@
     }
 
     let myName = loadOrCreateUsername();
+
+    // Racer avatar. Any emoji is allowed (the server validates it's a single
+    // emoji - see RaceRoom's isEmoji - but doesn't restrict WHICH one; the
+    // full grid the picker offers lives in EMOJI_GROUPS further down).
+    // Persisted in localStorage so a chosen (or first server-assigned) avatar
+    // sticks across reloads: on first visit this is null, so the join sends no
+    // emoji and the server picks a random one, which we then capture into
+    // localStorage from the synced state (see render) so it stays stable.
+    const EMOJI_KEY = "typingRace.emoji";
+    let myEmoji = localStorage.getItem(EMOJI_KEY) || null;
 
     // A persistent identity for this browser tab, separate from Colyseus's
     // own sessionId (which is different on every single join, including a
@@ -510,15 +704,22 @@
     const joinBtn    = document.getElementById("joinBtn");
     const playersList = document.getElementById("playersList");
     const phaseBanner = document.getElementById("phaseBanner");
+    const statusSlot  = document.getElementById("statusSlot");
+    const wpmDisplay  = document.getElementById("wpmDisplay");
+    const wpmNumber   = wpmDisplay.querySelector(".wpm-number");
+    const wpmToggle   = document.getElementById("wpmToggle");
     const raceTimer   = document.getElementById("raceTimer");
     const leaderboard = document.getElementById("leaderboard");
     const quoteEl     = document.getElementById("quote");
+    const ghostLayer  = document.getElementById("ghostLayer");   // experimental: other racers' carets
+    const ghostToggle = document.getElementById("ghostToggle");  // experimental: toggle for the above
     const typeInput   = document.getElementById("typeInput");
+    const emojiBtn    = document.getElementById("emojiBtn");
+    const emojiPicker = document.getElementById("emojiPicker");
+    const settingsBtn   = document.getElementById("settingsBtn");
+    const settingsPanel = document.getElementById("settingsPanel");
+    const settingsUsername = document.getElementById("settingsUsername");
     const usernameDisplay = document.getElementById("usernameDisplay");
-    const usernameModal   = document.getElementById("usernameModal");
-    const usernameModalInput = document.getElementById("usernameModalInput");
-    const usernameSaveBtn = document.getElementById("usernameSaveBtn");
-    const usernameCancelBtn = document.getElementById("usernameCancelBtn");
     const viewToggleBtn = document.getElementById("viewToggleBtn");
     const panelTitle = document.getElementById("panelTitle");
     const switchLobbyBtn = document.getElementById("switchLobbyBtn");
@@ -643,7 +844,9 @@
           // Real message: baked in once, right now, against whichever room
           // this actually just arrived from, rather than recomputed later
           // against a possibly-different room.sessionId after a redirect.
-          toAdd.push({ system: false, name: msg.name, text: msg.text, me: msg.sessionId === room.sessionId });
+          // Emoji is baked in too, so the row keeps the sender's avatar/color
+          // even after they change it or leave.
+          toAdd.push({ system: false, name: msg.name, emoji: msg.emoji, text: msg.text, me: msg.sessionId === room.sessionId });
         }
       }
       if (addedAnyKey) persistSeenChatKeys();
@@ -679,9 +882,19 @@
             row.textContent = msg.text;
           } else {
             row.className = "chat-msg";
+            // Avatar right before the name, and the name tinted to match the
+            // sender's track color (both from the emoji baked into the msg).
+            if (msg.emoji) {
+              const emojiSpan = document.createElement("span");
+              emojiSpan.className = "chat-msg-emoji";
+              emojiSpan.textContent = msg.emoji + " ";
+              row.appendChild(emojiSpan);
+            }
             const nameSpan = document.createElement("span");
             nameSpan.className = "chat-msg-name" + (msg.me ? " me" : "");
             nameSpan.textContent = msg.name + ": ";
+            const nameColor = getEmojiColor(msg.emoji);
+            if (nameColor) nameSpan.style.color = nameColor;
             row.appendChild(nameSpan);
             row.appendChild(document.createTextNode(msg.text));
           }
@@ -738,7 +951,7 @@
       room.onMessage("redirect", async (payload) => {
         redirecting = true;
         try {
-          const options = { name: myName, resumeRacing: !!payload.resumeRacing, clientId: myClientId };
+          const options = { name: myName, resumeRacing: !!payload.resumeRacing, clientId: myClientId, emoji: myEmoji || undefined };
           const nextRoom = payload.roomId
             ? await client.joinById(payload.roomId, options)
             : await client.create("race_room", options);
@@ -802,7 +1015,7 @@
           redirecting = false;
           connected = false;
           try {
-            attachRoom(await client.joinOrCreate("race_room", { name: myName, clientId: myClientId }));
+            attachRoom(await client.joinOrCreate("race_room", { name: myName, clientId: myClientId, emoji: myEmoji || undefined }));
           } catch (e2) {
             statusEl.textContent = "Couldn't reconnect after switching lobbies.";
             console.error(e2);
@@ -831,10 +1044,10 @@
           } catch (e) {
             // Token expired, or this is a genuinely fresh visit with a
             // stale leftover token. Fall back to a normal join.
-            initialRoom = await client.joinOrCreate("race_room", { name: myName, clientId: myClientId });
+            initialRoom = await client.joinOrCreate("race_room", { name: myName, clientId: myClientId, emoji: myEmoji || undefined });
           }
         } else {
-          initialRoom = await client.joinOrCreate("race_room", { name: myName, clientId: myClientId });
+          initialRoom = await client.joinOrCreate("race_room", { name: myName, clientId: myClientId, emoji: myEmoji || undefined });
         }
         attachRoom(initialRoom);
       } catch (e) {
@@ -864,6 +1077,7 @@
         const entry = {
           sessionId, name: p.name, me: sessionId === room.sessionId,
           progress: p.progress, wpm: p.wpm, finished: p.finished, place: p.place, afk: p.afk,
+          emoji: p.emoji,
         };
         allPlayers.push(entry);
         if (p.status === "racing") {
@@ -893,6 +1107,19 @@
       // every state change (not just once at connect) so it never goes stale.
       const me = state.players.get(room.sessionId);
       const iAmRacing = !!me && me.status === "racing";
+
+      // Capture/refresh my avatar from synced state: this is how a first-visit
+      // player learns the random emoji the server assigned them, and how the
+      // header button stays correct after any change. Persist it so it's sent
+      // back on the next join/reload and thus stays stable.
+      if (me && me.emoji && me.emoji !== myEmoji) {
+        myEmoji = me.emoji;
+        localStorage.setItem(EMOJI_KEY, myEmoji);
+        pushRecentEmoji(myEmoji);
+        emojiBtn.textContent = myEmoji;
+        updateGridSelection();
+      }
+
       joinBtn.textContent = iAmRacing ? "Spectate" : "Join Next Race";
       joinBtn.dataset.racing = iAmRacing ? "1" : "0";
       if (connected) {
@@ -900,17 +1127,30 @@
         roomInfoEl.textContent = `Room ${room.roomId} · ${state.racerCount}/${MAX_RACERS} racing`;
       }
 
-      // Phase banner.
+      // Large WPM readout: your own live speed while racing AND your final
+      // speed on the results screen (so it isn't overwritten by "Next race
+      // in…" - people want to see how they did). Shown when the setting is on
+      // and you were a racer (a finisher/DNF still has status "racing" during
+      // results, and their wpm is frozen at their final value).
+      const showWpmNow =
+        (state.phase === "racing" || state.phase === "finished") && iAmRacing && showWpm;
+
+      // Phase banner. Hidden whenever the big WPM readout is showing (racing,
+      // or results with WPM on) - the WPM takes the center then, and during
+      // results the "Next race in…" countdown moves to the corner clock
+      // (raceTimer) instead. Otherwise the banner is the visible status line.
       phaseBanner.dataset.phase = state.phase;
       if (state.phase === "countdown") {
         phaseBanner.textContent = `Race starts in ${state.countdown}…`;
-      } else if (state.phase === "racing") {
-        phaseBanner.textContent = "Race in progress";
       } else if (state.phase === "finished") {
         phaseBanner.textContent = `Next race in ${state.countdown}…`;
-      } else {
+      } else if (state.phase !== "racing") {
         phaseBanner.textContent = "Waiting for challengers";
       }
+      phaseBanner.style.display = (state.phase === "racing" || showWpmNow) ? "none" : "inline-block";
+
+      wpmDisplay.dataset.visible = showWpmNow ? "1" : "0";
+      if (showWpmNow) wpmNumber.textContent = me ? me.wpm : 0;
 
       // Clear the input box + committed words whenever a new quote was
       // picked (by quoteId, not the quote text, since the small quote pool
@@ -943,10 +1183,19 @@
         lastQuoteId = state.quoteId;
       }
 
-      // Subtle race-timeout clock, top-right of the arena.
-      raceTimer.dataset.visible = state.phase === "racing" ? "1" : "0";
+      // Subtle timing text, top-right of the arena. During the race it's the
+      // countdown to the timeout; on the results screen - when the big WPM
+      // readout is holding the center - the "Next race in…" countdown lives
+      // here instead of overwriting the WPM. Otherwise the banner already
+      // carries "Next race in…", so the corner stays hidden.
       if (state.phase === "racing") {
+        raceTimer.dataset.visible = "1";
         raceTimer.textContent = formatTime(state.countdown);
+      } else if (state.phase === "finished" && showWpmNow) {
+        raceTimer.dataset.visible = "1";
+        raceTimer.textContent = `Next race in ${state.countdown}…`;
+      } else {
+        raceTimer.dataset.visible = "0";
       }
 
       // The always-visible race text on the left. Racers see it colored
@@ -979,8 +1228,13 @@
         renderQuote(state.quote, "", null, null, false);
       }
 
-      // Don't yank focus away from the username modal if it's open.
-      if (iCanType && usernameModal.dataset.open !== "1" && document.activeElement !== typeInput) {
+      // Experimental: overlay other racers' live carets on the text. Runs after
+      // the quote is (re)rendered so the char spans exist to measure against.
+      renderGhostCarets(state);
+
+      // Don't yank focus away from the settings panel (e.g. while editing your
+      // username) if it's open.
+      if (iCanType && settingsPanel.dataset.open !== "1" && document.activeElement !== typeInput) {
         typeInput.focus();
       }
 
@@ -1079,6 +1333,74 @@
       }
     }
 
+    // Derives a soft track color from an emoji's own palette, so each racer's
+    // progress bar reads as "their" color. The emoji is drawn to a tiny
+    // offscreen canvas and its pixels are averaged (weighting colorful pixels
+    // over near-gray ones like outlines/eyes, so the dominant hue wins), then
+    // that hue is rendered back at a fixed soft lightness/saturation for a
+    // pleasant pastel that stays readable on the dark track. Results are
+    // cached per emoji (the canvas work only happens once each), and a
+    // near-grayscale emoji (🖤, ⚙️, 🤍) yields a soft neutral rather than a
+    // random hue pulled from noise. Returns null if the emoji can't be
+    // sampled, in which case the caller keeps the default fill color.
+    const emojiColorCache = new Map();
+    let emojiColorCanvas = null;
+
+    function rgbToHsl(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      const l = (mx + mn) / 2;
+      let h = 0, s = 0;
+      if (d !== 0) {
+        s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+        if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+        else if (mx === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h *= 60;
+      }
+      return [h, s, l];
+    }
+
+    function computeEmojiColor(emoji) {
+      const size = 32;
+      if (!emojiColorCanvas) {
+        emojiColorCanvas = document.createElement("canvas");
+        emojiColorCanvas.width = emojiColorCanvas.height = size;
+      }
+      const ctx = emojiColorCanvas.getContext("2d", { willReadFrequently: true });
+      ctx.clearRect(0, 0, size, size);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = '24px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+      ctx.fillText(emoji, size / 2, size / 2);
+
+      const data = ctx.getImageData(0, 0, size, size).data;
+      let sr = 0, sg = 0, sb = 0, sw = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3] / 255;
+        if (a < 0.5) continue;
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const chroma = (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+        const w = a * (0.12 + chroma); // colorful pixels weigh more than gray ones
+        sr += r * w; sg += g * w; sb += b * w; sw += w;
+      }
+      if (sw === 0) return null;
+
+      const [h, s] = rgbToHsl(sr / sw, sg / sw, sb / sw);
+      if (s < 0.12) return "hsl(220, 12%, 66%)"; // essentially grayscale emoji
+      const soft = Math.round(Math.min(0.62, Math.max(0.28, s)) * 100);
+      return `hsl(${Math.round(h)}, ${soft}%, 68%)`;
+    }
+
+    function getEmojiColor(emoji) {
+      if (!emoji) return null;
+      if (emojiColorCache.has(emoji)) return emojiColorCache.get(emoji);
+      let color = null;
+      try { color = computeEmojiColor(emoji); } catch (e) { color = null; }
+      emojiColorCache.set(emoji, color);
+      return color;
+    }
+
     // Progress bars + live wpm, rendered above the quote in the arena.
     // Rows are kept per sessionId across renders (not wiped/rebuilt each
     // time) so the CSS width transition on .racer-fill has a persisting
@@ -1113,6 +1435,19 @@
         row.el.className = "racer-row" + (person.afk ? " afk" : "");
         row.fill.className = "racer-fill" + (person.finished ? " finished" : "") + (person.afk ? " afk" : "");
         row.fill.style.width = `${Math.round(person.progress * 100)}%`;
+        // Tint the track with a soft version of the racer's emoji palette, so
+        // it reads as "their" color. AFK clears the inline color so the gray
+        // .afk class shows through; otherwise fall back to the default fill
+        // (green) if the emoji couldn't be sampled.
+        row.fill.style.background = person.afk ? "" : (getEmojiColor(person.emoji) || "");
+
+        // Sit the avatar exactly at the fill's leading edge, so the colored
+        // trail connects straight into it (the CSS translate(-50%,-50%)
+        // centers the glyph on this point). At 0%/100% the glyph naturally
+        // straddles the start/finish edge, which reads fine as a racer at the
+        // line rather than a gap.
+        row.emoji.textContent = person.emoji || "🚀";
+        row.emoji.style.left = `${person.progress * 100}%`;
       });
       for (const [sessionId, row] of leaderboardRows) {
         if (!seen.has(sessionId)) {
@@ -1134,15 +1469,25 @@
       nameRow.appendChild(nameSpan);
       nameRow.appendChild(wpmSpan);
 
+      // The track (with its overflow-clipped fill) and the avatar are
+      // siblings inside a relative wrapper, so the avatar can ride on top of
+      // the bar and overhang it slightly without being clipped by the
+      // track's overflow:hidden.
+      const trackWrap = document.createElement("div");
+      trackWrap.className = "racer-track-wrap";
       const track = document.createElement("div");
       track.className = "racer-track";
       const fill = document.createElement("div");
       fill.className = "racer-fill";
       track.appendChild(fill);
+      const emoji = document.createElement("div");
+      emoji.className = "racer-emoji";
+      trackWrap.appendChild(track);
+      trackWrap.appendChild(emoji);
 
       el.appendChild(nameRow);
-      el.appendChild(track);
-      return { el, nameSpan, wpmSpan, fill };
+      el.appendChild(trackWrap);
+      return { el, nameSpan, wpmSpan, fill, emoji };
     }
 
     // --- Actions --------------------------------------------------------------
@@ -1164,28 +1509,225 @@
       room.send("switchLobby");
     };
 
-    // Username editing: the header only ever shows plain text; clicking (or
-    // pressing Enter/Space while focused) it opens a centered modal to
-    // change it, so the header itself never resizes or shifts. Saved to
-    // localStorage so it survives reloads, and pushed to the server live via
-    // "setName" so it updates immediately without needing to reconnect.
-    usernameDisplay.textContent = myName;
+    // --- Emoji avatar picker ---------------------------------------------------
+    // The header button shows the current avatar; clicking it opens a popover
+    // to change it. The popover is a scrollable, themed grid of (essentially)
+    // every emoji: tab shortcuts across the top jump to each theme, and the
+    // first tab is your recently-used emoji. Picking one updates the button
+    // immediately and tells the server via "setEmoji" (the authoritative
+    // change comes back through onStateChange, same loop as everything else).
+    // If we already have a remembered avatar, show it right away; otherwise
+    // the server's random assignment lands via render() a moment after connect.
+    if (myEmoji) emojiBtn.textContent = myEmoji;
 
-    function openUsernameModal() {
-      usernameModalInput.value = myName;
-      usernameModal.dataset.open = "1";
-      usernameModalInput.focus();
-      usernameModalInput.select();
+    // Recently-used avatars: a small MRU list persisted in localStorage,
+    // surfaced as the picker's first group so your go-to emoji are one click
+    // away. Most-recent first, deduped, capped.
+    const RECENT_EMOJIS_KEY = "typingRace.recentEmojis";
+    const RECENT_EMOJIS_MAX = 24;
+    function loadRecentEmojis() {
+      try { return JSON.parse(localStorage.getItem(RECENT_EMOJIS_KEY) || "[]"); }
+      catch (e) { return []; }
+    }
+    function pushRecentEmoji(emoji) {
+      let list = loadRecentEmojis().filter((e) => e !== emoji);
+      list.unshift(emoji);
+      if (list.length > RECENT_EMOJIS_MAX) list = list.slice(0, RECENT_EMOJIS_MAX);
+      localStorage.setItem(RECENT_EMOJIS_KEY, JSON.stringify(list));
     }
 
-    function closeUsernameModal() {
-      usernameModal.dataset.open = "0";
-      usernameDisplay.focus();
+    // The full palette, grouped by theme. Each entry is a space-separated
+    // string just to keep it compact/readable (split on whitespace below).
+    // The server accepts any single emoji (see RaceRoom's isEmoji), so this
+    // list can grow freely without needing a matching server change.
+    const EMOJI_GROUPS = [
+      { name: "Smileys & People", icon: "😀", emojis:
+        "😀 😃 😄 😁 😆 😅 😂 🤣 🥲 ☺️ 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 " +
+        "😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🤭 🤫 🤥 " +
+        "😶 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 😈 👿 👹 👺 🤡 💩 👻 💀 " +
+        "☠️ 👽 👾 🤖 🎃 😺 😸 😹 😻 😼 😽 🙀 😿 😾 👋 🤚 🖐️ ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ " +
+        "👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦾 🦿 🦵 🦶 👂 🦻 👃 🧠 🫀 🫁 🦷 🦴 👀 👁️ 👅 👄 " +
+        "👶 🧒 👦 👧 🧑 👨 👩 🧓 👴 👵 🧔 👮 🕵️ 💂 👷 🤴 👸 👳 👲 🧕 🤵 👰 🤰 🤱 👼 🎅 🤶 🦸 🦹 🧙 🧚 🧛 🧜 " +
+        "🧝 🧞 🧟 💆 💇 🚶 🏃 💃 🕺 👯 🧖 🧗 🤺 🏇 ⛷️ 🏂 🏌️ 🏄 🚣 🏊 ⛹️ 🏋️ 🚴 🚵 🤸 🤼 🤽 🤾 🤹 🧘 👭 👫 👬 💏 💑 👪" },
+      { name: "Animals & Nature", icon: "🐻", emojis:
+        "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐽 🐸 🐵 🙈 🙉 🙊 🐒 🐔 🐧 🐦 🐤 🐣 🐥 🦆 🦅 🦉 🦇 🐺 🐗 🐴 " +
+        "🦄 🐝 🪱 🐛 🦋 🐌 🐞 🐜 🪰 🪲 🪳 🦟 🦗 🕷️ 🕸️ 🦂 🐢 🐍 🦎 🦖 🦕 🐙 🦑 🦐 🦞 🦀 🐡 🐠 🐟 🐬 🐳 🐋 🦈 " +
+        "🐊 🐅 🐆 🦓 🦍 🦧 🐘 🦛 🦏 🐪 🐫 🦒 🦘 🐃 🐂 🐄 🐎 🐖 🐏 🐑 🦙 🐐 🦌 🐕 🐩 🦮 🐈 🐓 🦃 🦚 🦜 🦢 🦩 " +
+        "🕊️ 🐇 🦝 🦨 🦡 🦦 🦥 🐁 🐀 🐿️ 🦔 🐾 🐉 🐲 🌵 🎄 🌲 🌳 🌴 🌱 🌿 ☘️ 🍀 🎍 🎋 🍃 🍂 🍁 🍄 🐚 🌾 💐 🌷 " +
+        "🌹 🥀 🌺 🌸 🌼 🌻 🌞 🌝 🌛 🌜 🌚 🌕 🌖 🌗 🌘 🌑 🌒 🌓 🌔 🌙 🌎 🌍 🌏 🪐 💫 ⭐ 🌟 ✨ ⚡ ☄️ 💥 🔥 🌪️ " +
+        "🌈 ☀️ 🌤️ ⛅ 🌥️ ☁️ 🌦️ 🌧️ ⛈️ 🌩️ 🌨️ ❄️ ☃️ ⛄ 🌬️ 💨 💧 💦 ☔ 🌊" },
+      { name: "Food & Drink", icon: "🍔", emojis:
+        "🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🍆 🥑 🥦 🥬 🥒 🌶️ 🫑 🌽 🥕 🫒 🧄 🧅 🥔 🍠 🥐 " +
+        "🥯 🍞 🥖 🥨 🧀 🥚 🍳 🧈 🥞 🧇 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🥪 🥙 🧆 🌮 🌯 🫔 🥗 🥘 🫕 🥫 🍝 🍜 🍲 🍛 🍣 " +
+        "🍱 🥟 🦪 🍤 🍙 🍚 🍘 🍥 🥠 🥮 🍢 🍡 🍧 🍨 🍦 🥧 🧁 🍰 🎂 🍮 🍭 🍬 🍫 🍿 🍩 🍪 🌰 🥜 🍯 🥛 🍼 🫖 ☕ " +
+        "🍵 🧃 🥤 🧋 🍶 🍺 🍻 🥂 🍷 🥃 🍸 🍹 🧉 🍾 🧊 🥄 🍴 🍽️ 🥣 🥡 🥢 🧂" },
+      { name: "Travel & Places", icon: "✈️", emojis:
+        "🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🛻 🚚 🚛 🚜 🦯 🦼 🛴 🚲 🛵 🏍️ 🛺 🚨 🚔 🚍 🚘 🚖 🚡 🚠 🚟 🚃 🚋 🚞 🚝 " +
+        "🚄 🚅 🚈 🚂 🚆 🚇 🚊 🚉 ✈️ 🛫 🛬 🛩️ 💺 🛰️ 🚀 🛸 🚁 🛶 ⛵ 🚤 🛥️ 🛳️ ⛴️ 🚢 ⚓ ⛽ 🚧 🚦 🚥 🚏 🗺️ 🗿 " +
+        "🗽 🗼 🏰 🏯 🏟️ 🎡 🎢 🎠 ⛲ ⛱️ 🏖️ 🏝️ 🏜️ 🌋 ⛰️ 🏔️ 🗻 🏕️ ⛺ 🏠 🏡 🏘️ 🏚️ 🏗️ 🏭 🏢 🏬 🏣 🏤 🏥 🏦 🏨 " +
+        "🏪 🏫 🏩 💒 🏛️ ⛪ 🕌 🕍 🛕 🕋 ⛩️ 🌁 🌃 🏙️ 🌄 🌅 🌆 🌇 🌉 ♨️ 🌌 🎑 🏞️ 🌠 🎇 🎆" },
+      { name: "Objects & Activities", icon: "💡", emojis:
+        "⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🪀 🏓 🏸 🏒 🏑 🥍 🏏 🥅 ⛳ 🪁 🏹 🎣 🤿 🥊 🥋 🎽 🛹 🛷 ⛸️ 🥌 🎿 🎯 🪃 " +
+        "🔮 🪄 🎮 🕹️ 🎰 🎲 🧩 ♟️ 🎭 🎨 🧵 🪡 🧶 🎼 🎤 🎧 🎷 🪗 🎸 🎹 🎺 🎻 🪕 🥁 📱 📲 ☎️ 📞 📟 📠 🔋 🔌 💻 " +
+        "🖥️ 🖨️ ⌨️ 🖱️ 🖲️ 💽 💾 💿 📀 🧮 🎥 🎞️ 📽️ 🎬 📺 📷 📸 📹 📼 🔍 🔎 🕯️ 💡 🔦 🏮 🪔 📔 📕 📖 📗 📘 📙 📚 " +
+        "📓 📒 📃 📜 📄 📰 🗞️ 📑 🔖 🏷️ 💰 🪙 💴 💵 💶 💷 💸 💳 🧾 ✉️ 📧 📨 📩 📤 📥 📦 📫 📮 🗳️ ✏️ ✒️ 🖋️ 🖊️ " +
+        "🖌️ 🖍️ 📝 💼 📁 📂 🗂️ 📅 📆 🗒️ 🗓️ 📇 📈 📉 📊 📋 📌 📍 📎 🖇️ 📏 📐 ✂️ 🗃️ 🗄️ 🗑️ 🔒 🔓 🔏 🔐 🔑 🗝️ " +
+        "🔨 🪓 ⛏️ ⚒️ 🛠️ 🗡️ ⚔️ 🔫 🛡️ 🪚 🔧 🪛 🔩 ⚙️ 🗜️ ⚖️ 🔗 ⛓️ 🪝 🧰 🧲 🪜 ⚗️ 🧪 🧫 🧬 🔬 🔭 📡 💉 🩸 💊 " +
+        "🩹 🩺 🚪 🛗 🪞 🪟 🛏️ 🛋️ 🪑 🚽 🪠 🚿 🛁 🪤 🪒 🧴 🧷 🧹 🧺 🧻 🪣 🧼 🪥 🧽 🧯 🛒 🚬 ⚰️ 🪦 ⚱️ 🪧 💈" },
+      { name: "Symbols & Flags", icon: "❤️", emojis:
+        "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉️ ☸️ ✡️ 🔯 🕎 ☯️ ☦️ 🛐 ⛎ ♈ ♉ " +
+        "♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ 🆔 ⚛️ ☢️ ☣️ 📴 📳 ✴️ 🆚 💮 ㊙️ ㊗️ 🈴 🈵 🅰️ 🅱️ 🆎 🆑 🅾️ 🆘 ❌ ⭕ 🛑 ⛔ 📛 " +
+        "🚫 💯 💢 ♨️ 🚷 🚯 🚳 🚱 🔞 📵 🚭 ❗ ❕ ❓ ❔ ‼️ ⁉️ 🔅 🔆 〽️ ⚠️ 🚸 🔱 ⚜️ 🔰 ♻️ ✅ 💹 ❇️ ✳️ ❎ 🌐 💠 " +
+        "Ⓜ️ 🌀 💤 🏧 🚾 ♿ 🅿️ 🈂️ 🛂 🛃 🛄 🛅 🚹 🚺 🚼 ⚧️ 🚻 🚮 🎦 📶 🔣 ℹ️ 🔤 🔡 🔠 🆖 🆗 🆙 🆒 🆕 🆓 " +
+        "0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟 🔢 #️⃣ *️⃣ ⏏️ ▶️ ⏸️ ⏯️ ⏹️ ⏺️ ⏭️ ⏮️ ⏩ ⏪ ⏫ ⏬ ◀️ 🔼 🔽 ➡️ " +
+        "⬅️ ⬆️ ⬇️ ↗️ ↘️ ↙️ ↖️ ↕️ ↔️ ↪️ ↩️ ⤴️ ⤵️ 🔀 🔁 🔂 🔄 🔃 🎵 🎶 ➕ ➖ ➗ ✖️ 🟰 ♾️ 💲 💱 ™️ ©️ ®️ 〰️ ➰ " +
+        "➿ 🔚 🔙 🔛 🔝 🔜 ✔️ ☑️ 🔘 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔸 🔹 🔶 🔷 🔳 🔲 ▪️ ▫️ ◾ ◽ ◼️ ◻️ 🟥 " +
+        "🟧 🟨 🟩 🟦 🟪 ⬛ ⬜ 🟫 🔈 🔇 🔉 🔊 🔔 🔕 📣 📢 💬 💭 🗯️ ♠️ ♣️ ♥️ ♦️ 🃏 🎴 🀄 🕐 🕑 🕒 🕓 🕔 🕕 🕖 " +
+        "🕗 🕘 🕙 🕚 🕛 🏁 🚩 🏳️ 🏴 🏳️‍🌈 🏴‍☠️" },
+    ];
+
+    // Group 0 is the dynamic "Recently Used" section (filled on open); the
+    // themed groups follow. Tabs and scroll sections are built in parallel so
+    // a tab at index i jumps to groupEls[i].
+    const PICKER_GROUPS = [{ name: "Recently Used", icon: "🕘", recent: true }, ...EMOJI_GROUPS];
+
+    const emojiTabs = document.createElement("div");
+    emojiTabs.id = "emojiTabs";
+    const emojiScroll = document.createElement("div");
+    emojiScroll.id = "emojiScroll";
+    emojiPicker.appendChild(emojiTabs);
+    emojiPicker.appendChild(emojiScroll);
+
+    const groupEls = [];
+    const tabEls = [];
+
+    function makeEmojiCell(emoji) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "emoji-cell";
+      btn.textContent = emoji;
+      btn.title = emoji;
+      btn.onclick = () => selectEmoji(emoji);
+      return btn;
     }
 
-    function saveUsername() {
-      const trimmed = usernameModalInput.value.trim().slice(0, 20);
-      closeUsernameModal();
+    PICKER_GROUPS.forEach((group, i) => {
+      const tab = document.createElement("button");
+      tab.type = "button";
+      tab.className = "emoji-tab";
+      tab.textContent = group.icon;
+      tab.title = group.name;
+      tab.onclick = () => scrollToGroup(i);
+      emojiTabs.appendChild(tab);
+      tabEls.push(tab);
+
+      const section = document.createElement("div");
+      section.className = "emoji-group";
+      const title = document.createElement("div");
+      title.className = "emoji-group-title";
+      title.textContent = group.name;
+      const grid = document.createElement("div");
+      grid.className = "emoji-group-grid";
+      section.appendChild(title);
+      section.appendChild(grid);
+      emojiScroll.appendChild(section);
+      groupEls.push(section);
+
+      if (!group.recent) {
+        group.emojis.split(/\s+/).filter(Boolean).forEach((emoji) => grid.appendChild(makeEmojiCell(emoji)));
+      }
+      // The recent group's grid is (re)filled each time the picker opens.
+    });
+
+    // Refill the "Recently Used" grid from localStorage. Shows a hint when
+    // empty so the section never looks broken on a first visit.
+    function refreshRecentGroup() {
+      const grid = groupEls[0].querySelector(".emoji-group-grid");
+      grid.innerHTML = "";
+      const recents = loadRecentEmojis();
+      if (recents.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "emoji-empty";
+        empty.textContent = "No recent emoji yet — pick one below.";
+        grid.appendChild(empty);
+      } else {
+        recents.forEach((emoji) => grid.appendChild(makeEmojiCell(emoji)));
+      }
+    }
+
+    // Smooth-scroll a group to the top of the scroll area. getBoundingClientRect
+    // deltas keep this correct regardless of padding / sticky headers.
+    function scrollToGroup(i) {
+      const el = groupEls[i];
+      const top = el.getBoundingClientRect().top - emojiScroll.getBoundingClientRect().top + emojiScroll.scrollTop;
+      emojiScroll.scrollTo({ top, behavior: "smooth" });
+    }
+
+    // Highlight the tab of whichever group is currently at the top of the
+    // scroll area, so the tabs double as a position indicator.
+    function updateActiveTab() {
+      const viewTop = emojiScroll.getBoundingClientRect().top;
+      let active = 0;
+      groupEls.forEach((el, i) => {
+        if (el.getBoundingClientRect().top - viewTop <= 12) active = i;
+      });
+      tabEls.forEach((t, i) => { t.dataset.active = i === active ? "1" : "0"; });
+    }
+    emojiScroll.addEventListener("scroll", updateActiveTab);
+
+    function updateGridSelection() {
+      emojiScroll.querySelectorAll(".emoji-cell").forEach((btn) => {
+        btn.dataset.selected = btn.textContent === myEmoji ? "1" : "0";
+      });
+    }
+
+    function openEmojiPicker() {
+      refreshRecentGroup();
+      updateGridSelection();
+      emojiPicker.dataset.open = "1";
+      emojiScroll.scrollTop = 0;
+      updateActiveTab();
+    }
+
+    function closeEmojiPicker() {
+      emojiPicker.dataset.open = "0";
+    }
+
+    function selectEmoji(emoji) {
+      myEmoji = emoji;
+      localStorage.setItem(EMOJI_KEY, myEmoji);
+      pushRecentEmoji(emoji);
+      emojiBtn.textContent = myEmoji;
+      updateGridSelection();
+      closeEmojiPicker();
+      if (room) room.send("setEmoji", { emoji: myEmoji });
+    }
+
+    emojiBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (emojiPicker.dataset.open === "1") closeEmojiPicker();
+      else openEmojiPicker();
+    };
+    // Click anywhere outside the open picker closes it.
+    document.addEventListener("mousedown", (e) => {
+      if (emojiPicker.dataset.open !== "1") return;
+      if (e.target === emojiBtn || emojiPicker.contains(e.target)) return;
+      closeEmojiPicker();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeEmojiPicker();
+    });
+
+    // --- Settings panel (gear icon) -------------------------------------------
+    // Holds the username field and the "show racers on text" toggle. Opened
+    // from the header gear; behaves like the emoji picker popover (outside
+    // click / Escape closes it). Username is saved from the field to
+    // localStorage + the server ("setName") whenever it changes - on Enter,
+    // and whenever the panel closes - so there's no separate Save button.
+    usernameDisplay.textContent = myName; // header label; kept in sync on save
+
+    function saveUsernameFromField() {
+      const trimmed = settingsUsername.value.trim().slice(0, 20);
       if (!trimmed || trimmed === myName) return;
       myName = trimmed;
       localStorage.setItem(USERNAME_KEY, myName);
@@ -1193,27 +1735,71 @@
       if (room) room.send("setName", { name: myName });
     }
 
-    usernameDisplay.onclick = openUsernameModal;
+    function openSettings(focusName) {
+      settingsUsername.value = myName; // reflect the current name each open
+      settingsPanel.dataset.open = "1";
+      if (focusName) { settingsUsername.focus(); settingsUsername.select(); }
+    }
+
+    function closeSettings() {
+      if (settingsPanel.dataset.open !== "1") return;
+      saveUsernameFromField(); // commit any pending name edit on close
+      settingsPanel.dataset.open = "0";
+    }
+
+    function toggleSettings(focusName) {
+      if (settingsPanel.dataset.open === "1") closeSettings();
+      else openSettings(focusName);
+    }
+
+    settingsBtn.onclick = (e) => { e.stopPropagation(); toggleSettings(false); };
+    // Clicking (or Enter/Space on) the header name opens Settings, focused on
+    // the name field - the old "click your name to change it" affordance.
+    usernameDisplay.onclick = (e) => { e.stopPropagation(); toggleSettings(true); };
     usernameDisplay.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        openUsernameModal();
-      }
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSettings(true); }
     });
-    usernameSaveBtn.onclick = saveUsername;
-    usernameCancelBtn.onclick = closeUsernameModal;
-    usernameModalInput.addEventListener("keydown", (e) => {
+    settingsUsername.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        saveUsername();
+        saveUsernameFromField();
+        closeSettings();
       } else if (e.key === "Escape") {
-        closeUsernameModal();
+        closeSettings();
       }
     });
-    // Clicking the dimmed backdrop (not the modal box itself) cancels.
-    usernameModal.addEventListener("mousedown", (e) => {
-      if (e.target === usernameModal) closeUsernameModal();
+    // Click anywhere outside the open panel closes it (and commits the name).
+    // The gear and the header name are exempt - they toggle it themselves, so
+    // letting this also fire would close-then-reopen (a flicker).
+    document.addEventListener("mousedown", (e) => {
+      if (settingsPanel.dataset.open !== "1") return;
+      if (e.target === settingsBtn || e.target === usernameDisplay || settingsPanel.contains(e.target)) return;
+      closeSettings();
     });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeSettings();
+    });
+
+    // Large WPM display toggle (Settings). Replaces the old "Race in progress"
+    // banner while racing; on by default. Persisted per browser.
+    const WPM_KEY = "typingRace.showWpm";
+    let showWpm = localStorage.getItem(WPM_KEY);
+    showWpm = showWpm === null ? true : showWpm === "1";
+
+    function applyWpmToggleUi() {
+      wpmToggle.dataset.on = showWpm ? "1" : "0";
+      // Reserve the taller slot only when the WPM display can actually appear,
+      // so the countdown->racing swap doesn't shift the text.
+      statusSlot.dataset.reserve = showWpm ? "1" : "0";
+    }
+    applyWpmToggleUi();
+
+    wpmToggle.onclick = () => {
+      showWpm = !showWpm;
+      localStorage.setItem(WPM_KEY, showWpm ? "1" : "0");
+      applyWpmToggleUi();
+      if (room) render(room.state); // reflect immediately
+    };
 
     // Sends the full attempt-so-far (committed words + current box) and
     // repaints the colored quote immediately, from local input, not waiting
@@ -1268,6 +1854,86 @@
       typeInput.value = "";
       sendProgress();
     });
+
+    // --- EXPERIMENTAL: other racers' live carets on your own text --------------
+    // Draws a thin caret for every OTHER racer at their live position in the
+    // quote, with their picked emoji as a lollipop above it, so you can see the
+    // pack move through the text and tell how close you are. Purely a view: it
+    // reads the server's already-synced `progress` (caret index ≈ progress ×
+    // quote length), so there's no new server state and nothing to desync.
+    // Toggleable (many find it distracting); persisted per browser. To revert
+    // the whole feature, delete this block plus the CSS/markup/refs marked
+    // "EXPERIMENTAL".
+    const GHOST_KEY = "typingRace.showGhosts";
+    let showGhosts = localStorage.getItem(GHOST_KEY);
+    showGhosts = showGhosts === null ? true : showGhosts === "1"; // default on so it's tried
+
+    function applyGhostToggleUi() {
+      ghostToggle.dataset.on = showGhosts ? "1" : "0";
+      quoteEl.dataset.ghosts = showGhosts ? "1" : "0"; // widens line-height only while on
+    }
+    applyGhostToggleUi();
+
+    ghostToggle.onclick = () => {
+      showGhosts = !showGhosts;
+      localStorage.setItem(GHOST_KEY, showGhosts ? "1" : "0");
+      applyGhostToggleUi();
+      if (room) renderGhostCarets(room.state); // clear or draw immediately
+    };
+
+    function renderGhostCarets(state) {
+      ghostLayer.innerHTML = "";
+      if (!showGhosts || !state || state.phase !== "racing") return;
+      const len = (state.quote || "").length;
+      // Char spans are 1:1 with the quote; bail if they're not there yet.
+      if (len === 0 || quoteEl.children.length < len) return;
+
+      const quoteRect = quoteEl.getBoundingClientRect();
+      const fontPx = parseFloat(getComputedStyle(quoteEl).fontSize) || 20;
+      const glyphH = fontPx * 1.15;
+
+      // Group racers by caret index so several at the same spot stack their
+      // lollipops upward instead of overlapping.
+      const byIndex = new Map();
+      state.players.forEach((p, sessionId) => {
+        if (sessionId === room.sessionId) return; // you already have your own cursor
+        if (p.status !== "racing") return;
+        let idx = Math.round((p.progress || 0) * len);
+        idx = Math.max(0, Math.min(len, idx));
+        if (!byIndex.has(idx)) byIndex.set(idx, []);
+        byIndex.get(idx).push(p);
+      });
+
+      byIndex.forEach((players, idx) => {
+        // The char the caret sits before, or the last char's right edge once
+        // the racer has finished (idx === len).
+        const span = quoteEl.children[idx < len ? idx : len - 1];
+        const r = span.getBoundingClientRect();
+        const x = (idx < len ? r.left : r.right) - quoteRect.left;
+        const caretTop = (r.top - quoteRect.top) + (r.height - glyphH) / 2;
+
+        players.forEach((p, stack) => {
+          const caret = document.createElement("div");
+          caret.className = "ghost-caret";
+          caret.style.left = x + "px";
+          caret.style.top = caretTop + "px";
+          caret.style.height = glyphH + "px";
+          const color = getEmojiColor(p.emoji);
+          if (color) caret.style.background = color;
+
+          const emoji = document.createElement("span");
+          emoji.className = "ghost-caret-emoji";
+          emoji.textContent = p.emoji || "🚀";
+          if (stack > 0) emoji.style.bottom = `calc(100% + ${stack * 17}px)`;
+          caret.appendChild(emoji);
+          ghostLayer.appendChild(caret);
+        });
+      });
+    }
+
+    // Text layout (and thus caret positions) can shift on resize; recompute.
+    window.addEventListener("resize", () => { if (room) renderGhostCarets(room.state); });
+    // --- end experimental block ------------------------------------------------
 
     connect();
   </script>
