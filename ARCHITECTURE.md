@@ -1291,3 +1291,25 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   experience-driven tone, explicitly avoiding meme/social-media humor this
   time. Verified: 200 entries, no duplicates, all in range, spread 62-203
   characters; `tsc --noEmit` and the running dev server both stayed clean.
+- 2026-07-25: Quote pool extended (not replaced) with ~190 lighter quotes per
+  feedback: the HN-sourced batch skewed heavily toward career/burnout/aging
+  reflection, and a typing site needs room for people who just want to chill
+  too. Added, in order: (1) ~156 quotes across funny/absurd work stories,
+  wholesome kindness anecdotes, joyful travel/meal memories, shocking-but-fun
+  trivia and coincidences, and funny kid quotes, sourced the same way as the
+  previous entry (HN Algolia searches on lighter topics: funny bugs, TIL
+  facts, stranger kindness, best trips/meals, kid quotes), plus originals
+  matching that same warmer tone; (2) ~34 more spanning topics HN doesn't
+  really have, per a follow-up question about other forums: personal
+  finance/FIRE community themes (Bogleheads), UK parenting-forum themes
+  (Mumsnet), gardening, and cooking. Direct fetches mostly failed here
+  (403s from Bogleheads, early-retirement.org, Quora, Food52; empty
+  listing-only pages from Chowhound and Straight Dope's board index; Mumsnet
+  did partially work but most of what surfaced was too crude for the site),
+  so this last batch leans on real themes and the handful of real lines
+  (e.g. a nativity play story) that surfaced through general web search
+  rather than a direct page fetch, same caveat as the very first Reddit
+  attempt before HN's API was found. Pool is now 390 total, roughly a 200
+  heavier / 190 lighter split. Verified: no duplicates, all 50-300 chars
+  (62-203 actual spread), `tsc --noEmit` and the running dev server both
+  stayed clean.
