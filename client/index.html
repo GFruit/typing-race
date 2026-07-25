@@ -1,0 +1,1275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Typing Race</title>
+
+  <!--
+    Colyseus client SDK (browser build, no bundler needed).
+    Exposes a global `Colyseus`. Keep this version in sync with the server
+    (server is 0.17, so we use the ^0.17 client).
+  -->
+  <script src="https://unpkg.com/@colyseus/sdk@^0.17.0/dist/colyseus.js"></script>
+
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; height: 100vh; background: #0b1120; color: #e2e8f0;
+      font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+      display: flex; flex-direction: column;
+    }
+    header {
+      flex-shrink: 0;
+      padding: 14px 24px; border-bottom: 1px solid #1e293b;
+      display: flex; align-items: center; gap: 12px;
+    }
+    h1 { margin: 0; font-size: 18px; font-weight: 650; }
+    #status { color: #94a3b8; font-size: 13px; }
+    /* Dev/QA visibility: which room instance this tab landed in, and how
+       full it is. Not part of the intended end-user UI, just makes the
+       multi-room matchmaking behavior (see match-making.md) observable
+       without reading server logs. */
+    #roomInfo { color: #475569; font-size: 12px; font-family: ui-monospace, monospace; }
+
+    /* Username, top-right of the header — plain display only; editing
+       happens in a centered modal (below) so the header never resizes or
+       shifts when you go to change it. */
+    #usernameBox { margin-left: auto; }
+    #usernameDisplay {
+      cursor: pointer; display: inline-block; color: #e2e8f0;
+      padding: 4px 10px; border-radius: 8px; border: 1px solid transparent;
+      font-size: 13px; font-weight: 600;
+    }
+    #usernameDisplay:hover { background: #1e293b; border-color: #334155; }
+    #usernameDisplay:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    #usernameDisplay::after { content: " ✎"; opacity: .5; font-weight: 400; font-size: 11px; }
+
+    /* Centered "change your name" popup. */
+    #usernameModal {
+      display: none; position: fixed; inset: 0; z-index: 50;
+      background: rgba(2, 6, 16, .6); align-items: center; justify-content: center;
+    }
+    #usernameModal[data-open="1"] { display: flex; }
+    #usernameModal .modal-box {
+      background: #111a2e; border: 1px solid #1e293b; border-radius: 14px;
+      padding: 22px; width: min(340px, 90vw);
+    }
+    #usernameModal h2 { margin: 0 0 14px; font-size: 15px; font-weight: 650; }
+    #usernameModalInput {
+      box-sizing: border-box; width: 100%; padding: 10px 12px;
+      border-radius: 10px; background: #0b1120; border: 1px solid #334155;
+      color: #e2e8f0; font-size: 15px; font-family: inherit; outline: none;
+    }
+    #usernameModalInput:focus { border-color: #7dd3fc; }
+    #usernameModal .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+    #usernameModal .modal-actions button {
+      padding: 8px 16px; border-radius: 8px; border: 0;
+      font-size: 14px; font-weight: 650; cursor: pointer;
+    }
+    #usernameCancelBtn { background: #1e293b; color: #e2e8f0; }
+    #usernameCancelBtn:hover { background: #334155; }
+    #usernameSaveBtn { background: #22c55e; color: #052e16; }
+    #usernameSaveBtn:hover { opacity: .9; }
+
+    /* Twitch-style layout: main content (quote) fills the remaining space,
+       the sidebar (join button + player lists) hugs the right edge. Fills
+       the viewport height below the header (body is a fixed 100vh flex
+       column), so the sidebar reads as an actual sidebar (full-height,
+       its own background + divider) rather than a component floating next
+       to the arena, and its panel can size itself to the available space
+       instead of the page's content. */
+    .layout {
+      flex: 1; min-height: 0;
+      display: flex;
+    }
+
+    .arena {
+      flex: 1; min-height: 0; overflow-y: auto;
+      position: relative;
+      padding: 24px;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    #phaseBanner {
+      display: inline-block; font-weight: 650; font-size: 13px;
+      padding: 5px 12px; border-radius: 999px; margin-bottom: 16px;
+      background: #1e293b; color: #94a3b8;
+    }
+    #phaseBanner[data-phase="countdown"] { background: #422006; color: #fdba74; }
+    #phaseBanner[data-phase="racing"] { background: #052e16; color: #86efac; }
+
+    /* Subtle race-timeout clock, tucked in the corner so it doesn't compete
+       with the countdown/results banner for attention. */
+    #raceTimer {
+      display: none; position: absolute; top: 14px; right: 18px;
+      font-size: 12px; color: #475569; font-variant-numeric: tabular-nums;
+    }
+    #raceTimer[data-visible="1"] { display: block; }
+
+    /* Progress bars + wpm for the racers, shown above the text. */
+    #leaderboard {
+      width: 100%; max-width: 640px; margin-bottom: 20px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .racer-name { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+    .racer-wpm { color: #94a3b8; }
+    .racer-track { background: #1e293b; border-radius: 999px; height: 6px; overflow: hidden; }
+    .racer-fill { background: #22c55e; height: 100%; transition: width .25s ease-out; }
+    .racer-fill.finished { background: #7dd3fc; }
+    /* Idled out mid-race: row stays in place (not removed/reshuffled), just
+       dimmed, with the bar going gray and "AFK" where wpm normally shows. */
+    .racer-row.afk { opacity: .55; }
+    .racer-fill.afk { background: #475569; }
+
+    /* The quote block is centered as a whole within the arena, but its lines
+       stay left-aligned (ragged right) rather than centered individually. */
+    #quote {
+      width: 100%; max-width: 640px; text-align: left;
+      font-size: 20px; line-height: 1.7; color: #64748b; letter-spacing: .2px;
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      /* Normal whitespace collapses a space to zero width when it lands at a
+         wrapped line's end, which hid the box-shadow cursor there. pre-wrap
+         preserves every space's width (letting it hang past the edge instead
+         of collapsing) while still wrapping normally at word boundaries. */
+      white-space: pre-wrap;
+    }
+    #quote[data-placeholder="1"] { color: #475569; font-style: italic; font-size: 16px; font-family: inherit; text-align: center; }
+    #quote span.ok { color: #86efac; }
+    #quote span.bad { color: #f87171; text-decoration: underline; text-underline-offset: 3px; }
+    /* box-shadow instead of border-left: a border adds real width to the
+       inline span, which (when the cursor lands on the first character of a
+       wrapped line) shifts that whole line sideways. box-shadow paints
+       without affecting layout, so the text never moves. */
+    /* Solid while actively typing (like a native input caret, which doesn't
+       blink between keystrokes); only blinks once you've paused for a bit.
+       JS adds the "blinking" class after CURSOR_IDLE_BEFORE_BLINK_MS of no
+       keystrokes (see renderQuote). Blinks the shadow itself, not the span's
+       opacity, so the character underneath stays fully readable throughout. */
+    #quote span.cursor { box-shadow: -2px 0 0 0 #7dd3fc; }
+    @keyframes caret-blink {
+      0%, 49% { box-shadow: -2px 0 0 0 #7dd3fc; }
+      50%, 100% { box-shadow: -2px 0 0 0 transparent; }
+    }
+    /* The cursor span is rebuilt from scratch on every render (not just
+       keystrokes, e.g. also on the server's periodic wpm tick), so its blink
+       phase is synced to wall-clock time via a negative animation-delay set
+       in JS rather than left to restart at 0% every rebuild, which produced
+       short/uneven blinks. */
+    #quote span.cursor.blinking { animation: caret-blink 1s step-end infinite; }
+    /* Mirrors whatever's selected in the input box (e.g. Ctrl+A) onto the
+       race text, so the two stay visually in sync. */
+    #quote span.selected { background: rgba(125, 211, 252, .25); border-radius: 2px; }
+
+    #typeInput {
+      display: none; width: 100%; max-width: 640px; margin-top: 18px; padding: 12px 14px;
+      font-size: 16px; font-family: ui-monospace, "Cascadia Code", monospace;
+      background: #0b1120; border: 1px solid #334155; border-radius: 10px;
+      color: #e2e8f0; outline: none;
+      /* The real caret can't be phase-synced with our custom one above (its
+         blink timing is OS/browser-controlled, not exposed to the page), so
+         instead there's only one visible cursor: hide this one entirely. */
+      caret-color: transparent;
+    }
+    #typeInput:focus { border-color: #7dd3fc; }
+    #typeInput[data-visible="1"] { display: block; }
+
+    /* Full-height, own background + a divider (border-left) against the
+       arena, so it reads as an actual sidebar rather than a component
+       floating next to the arena. */
+    .sidebar {
+      width: 320px; flex-shrink: 0; min-height: 0;
+      display: flex; flex-direction: column; gap: 0;
+      padding: 0; background: #0d1524; border-left: 1px solid #1e293b;
+    }
+    .btn {
+      display: block; width: 100%; padding: 14px;
+      border: 0; border-radius: 0; font-size: 15px; font-weight: 650;
+      cursor: pointer; background: #22c55e; color: #052e16; transition: opacity .15s;
+    }
+    .btn:hover { opacity: .9; }
+    .btn[data-racing="1"] { background: #334155; color: #e2e8f0; }
+    .btn:disabled { opacity: .5; cursor: default; }
+
+    /* One box for the whole roster (Racing + Watching), not a separate box
+       per group; a divider line between groups shows they're related
+       without splitting them into their own cards. Also hosts the chat
+       view, toggled with the roster via #viewToggleBtn. */
+    .panel {
+      position: relative; flex: 1; min-height: 0;
+      display: flex; flex-direction: column;
+      background: #111a2e; border: 1px solid #1e293b; border-radius: 0; padding: 14px 0 14px 16px;
+    }
+    /* Shared header row for the panel: title (left, swaps "Players"/"Chat"
+       depending on which view is showing) / Switch Lobby button (dead
+       center, visible in both views) / roster<->chat toggle icon (right).
+       A 3-column grid keeps the middle button truly centered regardless of
+       how wide the title text or icon are, rather than eyeballing margins. */
+    .panel-header {
+      display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+      margin: 0 0 12px; padding: 0 16px 10px 0; /* right padding since .panel itself has none */
+      border-bottom: 1px solid #1e293b;
+    }
+    .panel-header h2 {
+      margin: 0; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+      color: #94a3b8; font-weight: 600;
+      line-height: 28px; /* matches .icon-btn's height so the row vertically centers */
+    }
+    .switch-lobby-btn {
+      justify-self: center; white-space: nowrap;
+      padding: 5px 12px; border-radius: 8px; border: 1px solid #334155;
+      background: #1e293b; color: #cbd5e1; font-size: 11px; font-weight: 650;
+      letter-spacing: .02em; cursor: pointer;
+    }
+    .switch-lobby-btn:hover { background: #334155; color: #e2e8f0; }
+    #rosterView { padding-right: 16px; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li { padding: 7px 0; }
+    li.me { color: #7dd3fc; font-weight: 600; }
+    .empty { color: #475569; font-style: italic; padding: 7px 0; }
+
+    /* Toggles the panel between the roster and chat; icon swaps to show
+       whichever view clicking it would switch TO (chat icon while looking
+       at the roster, people icon while looking at chat). */
+    .icon-btn {
+      justify-self: end;
+      width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center;
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+      color: #94a3b8; cursor: pointer;
+    }
+    .icon-btn:hover { background: #334155; color: #e2e8f0; }
+    .icon-btn svg { width: 16px; height: 16px; }
+
+    #rosterView[data-hidden="1"], #chatView[data-hidden="1"] { display: none; }
+
+    #chatView { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    /* Fills whatever space is left in the (now full sidebar-height) panel,
+       rather than growing with the message count; scrolls internally once
+       there's more history than fits. No right padding here on purpose: the
+       panel itself has none either, so the scrollbar sits flush against the
+       screen's right edge instead of floating with a gap next to it. Message
+       rows get their own right padding below to keep text off the scrollbar. */
+    #chatMessages {
+      flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
+      gap: 6px; margin-bottom: 10px;
+    }
+    #chatMessages .empty { padding-right: 16px; }
+    .chat-msg { font-size: 13px; line-height: 1.4; word-break: break-word; padding-right: 16px; }
+    .chat-msg-name { font-weight: 600; color: #94a3b8; }
+    .chat-msg-name.me { color: #7dd3fc; }
+    .chat-msg-system { color: #64748b; font-style: italic; }
+    #chatForm { display: flex; gap: 8px; padding-right: 16px; }
+    #chatInput {
+      flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px;
+      background: #0b1120; border: 1px solid #334155; color: #e2e8f0;
+      font-size: 13px; font-family: inherit; outline: none;
+    }
+    #chatInput:focus { border-color: #7dd3fc; }
+
+    /* Custom scrollbar: thin, flat (no rounding, matching the rest of the
+       sidebar), and transparent-tracked so it doesn't add its own visible
+       gutter next to the screen edge. */
+    .arena, #chatMessages { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    .arena::-webkit-scrollbar, #chatMessages::-webkit-scrollbar { width: 8px; }
+    .arena::-webkit-scrollbar-track, #chatMessages::-webkit-scrollbar-track { background: transparent; }
+    .arena::-webkit-scrollbar-thumb, #chatMessages::-webkit-scrollbar-thumb {
+      background: #334155; border-radius: 0;
+    }
+    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .btn-send {
+      padding: 8px 14px; border-radius: 8px; border: 0;
+      background: #22c55e; color: #052e16; font-size: 13px; font-weight: 650; cursor: pointer;
+    }
+    .btn-send:hover { opacity: .9; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Typing Race</h1>
+    <div id="status">Connecting…</div>
+    <div id="roomInfo"></div>
+    <div id="usernameBox">
+      <span id="usernameDisplay" tabindex="0" title="Click to change your name"></span>
+    </div>
+  </header>
+
+  <div id="usernameModal">
+    <div class="modal-box">
+      <h2>Change your name</h2>
+      <input id="usernameModalInput" type="text" maxlength="20" autocomplete="off" spellcheck="false" />
+      <div class="modal-actions">
+        <button id="usernameCancelBtn">Cancel</button>
+        <button id="usernameSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- Left: the "stream". Race text is always visible here for everyone. -->
+    <section class="arena">
+      <div id="phaseBanner"></div>
+      <div id="raceTimer"></div>
+      <div id="leaderboard"></div>
+      <div id="quote"></div>
+      <input id="typeInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    </section>
+
+    <!-- Right: sidebar. Join/spectate control on top, then either the
+         players list or chat, one panel, toggled via the icon button in
+         its top-right corner. -->
+    <div class="sidebar">
+      <button id="joinBtn" class="btn" disabled>Join Next Race</button>
+      <div class="panel">
+        <div class="panel-header">
+          <h2 id="panelTitle">Chat</h2>
+          <button id="switchLobbyBtn" class="switch-lobby-btn" type="button">Switch Lobby</button>
+          <button id="viewToggleBtn" class="icon-btn" type="button" title="Open chat"></button>
+        </div>
+
+        <div id="rosterView">
+          <ul id="playersList"></ul>
+        </div>
+
+        <div id="chatView">
+          <div id="chatMessages"></div>
+          <form id="chatForm">
+            <input id="chatInput" type="text" maxlength="200" autocomplete="off" placeholder="Send a message" />
+            <button type="submit" class="btn-send">Send</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Config ---------------------------------------------------------------
+    // Same-origin by default: works locally (dev server on :2567 also serves
+    // this file) and once deployed (one process, one URL, no CORS/mixed-content
+    // setup needed). Colyseus upgrades http(s) origins to ws(s) automatically.
+    const ENDPOINT = window.location.origin;
+    // Mirrors RaceRoom.ts's MAX_RACERS; only used for the "3/5" dev/QA room
+    // indicator's denominator (see #roomInfo), not for any real enforcement,
+    // the server is what actually caps racer slots.
+    const MAX_RACERS = 5;
+
+    // Username: persisted in localStorage so it survives reloads, editable
+    // any time via the header. First visit gets a random guest name (and
+    // that same name sticks around on future visits) until the user changes it.
+    const USERNAME_KEY = "typingRace.username";
+
+    function loadOrCreateUsername() {
+      const saved = localStorage.getItem(USERNAME_KEY);
+      if (saved) return saved;
+      const generated = "guest-" + Math.floor(1000 + Math.random() * 9000);
+      localStorage.setItem(USERNAME_KEY, generated);
+      return generated;
+    }
+
+    let myName = loadOrCreateUsername();
+
+    // A persistent identity for this browser tab, separate from Colyseus's
+    // own sessionId (which is different on every single join, including a
+    // merge/Switch Lobby redirect - useless for recognizing "this is the
+    // same player as before" across one). Sent as a join option (see
+    // RaceRoom.ts's Player.clientId) so the server can tag chat
+    // announcements with it; see `myKnownClientIds` below for what that's
+    // for. sessionStorage (not localStorage): matches the reconnection
+    // token's own per-tab scoping, survives a refresh (still the same
+    // ongoing visit) but a genuinely new tab gets its own fresh identity.
+    const CLIENT_ID_KEY = "typingRace.clientId";
+    let myClientId = sessionStorage.getItem(CLIENT_ID_KEY);
+    if (!myClientId) {
+      myClientId = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+      sessionStorage.setItem(CLIENT_ID_KEY, myClientId);
+    }
+
+    // Chat rendering is deliberately NOT "redraw everything from
+    // room.state.chat" - a merge/Switch Lobby redirect attaches to a
+    // genuinely different room object with its own `state.chat` (own
+    // order, own composition), so re-deriving the visible log from
+    // whatever room happens to be attached right now would reorder/replace
+    // the whole thing on every redirect, and any of MY OWN earlier
+    // messages would stop matching the new room's sessionId and lose their
+    // "me" styling (both found via user feedback from live testing:
+    // switching/merging visibly reshuffled the log and un-highlighted the
+    // user's own prior messages). Instead, `myVisibleChat` is a persistent,
+    // append-only log for this tab: `renderChat()` only ever ADDS messages
+    // it hasn't incorporated yet, computing "is this me" once at the
+    // moment each message is first incorporated (using whichever room it
+    // actually came from) and baking that into the stored entry rather
+    // than recomputing it later against a possibly-different
+    // room.sessionId.
+    //
+    // "Already incorporated" is tracked by CONTENT (a composite key), not
+    // by a single sentAt cursor - a cursor doesn't work across a room
+    // switch, because timestamps from two independently-running rooms
+    // aren't comparable: the destination room's own genuinely-new-to-me
+    // history (e.g. its occupants' own earlier "joined the lobby") can
+    // easily have an OLDER sentAt than messages I'd already seen in the
+    // room I just left, and a cursor would wrongly hide it. A merge's
+    // `mergeChatFrom` (server-side) copies real messages into the target
+    // room with their original sessionId/sentAt/text unchanged, so
+    // anything this tab already incorporated (in a room it has since left)
+    // produces the exact same key and is correctly skipped when it
+    // reappears via the merge, instead of being re-added as if new.
+    // (Collision risk: two DIFFERENT messages sharing the same key would
+    // require the same sessionId, sentAt down to the millisecond, AND text
+    // - accepted as a rare, low-stakes edge case rather than adding a
+    // unique message id to the schema for it.)
+    //
+    // `chatGenesisAt` (this tab's very first connection) is the one
+    // exception still driven by time: anything already sitting in
+    // state.chat from before this tab ever connected - even if it's
+    // technically "not yet seen" by key - is pre-existing history a new
+    // visitor shouldn't see (per earlier user feedback), so it gets marked
+    // seen (never shown again even if it later resurfaces via some future
+    // merge) without ever being displayed. Both persisted in
+    // sessionStorage so they survive a refresh (reconnecting is still the
+    // same ongoing visit) but start fresh for a genuinely new tab.
+    const CHAT_GENESIS_KEY = "typingRace.chatGenesisAt";
+    let chatGenesisAt = Number(sessionStorage.getItem(CHAT_GENESIS_KEY));
+    if (!chatGenesisAt) {
+      chatGenesisAt = Date.now();
+      sessionStorage.setItem(CHAT_GENESIS_KEY, String(chatGenesisAt));
+    }
+
+    const SEEN_CHAT_KEYS_KEY = "typingRace.seenChatKeys";
+    let seenChatKeys;
+    try {
+      seenChatKeys = new Set(JSON.parse(sessionStorage.getItem(SEEN_CHAT_KEYS_KEY) || "[]"));
+    } catch (e) {
+      seenChatKeys = new Set();
+    }
+
+    function chatMessageKey(msg) {
+      return msg.sessionId + "|" + msg.sentAt + "|" + msg.text;
+    }
+
+    function persistSeenChatKeys() {
+      const arr = Array.from(seenChatKeys);
+      // Defensive cap: only recent entries matter for dedup going forward,
+      // don't let sessionStorage grow unbounded over a very long session.
+      sessionStorage.setItem(SEEN_CHAT_KEYS_KEY, JSON.stringify(arr.length > 300 ? arr.slice(arr.length - 300) : arr));
+    }
+
+    const CHAT_HISTORY_LIMIT_CLIENT = 50; // mirrors RaceRoom.ts's CHAT_HISTORY_LIMIT
+    let myVisibleChat = [];
+
+    // Who's "already in my lobby" right now, by clientId (see
+    // Player.clientId's doc comment) - used to decide whether a "joined"
+    // announcement is genuinely new or a re-announcement of someone I
+    // already knew. In-memory only (resets on refresh; the roster
+    // bootstrap below rebuilds a reasonable equivalent from whoever's
+    // still actually in the room). Deliberately means "who was in MY
+    // lobby right before this specific merge", not "everyone I've ever
+    // met" (per user request): it only ever grows via (a) the initial
+    // roster bootstrap and (b) actually-displayed "joined" announcements,
+    // and SHRINKS via "left" announcements - so someone who left and later
+    // reappears via a different merge is correctly treated as new again.
+    // On a MERGE redirect (whole room moves together) this is left
+    // untouched - my teammates come with me, so they stay known and aren't
+    // re-announced. On a solo SWITCH redirect it's reset to just myself:
+    // everyone I'm leaving behind is no longer in my lobby, so I forget them
+    // (else one of them merging in later would be wrongly suppressed). See
+    // the "redirect" handler's `payload.soloSwitch` branch, and
+    // rosterBootstrapped.
+    const myKnownClientIds = new Set([myClientId]); // always know myself, so I never see my own join announced
+    // True once this tab's very first room has had its roster silently
+    // absorbed into myKnownClientIds. Only happens once, ever, for the
+    // first room only: a MERGE redirect must NOT re-run this (it would
+    // silently absorb the destination room's pre-existing occupants,
+    // hiding their genuinely-new-to-me "joined" announcements - the whole
+    // point of the merge illusion). A solo SWITCH redirect, by contrast,
+    // DELIBERATELY re-runs it (resets this to false) - see the "redirect"
+    // handler - because a switch should behave like a fresh connect, silently
+    // absorbing the new lobby with no announcements.
+    let rosterBootstrapped = false;
+    // Set true right before a MERGE redirect attaches to the destination
+    // room (NOT a solo Switch Lobby - that goes through the silent bootstrap
+    // instead), consumed on that room's first renderChat. It makes the Anchor
+    // Host illusion cut BOTH ways: the server already announces an arriving
+    // player to the people they merged in with, but the arriving player
+    // themselves would otherwise silently absorb the destination's existing
+    // occupants (they predate this arrival, so no "joined" message exists for
+    // them here) and see nobody at all. Instead we synthesize a "joined" line
+    // for each destination occupant I didn't already know, so the merged-in
+    // player also feels the others joined THEIR lobby rather than that they
+    // were teleported into a stranger's. Deliberately NOT set on a solo
+    // switch: the player chose to move and knows they're landing somewhere
+    // new, so there's no join illusion to maintain - announcing the
+    // destination's occupants there would read backwards ("X joined" when X
+    // was already there and I'm the one who arrived). Also not a
+    // fresh-connect/refresh concern: those go through the silent bootstrap
+    // above too, so a brand-new visitor doesn't get spammed with a "joined"
+    // line for everyone already sitting in the room.
+    let announceRosterOnArrival = false;
+
+    // --- Elements -------------------------------------------------------------
+    const statusEl   = document.getElementById("status");
+    const roomInfoEl = document.getElementById("roomInfo");
+    const joinBtn    = document.getElementById("joinBtn");
+    const playersList = document.getElementById("playersList");
+    const phaseBanner = document.getElementById("phaseBanner");
+    const raceTimer   = document.getElementById("raceTimer");
+    const leaderboard = document.getElementById("leaderboard");
+    const quoteEl     = document.getElementById("quote");
+    const typeInput   = document.getElementById("typeInput");
+    const usernameDisplay = document.getElementById("usernameDisplay");
+    const usernameModal   = document.getElementById("usernameModal");
+    const usernameModalInput = document.getElementById("usernameModalInput");
+    const usernameSaveBtn = document.getElementById("usernameSaveBtn");
+    const usernameCancelBtn = document.getElementById("usernameCancelBtn");
+    const viewToggleBtn = document.getElementById("viewToggleBtn");
+    const panelTitle = document.getElementById("panelTitle");
+    const switchLobbyBtn = document.getElementById("switchLobbyBtn");
+    const rosterView = document.getElementById("rosterView");
+    const chatView   = document.getElementById("chatView");
+    const chatMessages = document.getElementById("chatMessages");
+    const chatForm   = document.getElementById("chatForm");
+    const chatInput  = document.getElementById("chatInput");
+
+    const client = new Colyseus.Client(ENDPOINT);
+    let room = null;
+    let connected = false;
+    // Used to detect "a new race just started" and clear the input. Keyed on
+    // quoteId, not the quote text itself: the quote pool is small enough that
+    // two consecutive races can land on the identical text, which would
+    // otherwise fail to trigger a reset (see the server's `quoteId` comment).
+    let lastQuoteId = null;
+
+    // Word-at-a-time typing: `committed` is everything already locked in (always
+    // a correct prefix of the quote, ending right after a space); `typeInput`
+    // only ever holds the CURRENT word. You can't backspace into a committed
+    // word. Space only locks a word in once it's typed correctly.
+    let committed = "";
+
+    // The cursor stays solid while actively typing (like a native input
+    // caret) and only starts blinking after a short pause; see renderQuote.
+    const CURSOR_IDLE_BEFORE_BLINK_MS = 500;
+    let lastKeystrokeAt = 0;
+
+    // --- Sidebar view toggle (roster <-> chat) ---------------------------------
+    // The icon shown is whatever view clicking it switches TO, not the
+    // current one: a chat bubble while looking at the roster, a people icon
+    // while looking at chat.
+    const CHAT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H9l-4 4V4z"/></svg>`;
+    const PEOPLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"/><path d="M2 20a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.5"/><path d="M13 20a4.5 4.5 0 0 1 9 0"/></svg>`;
+
+    let sidebarView = "chat"; // "roster" | "chat"
+
+    function updateSidebarView() {
+      const showingChat = sidebarView === "chat";
+      rosterView.dataset.hidden = showingChat ? "1" : "0";
+      chatView.dataset.hidden = showingChat ? "0" : "1";
+      panelTitle.textContent = showingChat ? "Chat" : "Players";
+      // Scrolling to bottom while the panel is display:none is a no-op
+      // (scrollHeight collapses to 0), which is why chat could load scrolled
+      // to the top: it starts hidden behind the roster view. Redo the scroll
+      // now that it's actually visible and has real layout.
+      if (showingChat) chatMessages.scrollTop = chatMessages.scrollHeight;
+      viewToggleBtn.innerHTML = showingChat ? PEOPLE_ICON : CHAT_ICON;
+      viewToggleBtn.title = showingChat ? "Show players" : "Open chat";
+    }
+
+    viewToggleBtn.onclick = () => {
+      sidebarView = sidebarView === "roster" ? "chat" : "roster";
+      updateSidebarView();
+    };
+
+    updateSidebarView();
+
+    // See myVisibleChat/seenChatKeys/myKnownClientIds' declarations above:
+    // only ever ADDS messages not yet incorporated, never rebuilds the log
+    // from whatever room happens to be attached right now.
+    let chatRenderedOnce = false;
+    function renderChat(state) {
+      const toAdd = [];
+
+      // Silently absorb the roster with NO announcements. Runs for a brand-new
+      // visitor's very first room AND for a solo Switch Lobby arrival (which
+      // resets rosterBootstrapped=false to reuse exactly this path - see the
+      // "redirect" handler): pre-existing occupants I never saw a "joined"
+      // message for (it predates chatGenesisAt) are still treated as
+      // already-known, and a deliberate switcher doesn't get a backwards
+      // "X joined the lobby" for people who were already there.
+      if (!rosterBootstrapped) {
+        state.players.forEach((p) => myKnownClientIds.add(p.clientId));
+        rosterBootstrapped = true;
+      } else if (announceRosterOnArrival) {
+        // Just arrived here via a MERGE redirect (see
+        // announceRosterOnArrival's doc comment): the destination's
+        // existing occupants predate my arrival, so no "joined" message
+        // for them exists in this room's chat - synthesize one for each I
+        // didn't already know, so they read as having joined MY lobby.
+        // Runs BEFORE the state.chat loop below and adds them to
+        // myKnownClientIds, so the room's own (post-genesis) "joined"
+        // announcements about these same people are then correctly skipped
+        // there rather than double-posted.
+        announceRosterOnArrival = false;
+        state.players.forEach((p) => {
+          if (!p.clientId || myKnownClientIds.has(p.clientId)) return;
+          myKnownClientIds.add(p.clientId);
+          toAdd.push({ system: true, name: p.name, text: `${p.name} joined the lobby.` });
+        });
+      }
+
+      let addedAnyKey = false;
+      for (const msg of state.chat) {
+        const key = chatMessageKey(msg);
+        if (seenChatKeys.has(key)) continue;
+        seenChatKeys.add(key);
+        addedAnyKey = true;
+        if (msg.sentAt <= chatGenesisAt) continue; // pre-existing history from before this tab ever connected
+
+        if (msg.system) {
+          if (msg.left) {
+            // Always shown - a departure is relevant information regardless
+            // of prior familiarity - and forgets them, so a LATER reunion
+            // (a different merge, after they've been elsewhere) correctly
+            // reads as new again instead of staying silently suppressed.
+            myKnownClientIds.delete(msg.aboutClientId);
+            toAdd.push({ system: true, name: msg.name, text: msg.text });
+          } else {
+            // A "joined" announcement: skip it if this player was already
+            // in my lobby (self included, per myKnownClientIds' initial
+            // value) - otherwise show it and remember them as known from
+            // here on, so a later re-merge with the same person (still
+            // known, never having left) doesn't re-announce them either.
+            if (myKnownClientIds.has(msg.aboutClientId)) continue;
+            myKnownClientIds.add(msg.aboutClientId);
+            toAdd.push({ system: true, name: msg.name, text: msg.text });
+          }
+        } else {
+          // Real message: baked in once, right now, against whichever room
+          // this actually just arrived from, rather than recomputed later
+          // against a possibly-different room.sessionId after a redirect.
+          toAdd.push({ system: false, name: msg.name, text: msg.text, me: msg.sessionId === room.sessionId });
+        }
+      }
+      if (addedAnyKey) persistSeenChatKeys();
+
+      // Skip the DOM rebuild when nothing new is actually visible, except
+      // the very first call - that one still needs to run once to paint
+      // the "No messages yet" placeholder instead of leaving the panel
+      // blank.
+      if (toAdd.length === 0 && chatRenderedOnce) return;
+      chatRenderedOnce = true;
+
+      if (toAdd.length > 0) {
+        myVisibleChat.push(...toAdd);
+        while (myVisibleChat.length > CHAT_HISTORY_LIMIT_CLIENT) myVisibleChat.shift();
+      }
+
+      chatMessages.innerHTML = "";
+      if (myVisibleChat.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No messages yet";
+        chatMessages.appendChild(empty);
+      } else {
+        myVisibleChat.forEach((msg) => {
+          const row = document.createElement("div");
+          if (msg.system) {
+            // "X joined the lobby" / "X left the lobby" - a join is posted
+            // identically whether that's a brand new visitor or someone
+            // arriving via a merge/Switch Lobby redirect (see RaceRoom.ts's
+            // postSystemMessage), so there's nothing here that could give
+            // away a merge.
+            row.className = "chat-msg chat-msg-system";
+            row.textContent = msg.text;
+          } else {
+            row.className = "chat-msg";
+            const nameSpan = document.createElement("span");
+            nameSpan.className = "chat-msg-name" + (msg.me ? " me" : "");
+            nameSpan.textContent = msg.name + ": ";
+            row.appendChild(nameSpan);
+            row.appendChild(document.createTextNode(msg.text));
+          }
+          chatMessages.appendChild(row);
+        });
+      }
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    chatForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!room) return;
+      const text = chatInput.value.trim();
+      if (!text) return;
+      room.send("sendChat", { text });
+      chatInput.value = "";
+    });
+
+    // --- Connect (auto, on load): "visit and spectate instantly" -------------
+    // sessionStorage (not localStorage): the reconnection token should only
+    // ever be reused by *this tab* refreshing, never by a second tab opened
+    // with the same name - each tab gets its own sessionStorage, so there's
+    // no risk of two tabs fighting over one session/token.
+    const RECONNECT_TOKEN_KEY = "typingRace.reconnectionToken";
+
+    // Wires up a freshly-joined room object (initial connect, a reconnect,
+    // or a post-race merge redirect - see the "redirect" handling below) the
+    // same way every time: save its token, mark us connected, start
+    // rendering its state, and listen for it telling us to hop to another
+    // room. Reassigns the outer `room` variable, so everything else in this
+    // file (render(), sendProgress(), etc.) automatically starts referring
+    // to whichever room we're currently attached to.
+    function attachRoom(newRoom) {
+      room = newRoom;
+      sessionStorage.setItem(RECONNECT_TOKEN_KEY, room.reconnectionToken);
+      connected = true;
+      joinBtn.disabled = false;
+
+      // Re-render the whole player list on every state change. Simple and
+      // fine for small state; we can optimize to fine-grained callbacks later.
+      room.onStateChange((state) => render(state));
+
+      // Sent for two reasons: post-race merging (see match-making.md's
+      // "Anchor Host" illusion) folds this room's whole roster into another
+      // live room between races, or the player clicked "Switch Lobby"
+      // themselves. Either way the server disconnects us here right after,
+      // so rather than showing that as "Disconnected", jump straight to the
+      // target room ourselves so it reads as a normal continuation, not a
+      // drop. `roomId` is null when the server couldn't find any existing
+      // room with a free racer slot (switchLobby's case only - a merge
+      // target is always found before a merge is even attempted); create a
+      // fresh one instead of giving up.
+      let redirecting = false;
+      room.onMessage("redirect", async (payload) => {
+        redirecting = true;
+        try {
+          const options = { name: myName, resumeRacing: !!payload.resumeRacing, clientId: myClientId };
+          const nextRoom = payload.roomId
+            ? await client.joinById(payload.roomId, options)
+            : await client.create("race_room", options);
+          // The two redirect kinds are handled oppositely (server tags a solo
+          // Switch Lobby with `soloSwitch`; a whole-room merge does not):
+          if (payload.soloSwitch) {
+            // Deliberate move to a NEW lobby. Treat arrival exactly like a
+            // fresh first connection: there's no "people are joining your
+            // lobby" illusion to maintain - the player chose to leave and
+            // knows they're landing somewhere new, so the destination's
+            // existing occupants must NOT be announced as "X joined the
+            // lobby" (that reads backwards; X was already there, I'm the one
+            // who arrived). Concretely:
+            //  - Forget the room I left (clear the known set to just me) - its
+            //    occupants stayed behind and are no longer in my lobby. This
+            //    also means someone I knew there who LATER merges into this
+            //    destination is correctly seen as newly joining (the X/Y/Z
+            //    bug), since they're no longer "already known".
+            //  - Re-run the SILENT roster bootstrap (rosterBootstrapped=false,
+            //    and explicitly NOT announceRosterOnArrival) so the
+            //    destination's current occupants are absorbed as "already
+            //    here" with no announcement - identical to how a brand-new
+            //    visitor silently absorbs whoever's already in the room.
+            //  - Wipe the chat and reset the "don't show pre-existing history"
+            //    genesis to now, so the old lobby's messages are gone and the
+            //    destination's own backlog (sent before I arrived) is skipped
+            //    too - a genuinely fresh chat, same as a first connect.
+            myKnownClientIds.clear();
+            myKnownClientIds.add(myClientId); // always still know myself
+            rosterBootstrapped = false;       // silent absorb, not announce
+            announceRosterOnArrival = false;  // defensive: never announce on a solo switch
+            myVisibleChat = [];
+            seenChatKeys = new Set();
+            chatGenesisAt = Date.now();
+            sessionStorage.setItem(CHAT_GENESIS_KEY, String(chatGenesisAt));
+            persistSeenChatKeys();
+            chatRenderedOnce = false; // force a repaint even if the new log starts empty
+          } else {
+            // Merge: the server folded my whole room into another one between
+            // races, unprompted. Keep my known set + chat (my group moved
+            // WITH me), and announce the destination's existing occupants as
+            // "X joined the lobby" so it reads as them joining MY lobby - the
+            // Anchor Host illusion (see announceRosterOnArrival). A brand-new
+            // room (roomId null) never happens for a merge, but if it did the
+            // roster would just be me, so this is harmless there regardless.
+            announceRosterOnArrival = true;
+          }
+          attachRoom(nextRoom);
+          // Belt and suspenders: once we're safely attached to the new
+          // room, stop this (now-abandoned) one from firing anything else
+          // (onStateChange in particular - it kept broadcasting this room's
+          // own state to us, and since it's a separate room object from the
+          // new one, its callbacks would otherwise render alongside/against
+          // the new room's, causing a status flicker). `newRoom` here is
+          // this exact room instance (captured at the top of this
+          // attachRoom call), not the outer `room` variable, which
+          // attachRoom(nextRoom) just reassigned.
+          newRoom.removeAllListeners();
+        } catch (e) {
+          console.error("Redirect failed, falling back to a fresh join", e);
+          redirecting = false;
+          connected = false;
+          try {
+            attachRoom(await client.joinOrCreate("race_room", { name: myName, clientId: myClientId }));
+          } catch (e2) {
+            statusEl.textContent = "Couldn't reconnect after switching lobbies.";
+            console.error(e2);
+          }
+        }
+      });
+
+      room.onLeave(() => {
+        if (redirecting) return; // handled by the "redirect" listener above
+        connected = false;
+        statusEl.textContent = "Disconnected.";
+        joinBtn.disabled = true;
+      });
+    }
+
+    async function connect() {
+      try {
+        const savedToken = sessionStorage.getItem(RECONNECT_TOKEN_KEY);
+        let initialRoom;
+        if (savedToken) {
+          try {
+            // Resume the exact same sessionId as before the refresh (works
+            // as long as the server's reconnection grace window - see
+            // RECONNECTION_GRACE_SECONDS in RaceRoom.ts - hasn't elapsed).
+            initialRoom = await client.reconnect(savedToken);
+          } catch (e) {
+            // Token expired, or this is a genuinely fresh visit with a
+            // stale leftover token. Fall back to a normal join.
+            initialRoom = await client.joinOrCreate("race_room", { name: myName, clientId: myClientId });
+          }
+        } else {
+          initialRoom = await client.joinOrCreate("race_room", { name: myName, clientId: myClientId });
+        }
+        attachRoom(initialRoom);
+      } catch (e) {
+        statusEl.textContent = "Couldn't connect. Is the server running on :2567?";
+        console.error(e);
+      }
+    }
+
+    // Tried sending an explicit consented leave() on "pagehide" here so a
+    // real tab close would skip the reconnection grace window entirely.
+    // Reverted: "pagehide" also fires on an ordinary page REFRESH (there's
+    // no way to tell the two apart from client JS), so it was sending a
+    // final, non-reconnectable leave on every refresh too - the saved
+    // reconnection token then had nothing valid left to resume, every
+    // refresh fell back to a brand new join, and each one posted its own
+    // "X joined the lobby" message (found via user feedback). See
+    // RECONNECTION_GRACE_SECONDS in RaceRoom.ts for the (much shorter, as
+    // of this fix) alternative: just don't make anyone wait as long before
+    // a real close is treated as final.
+
+    // --- Render ---------------------------------------------------------------
+    function render(state) {
+      renderChat(state);
+
+      const racing = [], allPlayers = [], leaderboardEntries = [];
+      state.players.forEach((p, sessionId) => {
+        const entry = {
+          sessionId, name: p.name, me: sessionId === room.sessionId,
+          progress: p.progress, wpm: p.wpm, finished: p.finished, place: p.place, afk: p.afk,
+        };
+        allPlayers.push(entry);
+        if (p.status === "racing") {
+          racing.push(entry);
+          leaderboardEntries.push(entry);
+        } else if (p.afk) {
+          // Kicked from THIS race for going idle: keep their row in the
+          // leaderboard (tagged "AFK") instead of letting it vanish and
+          // reshuffle everyone else's position.
+          leaderboardEntries.push(entry);
+        }
+      });
+
+      // Once results are in, show final standings (by place) instead of the
+      // live progress order. Results only ever include true finishers/DNFs
+      // that RaceRoom actually ranked, not mid-race AFK dropouts (which have
+      // no place), so this uses `racing` rather than `leaderboardEntries`.
+      const resultsMode = state.phase === "finished";
+      if (resultsMode) {
+        racing.sort((a, b) => (a.place || Infinity) - (b.place || Infinity));
+      }
+
+      fillNames(playersList, allPlayers);
+      fillLeaderboard(leaderboard, resultsMode ? racing : leaderboardEntries, resultsMode);
+
+      // Sync the button + status line to MY current status. Recomputed on
+      // every state change (not just once at connect) so it never goes stale.
+      const me = state.players.get(room.sessionId);
+      const iAmRacing = !!me && me.status === "racing";
+      joinBtn.textContent = iAmRacing ? "Spectate" : "Join Next Race";
+      joinBtn.dataset.racing = iAmRacing ? "1" : "0";
+      if (connected) {
+        statusEl.textContent = `Connected as ${myName} (${iAmRacing ? "racing" : "spectating"})`;
+        roomInfoEl.textContent = `Room ${room.roomId} · ${state.racerCount}/${MAX_RACERS} racing`;
+      }
+
+      // Phase banner.
+      phaseBanner.dataset.phase = state.phase;
+      if (state.phase === "countdown") {
+        phaseBanner.textContent = `Race starts in ${state.countdown}…`;
+      } else if (state.phase === "racing") {
+        phaseBanner.textContent = "Race in progress";
+      } else if (state.phase === "finished") {
+        phaseBanner.textContent = `Next race in ${state.countdown}…`;
+      } else {
+        phaseBanner.textContent = "Waiting for challengers";
+      }
+
+      // Clear the input box + committed words whenever a new quote was
+      // picked (by quoteId, not the quote text, since the small quote pool
+      // means two races in a row can land on identical text). `lastQuoteId`
+      // also starts out unset on every fresh page load - including a
+      // reconnect - so this block runs then too. For a genuinely new race
+      // the server's progress is already 0, so resuming from it is a no-op;
+      // but after a reconnect mid-race, the server still knows how far we
+      // got even though our local `committed` was just wiped by the
+      // refresh. Its progress fraction maps back onto an exact prefix of
+      // the quote (the server only ever counts a matching *prefix*), so
+      // resume from that instead of silently restarting at 0.
+      if (state.quoteId !== lastQuoteId) {
+        let resumedChars = me ? Math.round(me.progress * state.quote.length) : 0;
+        if (me && me.finished) {
+          // Already completed the exact full text before disconnecting -
+          // no word-boundary ambiguity, unlike the still-racing case below.
+          resumedChars = state.quote.length;
+        } else if (resumedChars > 0) {
+          // `committed` must only ever hold whole words (see the word-lock
+          // system below), but the server's progress can land mid-word if
+          // that's exactly where we were when the connection dropped. Round
+          // down to the last completed word boundary; at most one partial
+          // word is lost, instead of corrupting the word-lock invariant.
+          const lastSpace = state.quote.lastIndexOf(" ", resumedChars - 1);
+          resumedChars = lastSpace === -1 ? 0 : lastSpace + 1;
+        }
+        typeInput.value = "";
+        committed = state.quote.slice(0, resumedChars);
+        lastQuoteId = state.quoteId;
+      }
+
+      // Subtle race-timeout clock, top-right of the arena.
+      raceTimer.dataset.visible = state.phase === "racing" ? "1" : "0";
+      if (state.phase === "racing") {
+        raceTimer.textContent = formatTime(state.countdown);
+      }
+
+      // The always-visible race text on the left. Racers see it colored
+      // against their own live input (client-side only, purely cosmetic;
+      // the server recomputes correctness itself from the raw input).
+      const iCanType = iAmRacing && state.phase === "racing" && !(me && me.finished);
+      // The input box is shown (but disabled) to queued racers before the
+      // race is live too ("waiting" or "countdown"), so they can see where
+      // they'll type; it only actually accepts input once racing starts.
+      // Typing has zero effect before then: the element is `disabled`, so
+      // the browser blocks all interaction with it, and the server ignores
+      // typeProgress outside "racing" regardless.
+      const showInputBox = iAmRacing && state.phase !== "finished" && !(me && me.finished);
+      typeInput.dataset.visible = showInputBox ? "1" : "0";
+      typeInput.disabled = !iCanType;
+
+      if (state.phase === "racing" || state.phase === "finished") {
+        // Someone who finished (whether the race is still live or now in
+        // results) keeps seeing their own completed text colored green;
+        // no cursor renders for them since there's nothing left to type.
+        quoteEl.dataset.placeholder = "0";
+        if (iCanType || (me && me.finished)) {
+          paintQuote(state.quote);
+        } else {
+          renderQuote(state.quote, "", null, null, false);
+        }
+      } else {
+        // "waiting" or "countdown": no one's typing yet, plain text only.
+        quoteEl.dataset.placeholder = "0";
+        renderQuote(state.quote, "", null, null, false);
+      }
+
+      // Don't yank focus away from the username modal if it's open.
+      if (iCanType && usernameModal.dataset.open !== "1" && document.activeElement !== typeInput) {
+        typeInput.focus();
+      }
+
+      // Joining is locked out once a race is live. The server ignores
+      // setStatus({racing:true}) then too, this just mirrors it in the UI.
+      // Someone already in the room can otherwise queue right up until the
+      // race actually starts, even in the last second of the countdown -
+      // deliberately not restricted the way new arrivals are (see
+      // RaceRoom.ts's LOCK_AT_COUNTDOWN_SECONDS doc comment). Leaving to
+      // spectate stays enabled at all times.
+      joinBtn.disabled = !iAmRacing && (state.phase === "racing" || state.phase === "finished");
+    }
+
+    function formatTime(totalSeconds) {
+      const m = Math.floor(totalSeconds / 60);
+      const s = totalSeconds % 60;
+      return `${m}:${String(s).padStart(2, "0")}`;
+    }
+
+    // Renders the quote with per-character coloring against `input`, plus an
+    // optional highlighted range [selStart, selEnd) mirroring whatever the
+    // user currently has selected in the input box (e.g. Ctrl+A), so the
+    // race text visually matches the input box's own selection. `showCursor`
+    // is false for anyone who isn't actually typing right now (spectating, or
+    // viewing during "waiting"/"countdown"), so they see plain text with no
+    // caret rather than one permanently sitting at the very first character.
+    function renderQuote(quote, input, selStart, selEnd, showCursor) {
+      quoteEl.innerHTML = "";
+      const hasSelection = selStart != null && selEnd != null && selStart !== selEnd;
+
+      for (let i = 0; i < quote.length; i++) {
+        const span = document.createElement("span");
+        span.textContent = quote[i];
+        if (i < input.length) {
+          span.className = input[i] === quote[i] ? "ok" : "bad";
+        } else if (showCursor && i === input.length) {
+          span.className = "cursor";
+          // Solid while actively typing; only start blinking after a pause,
+          // like a native input caret. The whole quote is rebuilt from
+          // scratch on every render (which fires on every server broadcast,
+          // not just your own keystrokes, e.g. the wpm tick every 500ms), so
+          // a fresh cursor span is created far more often than the blink's
+          // 1s cycle; recomputing the delay fresh each time (rather than
+          // leaving a new element to always restart at 0%) keeps the phase
+          // correct no matter how often it gets recreated. Anchored to time
+          // *since you stopped typing* (not absolute wall-clock time) so the
+          // very first "off" always lands exactly one cycle after crossing
+          // the idle threshold, consistently, instead of varying with
+          // whatever moment in real time you happened to stop at.
+          const idleMs = Date.now() - lastKeystrokeAt;
+          if (idleMs >= CURSOR_IDLE_BEFORE_BLINK_MS) {
+            span.classList.add("blinking");
+            const blinkElapsed = idleMs - CURSOR_IDLE_BEFORE_BLINK_MS;
+            span.style.animationDelay = `-${blinkElapsed % 1000}ms`;
+          }
+        }
+        if (hasSelection && i >= selStart && i < selEnd) {
+          span.classList.add("selected");
+        }
+        quoteEl.appendChild(span);
+      }
+    }
+
+    // The input box only ever holds the current word, so its selection range
+    // has to be shifted by `committed.length` to land on the right quote
+    // characters.
+    function currentSelectionRange() {
+      if (document.activeElement !== typeInput) return [null, null];
+      const s = typeInput.selectionStart;
+      const e = typeInput.selectionEnd;
+      if (s == null || e == null || s === e) return [null, null];
+      return [committed.length + s, committed.length + e];
+    }
+
+    function paintQuote(quote) {
+      const full = committed + typeInput.value;
+      const [selStart, selEnd] = currentSelectionRange();
+      renderQuote(quote, full, selStart, selEnd, true);
+    }
+
+    // Plain name list for the "Players" sidebar panel.
+    function fillNames(ul, people) {
+      ul.innerHTML = "";
+      if (people.length === 0) {
+        const li = document.createElement("li");
+        li.className = "empty";
+        li.textContent = "No one here yet";
+        ul.appendChild(li);
+        return;
+      }
+      for (const person of people) {
+        const li = document.createElement("li");
+        li.textContent = person.name + (person.me ? " (you)" : "");
+        if (person.me) li.className = "me";
+        ul.appendChild(li);
+      }
+    }
+
+    // Progress bars + live wpm, rendered above the quote in the arena.
+    // Rows are kept per sessionId across renders (not wiped/rebuilt each
+    // time) so the CSS width transition on .racer-fill has a persisting
+    // element to animate from. Otherwise every render creates a brand new
+    // bar already at its final width, and there's nothing to animate.
+    const leaderboardRows = new Map(); // sessionId -> { el, nameSpan, wpmSpan, fill }
+
+    function fillLeaderboard(container, racers, resultsMode) {
+      const seen = new Set();
+      racers.forEach((person, index) => {
+        seen.add(person.sessionId);
+        let row = leaderboardRows.get(person.sessionId);
+        if (!row) {
+          row = buildLeaderboardRow();
+          leaderboardRows.set(person.sessionId, row);
+        }
+        // Re-append in order so results are visually ranked top to bottom.
+        container.appendChild(row.el);
+
+        const label = person.name + (person.me ? " (you)" : "");
+        if (resultsMode) {
+          const rank = person.place || (index + 1);
+          const tag = person.finished ? "" : " (DNF)";
+          row.nameSpan.textContent = `#${rank} ${label}${tag}`;
+        } else {
+          row.nameSpan.textContent = label + (person.finished ? " ✓" : "");
+        }
+        row.nameSpan.className = person.me ? "me" : "";
+        // AFK (kicked for going idle) shows in place of wpm; the row dims
+        // instead of disappearing, so nobody else's row shifts position.
+        row.wpmSpan.textContent = person.afk ? "AFK" : `${person.wpm} wpm`;
+        row.el.className = "racer-row" + (person.afk ? " afk" : "");
+        row.fill.className = "racer-fill" + (person.finished ? " finished" : "") + (person.afk ? " afk" : "");
+        row.fill.style.width = `${Math.round(person.progress * 100)}%`;
+      });
+      for (const [sessionId, row] of leaderboardRows) {
+        if (!seen.has(sessionId)) {
+          row.el.remove();
+          leaderboardRows.delete(sessionId);
+        }
+      }
+    }
+
+    function buildLeaderboardRow() {
+      const el = document.createElement("div");
+      el.className = "racer-row";
+
+      const nameRow = document.createElement("div");
+      nameRow.className = "racer-name";
+      const nameSpan = document.createElement("span");
+      const wpmSpan = document.createElement("span");
+      wpmSpan.className = "racer-wpm";
+      nameRow.appendChild(nameSpan);
+      nameRow.appendChild(wpmSpan);
+
+      const track = document.createElement("div");
+      track.className = "racer-track";
+      const fill = document.createElement("div");
+      fill.className = "racer-fill";
+      track.appendChild(fill);
+
+      el.appendChild(nameRow);
+      el.appendChild(track);
+      return { el, nameSpan, wpmSpan, fill };
+    }
+
+    // --- Actions --------------------------------------------------------------
+    // We only send intent; the server decides and the change comes back via
+    // onStateChange. We don't touch the UI optimistically here (except letting
+    // the input box hold what was actually typed, which is just local text).
+    joinBtn.onclick = () => {
+      if (!room) return;
+      const iAmRacing = joinBtn.dataset.racing === "1";
+      room.send("setStatus", { racing: !iAmRacing });
+    };
+
+    // Always available, regardless of phase or whether we're racing or
+    // spectating (see RaceRoom.ts's "switchLobby" handler) - the server
+    // replies with a "redirect" (handled in attachRoom above), which is what
+    // actually moves us; this just sends the request.
+    switchLobbyBtn.onclick = () => {
+      if (!room) return;
+      room.send("switchLobby");
+    };
+
+    // Username editing: the header only ever shows plain text; clicking (or
+    // pressing Enter/Space while focused) it opens a centered modal to
+    // change it, so the header itself never resizes or shifts. Saved to
+    // localStorage so it survives reloads, and pushed to the server live via
+    // "setName" so it updates immediately without needing to reconnect.
+    usernameDisplay.textContent = myName;
+
+    function openUsernameModal() {
+      usernameModalInput.value = myName;
+      usernameModal.dataset.open = "1";
+      usernameModalInput.focus();
+      usernameModalInput.select();
+    }
+
+    function closeUsernameModal() {
+      usernameModal.dataset.open = "0";
+      usernameDisplay.focus();
+    }
+
+    function saveUsername() {
+      const trimmed = usernameModalInput.value.trim().slice(0, 20);
+      closeUsernameModal();
+      if (!trimmed || trimmed === myName) return;
+      myName = trimmed;
+      localStorage.setItem(USERNAME_KEY, myName);
+      usernameDisplay.textContent = myName;
+      if (room) room.send("setName", { name: myName });
+    }
+
+    usernameDisplay.onclick = openUsernameModal;
+    usernameDisplay.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openUsernameModal();
+      }
+    });
+    usernameSaveBtn.onclick = saveUsername;
+    usernameCancelBtn.onclick = closeUsernameModal;
+    usernameModalInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        saveUsername();
+      } else if (e.key === "Escape") {
+        closeUsernameModal();
+      }
+    });
+    // Clicking the dimmed backdrop (not the modal box itself) cancels.
+    usernameModal.addEventListener("mousedown", (e) => {
+      if (e.target === usernameModal) closeUsernameModal();
+    });
+
+    // Sends the full attempt-so-far (committed words + current box) and
+    // repaints the colored quote immediately, from local input, not waiting
+    // on a server round-trip. Waiting for the round-trip is what made
+    // mistyped characters feel laggy: a wrong keystroke usually doesn't
+    // change the server-computed progress at all (the matching prefix stalls
+    // at the same length), so there was often no state change to re-render
+    // from until the next incidental update.
+    function sendProgress() {
+      if (!room) return;
+      lastKeystrokeAt = Date.now();
+      paintQuote(room.state.quote);
+      room.send("typeProgress", { input: committed + typeInput.value });
+    }
+
+    typeInput.oninput = sendProgress;
+
+    // Repaints the cursor on its own cadence (not tied to keystrokes or
+    // server broadcasts) so the switch from solid to blinking happens
+    // promptly, right around CURSOR_IDLE_BEFORE_BLINK_MS after you stop
+    // typing, instead of waiting on the next incidental state update.
+    setInterval(() => {
+      if (room && !typeInput.disabled && typeInput.dataset.visible === "1") {
+        paintQuote(room.state.quote);
+      }
+    }, 150);
+
+    // Repaint the selection highlight (no server message needed for this,
+    // it's purely a local display concern).
+    ["select", "mouseup", "keyup"].forEach((evt) => {
+      typeInput.addEventListener(evt, () => {
+        if (room) paintQuote(room.state.quote);
+      });
+    });
+
+    // Space locks in the current word and clears the box for the next one,
+    // but only if the word typed so far is exactly correct. A wrong word
+    // blocks the space instead of committing, so you fix it in place; once
+    // locked, a word can't be backspaced into again.
+    typeInput.addEventListener("keydown", (e) => {
+      if (e.key !== " " || !room) return;
+      e.preventDefault();
+
+      const quote = room.state.quote;
+      const spaceIdx = quote.indexOf(" ", committed.length);
+      if (spaceIdx === -1) return; // final word, no next boundary to commit into
+
+      const expectedWord = quote.slice(committed.length, spaceIdx);
+      if (typeInput.value !== expectedWord) return; // not correct yet, space is a no-op
+
+      committed += expectedWord + " ";
+      typeInput.value = "";
+      sendProgress();
+    });
+
+    connect();
+  </script>
+</body>
+</html>

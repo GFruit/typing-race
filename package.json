@@ -1,0 +1,20 @@
+{
+  "name": "typing-race",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "colyseus": "^0.17.10",
+    "@colyseus/schema": "^4.0.7",
+    "@colyseus/timer": "^2.0.3",
+    "express": "^4.19.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "@types/node": "^22.0.0"
+  }
+}

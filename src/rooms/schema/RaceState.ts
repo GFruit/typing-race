@@ -1,0 +1,142 @@
+/**
+ * RaceState.ts: the SYNCHRONIZED state of a race room.
+ *
+ * Anything defined here with `@type(...)` is automatically encoded and pushed
+ * to every connected client whenever the server mutates it. Keep it minimal:
+ * only put data here that clients actually need to see. Server-only scratch data
+ * (timers, buffers, etc.) belongs on the Room instance, NOT in the state.
+ *
+ * See ARCHITECTURE.md → "Core model" and "How state sync works".
+ */
+import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
+
+/** One connected participant (racer or spectator). */
+export class Player extends Schema {
+  @type("string") name: string = "guest";
+
+  /**
+   * "watching" = spectating; "racing" = joined the next/current race.
+   * Only the SERVER may change this (via the "setStatus" message handler).
+   */
+  @type("string") status: string = "watching";
+
+  /**
+   * Race progress, computed and owned by the server from the client's raw
+   * typed input (see RaceRoom's "typeProgress" handler). Never trust a
+   * client-reported value directly.
+   */
+  @type("number") progress: number = 0; // 0..1 fraction of the quote typed correctly
+  @type("number") wpm: number = 0;
+  @type("boolean") finished: boolean = false;
+
+  /**
+   * Final standing for this race: 1 = first, 2 = second, etc. 0 = not ranked
+   * yet. Assigned by the server in finish order; stragglers still racing
+   * when the race times out are ranked afterward, by progress. See RaceRoom.
+   */
+  @type("number") place: number = 0;
+
+  /**
+   * True if the server auto-moved this player to "watching" for going idle
+   * mid-race (see RaceRoom's INACTIVITY_TIMEOUT_MS). Reset false at the start
+   * of every race. Lets clients keep showing their leaderboard row (tagged
+   * "AFK" instead of wpm) rather than have it disappear and reshuffle the
+   * rest of the list.
+   */
+  @type("boolean") afk: boolean = false;
+
+  /**
+   * A random identifier the CLIENT generates once per browser tab (see
+   * client/index.html's `myClientId`) and sends on every join, including a
+   * post-race merge/Switch Lobby redirect. Unlike the Colyseus sessionId
+   * (which is different every single join/redirect, even for the exact
+   * same browser tab), this stays stable across a tab's whole session -
+   * it's what lets a client recognize "this player was already in my
+   * lobby before this merge, so don't re-announce them" (see
+   * ChatMessage.aboutClientId and client/index.html's `myKnownClientIds`).
+   */
+  @type("string") clientId: string = "";
+}
+
+/** One chat message. Sanitized server-side; see RaceRoom's "sendChat" handler. */
+export class ChatMessage extends Schema {
+  @type("string") sessionId: string = ""; // lets clients tell "is this me" for styling; only meaningful for a real (non-system) message
+  @type("string") name: string = "";
+  @type("string") text: string = "";
+  @type("number") sentAt: number = 0;
+
+  /**
+   * True for a server-generated announcement ("X joined the lobby" /
+   * "X left the lobby" - see RaceRoom's onJoin/onLeave/postSystemMessage).
+   * A join is posted the exact same way whether it's a brand new visitor
+   * or someone arriving via a post-race merge/Switch Lobby redirect, per
+   * match-making.md's "Always Frame Joins the Same Way": nothing here
+   * distinguishes the two, so a merge never reads as "you were moved".
+   */
+  @type("boolean") system: boolean = false;
+
+  /** Only meaningful when `system` is true: false = "joined", true = "left". */
+  @type("boolean") left: boolean = false;
+
+  /**
+   * Only meaningful when `system` is true: which player this announcement
+   * concerns, by their persistent `Player.clientId` (not a Colyseus
+   * sessionId, which wouldn't survive a merge/redirect). Lets a client
+   * recognize and skip an announcement about its own arrival, or about
+   * someone it already knew from the room it just came from.
+   */
+  @type("string") aboutClientId: string = "";
+}
+
+/** The whole room's synchronized state. */
+export class RaceState extends Schema {
+  /**
+   * Room lifecycle phase:
+   *   "waiting":   no one has queued to race yet.
+   *   "countdown": at least one racer has queued; `countdown` ticks to 0.
+   *   "racing":    the race is live; `quote` is the text to type.
+   *   "finished":  results are in; `countdown` ticks down to the next race.
+   */
+  @type("string") phase: string = "waiting";
+
+  /**
+   * A countdown in seconds, reused for two different waits:
+   *   - phase "countdown": time until the race starts.
+   *   - phase "finished": time until results clear and the next race can begin.
+   * 0 otherwise.
+   */
+  @type("number") countdown: number = 0;
+
+  /** The text for the upcoming/current race. Always populated; see RaceRoom. */
+  @type("string") quote: string = "";
+
+  /**
+   * Increments every time a new quote is picked. The quote pool is small
+   * enough that two consecutive races can land on the identical text, so
+   * clients must key "did a new race just start" off this counter rather
+   * than off `quote` itself, or they'd fail to reset stale typed input when
+   * the text happens to repeat.
+   */
+  @type("number") quoteId: number = 0;
+
+  /**
+   * Mirrors `countRacers()`; how many of `players` currently have
+   * `status === "racing"`, out of MAX_RACERS (see RaceRoom). Kept in synced
+   * state (cheap, small) so clients can show "3/5" without counting players
+   * themselves; also pushed into the room's matchmaking metadata (see
+   * RaceRoom's `updateRacerCount()`) for cross-room fullest-first placement.
+   */
+  @type("number") racerCount: number = 0;
+
+  /** Everyone currently connected, keyed by their Colyseus sessionId. */
+  @type({ map: Player }) players = new MapSchema<Player>();
+
+  /**
+   * Recent chat history, capped at CHAT_HISTORY_LIMIT (see RaceRoom) by
+   * dropping the oldest message whenever a new one arrives past the cap.
+   * Synced like everything else here, so a client who just joined gets the
+   * existing backlog for free via the normal state sync, no separate
+   * "catch me up" request needed.
+   */
+  @type([ChatMessage]) chat = new ArraySchema<ChatMessage>();
+}
