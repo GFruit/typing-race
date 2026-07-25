@@ -17,13 +17,11 @@ import { RaceRoom } from "./rooms/RaceRoom";
 // 1s x 2 detects a truly dead connection in ~3-4s instead. Still safe: a
 // healthy browser auto-replies to pings at the protocol level near-instantly,
 // so a live client would have to go ~2-3s totally silent to be dropped.
-// (Named const + startup log are temporary, to confirm the setting actually
-// takes effect vs. still running the default.)
-const wsTransport = new WebSocketTransport({ pingInterval: 1000, pingMaxRetries: 2 });
-console.log(`[config] ws ping interval=${(wsTransport as any).pingIntervalMS}ms maxRetries=${(wsTransport as any).pingMaxRetries}`);
-
+// (On a host whose proxy answers the pings for a dead connection - Render -
+// this can't beat the proxy's own idle timeout; an abrupt/incognito close
+// there still waits that out. A graceful close stays fast via the beacon.)
 export const server = defineServer({
-  transport: wsTransport,
+  transport: new WebSocketTransport({ pingInterval: 1000, pingMaxRetries: 2 }),
   rooms: {
     // Fill the fullest non-locked room first (most racers before least), per
     // match-making.md's "Filling Rooms First". Room instances briefly lock
@@ -44,14 +42,9 @@ export const server = defineServer({
     // the identifying params ride in the query string (no body parser needed).
     // Registered before the static handler so it isn't shadowed by it.
     app.post("/leave", (req, res) => {
-      // Temporary unconditional log: confirms whether the beacon reaches the
-      // server at all (vs. a stale client never sending it).
       const q = req.query as Record<string, string | undefined>;
-      console.log(`[leave-route] hit q=${JSON.stringify(q)}`);
       if (q.roomId && q.sessionId && q.token) {
         RaceRoom.handleLeaveBeacon(String(q.roomId), String(q.sessionId), String(q.token));
-      } else {
-        console.log(`[leave-route] missing params, ignoring`);
       }
       res.sendStatus(204);
     });

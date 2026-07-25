@@ -929,7 +929,17 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   the tab isn't leaving, just shedding a stale duplicate. Verified with real
   Chrome: two sessions forced to share a clientId land in one room -> the older
   is kicked instantly, roster shows one. Reconnects (same sessionId) don't
-  re-trigger onJoin so they're unaffected; distinct clients never match.
+  re-trigger onJoin so they're unaffected; distinct clients never match. Later
+  made the dedup delete the duplicate from synced state SYNCHRONOUSLY (not just
+  the async connection close) so no transient duplicate lingers during a
+  Switch-Lobby spam. Accepted the incognito/abrupt-close leave delay as a Render
+  proxy limitation (it holds+answers the dead connection until its own ~12s
+  timeout; the faster ping-timeout config IS applied, it just can't beat the
+  proxy). Only an app-level heartbeat could, deemed not worth it for an edge
+  case - real users on normal tabs leave in ~1.5s.
+- 2026-07-25: Removed the temporary diagnostics now everything's confirmed live:
+  the [config]/[leave-route]/[beacon] server logs and the client console build
+  marker. The beacon endpoint, dedup, faster ping-timeout and grace tuning stay.
 - 2026-07-25: KEY INSIGHT (user): the slow ~14s "left" happened when closing an
   INCOGNITO tab; a normal tab left fast. Corrected diagnosis (verified by
   driving real Chrome, puppeteer): a graceful close (normal tab, browser process

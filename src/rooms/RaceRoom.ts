@@ -920,16 +920,16 @@ export class RaceRoom extends Room {
    */
   static handleLeaveBeacon(roomId: string, sessionId: string, token: string): void {
     const room = RaceRoom.instances.get(roomId);
-    if (!room) { console.log(`[beacon] no room ${roomId}`); return; }
+    if (!room) return;
     const client = room.clients.find((c) => c.sessionId === sessionId);
-    if (!client) { console.log(`[beacon] no client ${sessionId} in ${roomId}`); return; }
+    if (!client) return;
     // The client's `room.reconnectionToken` joins the raw token with the roomId
     // via ":" (e.g. "roomId:rawToken"); we store just the raw token. Accept the
     // beacon if the raw token equals the whole value or appears as any ":"-
     // delimited segment - robust to the exact join order/format while still
     // requiring knowledge of the per-session secret (so nobody can forge it).
     const raw = client.reconnectionToken;
-    if (token !== raw && !token.split(":").includes(raw)) { console.log(`[beacon] token mismatch ${sessionId}`); return; }
+    if (token !== raw && !token.split(":").includes(raw)) return; // missing/forged token: ignore
 
     // Force the socket closed NOW rather than client.leave()/ref.close(), which
     // starts a WebSocket closing handshake and waits for the peer to ack it -
@@ -942,7 +942,6 @@ export class RaceRoom extends Room {
     // abnormal 1006 that terminate() produces.
     room.beaconLeaving.add(sessionId);
     const ref: any = (client as any).ref;
-    console.log(`[beacon] OK ${sessionId} -> ${ref && typeof ref.terminate === "function" ? "terminate" : "leave(1001)"}`);
     if (ref && typeof ref.terminate === "function") ref.terminate();
     else client.leave(1001);
   }
