@@ -28,12 +28,27 @@ export const server = defineServer({
     // the identifying params ride in the query string (no body parser needed).
     // Registered before the static handler so it isn't shadowed by it.
     app.post("/leave", (req, res) => {
+      // Temporary unconditional log: confirms whether the beacon reaches the
+      // server at all (vs. a stale client never sending it).
       const q = req.query as Record<string, string | undefined>;
+      console.log(`[leave-route] hit q=${JSON.stringify(q)}`);
       if (q.roomId && q.sessionId && q.token) {
         RaceRoom.handleLeaveBeacon(String(q.roomId), String(q.sessionId), String(q.token));
+      } else {
+        console.log(`[leave-route] missing params, ignoring`);
       }
       res.sendStatus(204);
     });
-    app.use(express.static(path.join(__dirname, "..", "client")));
+    // Never let the browser serve a stale index.html: the client is the whole
+    // app, and shipping fixes is pointless if an old cached copy is what runs.
+    // no-cache = the browser must revalidate with the server before reuse, so a
+    // new deploy is picked up on the next load (304 when unchanged, so it's
+    // cheap). A build marker is logged client-side too (see index.html) so we
+    // can confirm which version is actually running.
+    app.use(express.static(path.join(__dirname, "..", "client"), {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) res.setHeader("Cache-Control", "no-cache");
+      },
+    }));
   },
 });
