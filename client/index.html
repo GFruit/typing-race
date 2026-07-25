@@ -966,6 +966,15 @@
       // fresh one instead of giving up.
       let redirecting = false;
       room.onMessage("redirect", async (payload) => {
+        // Ignore duplicate redirects for this room. Clicking "Switch Lobby" in
+        // quick succession fires several `switchLobby` sends before `room` is
+        // reassigned, so the server can reply with several "redirect" messages;
+        // without this guard each one ran its own joinById(), spawning the
+        // player 2-3 times in the target lobby (reported bug). Only the first
+        // redirect is honored; the rest are no-ops (this room is being torn
+        // down anyway). A genuine later redirect happens on the NEW room, whose
+        // handler has its own fresh `redirecting`.
+        if (redirecting) return;
         redirecting = true;
         try {
           const options = { name: myName, resumeRacing: !!payload.resumeRacing, clientId: myClientId, emoji: myEmoji || undefined };

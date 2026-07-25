@@ -918,6 +918,20 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   churn. Verified via a temporary close-code log that a real browser tab close
   hits the clean-close (fast) path, then removed the log; an unexpected code
   falls back to the 3s path harmlessly regardless.
+- 2026-07-25: The pagehide beacon still showed ~14s live. Two follow-ups: (1)
+  the beacon reached the server but `client.leave(1001)` starts a WS closing
+  handshake that HANGS when the proxy's upstream socket is a dead-but-held
+  connection (no close-ack ever comes), so the ~9-12s ping-timeout won the race
+  anyway. Switched handleLeaveBeacon to `client.ref.terminate()` (destroys the
+  socket immediately, synchronously fires 'close' -> onDrop), with a
+  `beaconLeaving` Set so onDrop still gives the terminate's abnormal-1006 close
+  the SHORT unload grace. Added temporary `[beacon]` server logs to confirm on
+  Render whether the beacon arrives/matches. (2) Switch-Lobby double/triple
+  spawn: rapid clicks fire several `switchLobby` sends before the client's
+  `room` is reassigned, so the server replies with several "redirect" messages
+  and each ran its own joinById() = multiple sessions in the target lobby.
+  Fixed with a reentrancy guard (`if (redirecting) return;`) in the client's
+  redirect handler so only the first redirect per room is honored.
 - 2026-07-25: The close-code split above worked on a direct connection but NOT
   live on Render (user: ~14s to leave). Root cause: Render sits behind a
   WebSocket proxy that doesn't forward the browser's WS close frame, so the

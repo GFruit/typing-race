@@ -226,6 +226,11 @@ export class RaceRoom extends Room {
   // lobby" for those departures (they're framed as joining wherever they
   // land instead, never as leaving here).
   private isMerging = false;
+  // sessionIds we've force-terminated in response to a leave beacon (see
+  // handleLeaveBeacon). onDrop consumes this to give those the SHORT unload
+  // grace: the terminate surfaces as an abnormal 1006 close, which would
+  // otherwise look like a network blip and get the longer grace.
+  private beaconLeaving = new Set<string>();
 
   onCreate(options: any) {
     this.state.phase = "waiting";
@@ -524,7 +529,12 @@ export class RaceRoom extends Room {
    * refresh needs to reconnect without reintroducing the join/leave flicker.)
    */
   onDrop(client: Client, code: number) {
-    const cleanClose = code === 1000 || code === 1001;
+    // A clean browser close (1001/1000) OR a beacon-triggered terminate (which
+    // surfaces as an abnormal 1006 - see handleLeaveBeacon) is a deliberate
+    // unload, so it gets the short grace. Anything else (a real ping-timeout
+    // network blip) keeps the longer grace.
+    const beaconLeave = this.beaconLeaving.delete(client.sessionId);
+    const cleanClose = code === 1000 || code === 1001 || beaconLeave;
     this.allowReconnection(client, cleanClose ? UNLOAD_GRACE_SECONDS : RECONNECTION_GRACE_SECONDS);
   }
 
@@ -873,17 +883,31 @@ export class RaceRoom extends Room {
    */
   static handleLeaveBeacon(roomId: string, sessionId: string, token: string): void {
     const room = RaceRoom.instances.get(roomId);
-    if (!room) return;
+    if (!room) { console.log(`[beacon] no room ${roomId}`); return; }
     const client = room.clients.find((c) => c.sessionId === sessionId);
-    if (!client) return;
+    if (!client) { console.log(`[beacon] no client ${sessionId} in ${roomId}`); return; }
     // The client's `room.reconnectionToken` joins the raw token with the roomId
     // via ":" (e.g. "roomId:rawToken"); we store just the raw token. Accept the
     // beacon if the raw token equals the whole value or appears as any ":"-
     // delimited segment - robust to the exact join order/format while still
     // requiring knowledge of the per-session secret (so nobody can forge it).
     const raw = client.reconnectionToken;
-    if (token !== raw && !token.split(":").includes(raw)) return; // missing/forged token: ignore
-    client.leave(1001);
+    if (token !== raw && !token.split(":").includes(raw)) { console.log(`[beacon] token mismatch ${sessionId}`); return; }
+
+    // Force the socket closed NOW rather than client.leave()/ref.close(), which
+    // starts a WebSocket closing handshake and waits for the peer to ack it -
+    // behind a proxy (Render) whose upstream socket is a dead-but-held
+    // connection, that ack never comes, so the close hangs (up to the ws
+    // library's ~30s timeout) and the ~9-12s ping-timeout wins the race
+    // instead: exactly the ~14s delay reported. terminate() destroys the socket
+    // immediately and synchronously fires the 'close' event -> onDrop -> grace.
+    // Flag it first so onDrop gives it the short unload grace despite the
+    // abnormal 1006 that terminate() produces.
+    room.beaconLeaving.add(sessionId);
+    const ref: any = (client as any).ref;
+    console.log(`[beacon] OK ${sessionId} -> ${ref && typeof ref.terminate === "function" ? "terminate" : "leave(1001)"}`);
+    if (ref && typeof ref.terminate === "function") ref.terminate();
+    else client.leave(1001);
   }
 
   /**
