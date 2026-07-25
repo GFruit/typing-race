@@ -1233,3 +1233,17 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     (`node_modules/`, `.env*`) and a first commit, since Render deploys from
     a Git remote. Pushing to GitHub and creating the Render service are
     manual steps (external accounts) still to do.
+- 2026-07-25: Quote pool expanded from 4 to 200 (`QUOTES`), all 50-98
+  characters. Web tools couldn't actually reach reddit.com (both search and
+  fetch refused the domain outright), so instead of browsing AskReddit
+  directly, general web search surfaced the common *themes* real AskReddit
+  threads cover (life advice, "fact that sounds fake but isn't", trivia,
+  relationship/work takes, funny observations) and all 200 quotes were
+  written fresh in that spirit, not copied or paraphrased from any specific
+  comment, so there's nothing to attribute. Moved `QUOTES` out of
+  `RaceRoom.ts` into its own `src/rooms/quotes.ts` (200 strings was too much
+  to scroll past to reach the actual room logic); `RaceRoom.ts` now imports
+  it. `pickQuote()`'s random-selection logic is unchanged, only the data
+  source. Verified: a script confirmed exactly 200 entries, all within
+  50-300 characters, no duplicates; `tsc --noEmit` passed after the move;
+  the running dev server (tsx watch) hot-reloaded cleanly and kept serving.

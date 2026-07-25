@@ -124,6 +124,7 @@ import { Room, Client, CloseCode } from "colyseus";
 import { Delayed } from "@colyseus/timer";
 import type { ArraySchema } from "@colyseus/schema";
 import { RaceState, Player, ChatMessage } from "./schema/RaceState";
+import { QUOTES } from "./quotes";
 
 const COUNTDOWN_SECONDS = 10;
 const MAX_RACERS = 5;
@@ -151,13 +152,6 @@ const CHAT_MESSAGE_MAX_LENGTH = 200;
 // normal refresh's reconnect handshake reliably lands inside the window,
 // short enough that a real close doesn't leave a stale roster row for long.
 const RECONNECTION_GRACE_SECONDS = 3;
-
-const QUOTES = [
-  "The quick brown fox jumps over the lazy dog.",
-  "Practice makes perfect, but nobody's perfect, so why practice.",
-  "Two roads diverged in a yellow wood, and sorry I could not travel both.",
-  "In the middle of difficulty lies opportunity.",
-];
 
 export class RaceRoom extends Room {
   // Every live RaceRoom instance, keyed by roomId. Only valid within a
