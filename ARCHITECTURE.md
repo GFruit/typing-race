@@ -1247,3 +1247,27 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   source. Verified: a script confirmed exactly 200 entries, all within
   50-300 characters, no duplicates; `tsc --noEmit` passed after the move;
   the running dev server (tsx watch) hot-reloaded cleanly and kept serving.
+- 2026-07-25: Quote pool rewritten again per feedback: the first 200 all read
+  too similar (uniform advice-column voice, lengths clustered narrowly at
+  59-98 characters), the opposite of what makes rewritten-from-social-media
+  quotes actually interesting. Tried reaching X/Twitter and Threads directly
+  first (per a follow-up question about other source platforms); X's web/API
+  access returned 402 Payment Required and Threads renders an empty
+  JS-only shell without login, both dead ends same as Reddit. What did work:
+  general web search surfaced third-party compilation articles (e.g.
+  pleated-jeans.com) of real tweets/posts, and one specific article rendered
+  as actual prose text (fetchable normally), while most others embed each
+  post as a screenshot image instead. For the image-only pages, downloaded
+  the screenshots directly (curl) and read them with the Read tool's own
+  image support to OCR them manually, since no other tool here does that.
+  Gathered roughly 90 real, wildly varied posts this way (one-liners,
+  dialogue-style jokes, rambling stories, deadpan trivia, wholesome
+  anecdotes) across five source pages, skipped anything crude/dark/topical,
+  then rewrote all 200 quotes: about 55 adapted from that real material
+  (names/handles stripped, wording changed, nothing verbatim), the rest
+  newly written to match that same variety rather than one voice. Verified:
+  the same script confirms 200 entries, no duplicates, all in range, but now
+  spread 58-185 characters (vs. the old 59-98 cluster) with real structural
+  variety (short deadpan lines, dialogue exchanges, long run-on rants,
+  trivia, hot takes); `tsc --noEmit` and the running dev server both stayed
+  clean after the swap.
