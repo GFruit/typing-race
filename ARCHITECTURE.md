@@ -902,6 +902,21 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   was, per user request. Later: put the username back as a read-only header
   label (between the emoji and the gear) since the user still wanted it
   visible; clicking it opens Settings focused on the name field.
+- 2026-07-25: Faster leave on tab close (user: the roster row lingered a few
+  seconds after closing a tab). Root cause is unchanged and unavoidable: a tab
+  close and a page refresh are indistinguishable at close time, so the server
+  must wait a reconnect grace before declaring a close final, or every refresh
+  flickers the player out/in. Improvement: `onDrop` now branches on the raw
+  WebSocket close code. A clean close (1001 "going away"/1000 - what a browser
+  sends on both close AND refresh) gets a short UNLOAD_GRACE_SECONDS (1.5, user
+  choice); an abnormal close (1006 / ping-timeout terminate = a genuine network
+  blip, no clean frame) keeps the longer RECONNECTION_GRACE_SECONDS (3). So a
+  real close disappears in ~1.5s while network blips keep full seat resilience.
+  Not truly instant - a refresh is a clean close too, so UNLOAD_GRACE can't drop
+  below what a refresh needs to reconnect without bringing back the join/leave
+  churn. Verified via a temporary close-code log that a real browser tab close
+  hits the clean-close (fast) path, then removed the log; an unexpected code
+  falls back to the 3s path harmlessly regardless.
 - 2026-07-25: Replaced the "Race in progress" phase banner with a large live
   WPM readout (`#wpmDisplay`, your own server-computed `wpm`), shown only while
   you're actually racing. Toggleable in Settings (`#wpmToggle`, "Large WPM

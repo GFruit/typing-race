@@ -186,13 +186,20 @@ const RACE_TIMEOUT_MS = 60_000;
 const INACTIVITY_TIMEOUT_MS = 10_000;
 const CHAT_HISTORY_LIMIT = 50;
 const CHAT_MESSAGE_MAX_LENGTH = 200;
-// Short deliberately: client JS can't tell a real tab close apart from an
-// ordinary page refresh (both look like the same abrupt drop at the
-// transport level - see client/index.html's now-reverted "pagehide" fix
-// attempt), so there's no way to make a close instant without also making
-// refreshes fail to reconnect. This is the compromise: long enough that a
-// normal refresh's reconnect handshake reliably lands inside the window,
-// short enough that a real close doesn't leave a stale roster row for long.
+// Reconnection grace windows (see onDrop). A tab close and a page refresh are
+// indistinguishable at close time - both send a *clean* WebSocket close (1001
+// "going away") and there's no client/browser signal that says which - so a
+// close can never be made truly instant: whatever window a refresh needs to
+// reconnect, a close has to wait out too, or every refresh flickers the player
+// out and back in (the churn behind the reverted "pagehide" fix - see
+// client/index.html). What we CAN do is split by *how* the socket closed:
+//   - UNLOAD_GRACE_SECONDS: a clean close (tab close OR refresh). Kept short -
+//     just long enough for a normal refresh's reconnect handshake to land - so
+//     a real close disappears from the roster quickly.
+//   - RECONNECTION_GRACE_SECONDS: an ABNORMAL close (code 1006 / a ping-timeout
+//     terminate - i.e. a genuine network blip, which never sends a clean close
+//     frame). Kept longer so a momentary connection drop doesn't cost your seat.
+const UNLOAD_GRACE_SECONDS = 1.5;
 const RECONNECTION_GRACE_SECONDS = 3;
 
 export class RaceRoom extends Room {
@@ -506,9 +513,19 @@ export class RaceRoom extends Room {
    * keeps running normally while the window is open in the background.
    * `onLeave` below runs the real cleanup, but only if the window elapses
    * without a reconnect.
+   *
+   * `code` is the raw WebSocket close code. A tab close / page refresh sends a
+   * clean close (1001 "going away", occasionally 1000), so those get the short
+   * UNLOAD_GRACE_SECONDS and disappear from the roster quickly. A network blip
+   * has no clean close frame - the server's ping-timeout terminates the socket,
+   * surfacing as an abnormal 1006 - so anything else keeps the longer
+   * RECONNECTION_GRACE_SECONDS, so a momentary drop doesn't lose the seat.
+   * (A refresh is a clean close too, hence UNLOAD_GRACE can't go below what a
+   * refresh needs to reconnect without reintroducing the join/leave flicker.)
    */
   onDrop(client: Client, code: number) {
-    this.allowReconnection(client, RECONNECTION_GRACE_SECONDS);
+    const cleanClose = code === 1000 || code === 1001;
+    this.allowReconnection(client, cleanClose ? UNLOAD_GRACE_SECONDS : RECONNECTION_GRACE_SECONDS);
   }
 
   onReconnect(client: Client) {
