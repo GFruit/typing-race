@@ -198,9 +198,12 @@ const CHAT_MESSAGE_MAX_LENGTH = 200;
 //     a real close disappears from the roster quickly.
 //   - RECONNECTION_GRACE_SECONDS: an ABNORMAL close (code 1006 / a ping-timeout
 //     terminate - i.e. a genuine network blip, which never sends a clean close
-//     frame). Kept longer so a momentary connection drop doesn't cost your seat.
+//     frame). A bit longer so a momentary connection drop doesn't cost your
+//     seat - but not much, since the ping-timeout that surfaces this (see
+//     app.config.ts's pingInterval) has ALREADY spent ~3-4s confirming the
+//     connection is dead before this grace even starts.
 const UNLOAD_GRACE_SECONDS = 1.5;
-const RECONNECTION_GRACE_SECONDS = 3;
+const RECONNECTION_GRACE_SECONDS = 2;
 
 export class RaceRoom extends Room {
   // Every live RaceRoom instance, keyed by roomId. Only valid within a

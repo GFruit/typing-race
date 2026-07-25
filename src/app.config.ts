@@ -4,10 +4,21 @@
  */
 import path from "path";
 import express from "express";
-import { defineServer, defineRoom } from "colyseus";
+import { defineServer, defineRoom, WebSocketTransport } from "colyseus";
 import { RaceRoom } from "./rooms/RaceRoom";
 
 export const server = defineServer({
+  // Faster dead-connection detection. When a client vanishes ABRUPTLY (an
+  // incognito window teardown, a crash, or - behind a proxy like Render that
+  // holds the dead upstream socket - even an ordinary close whose signal never
+  // reaches us), there's no clean WS close and the pagehide beacon can't fire,
+  // so the ONLY way we notice is this ping/pong health check. The defaults
+  // (pingInterval 3s x pingMaxRetries 2) take ~9-12s to give up, which is the
+  // bulk of the ~14s "X left" delay a user saw when closing an incognito tab.
+  // 1s x 2 detects a truly dead connection in ~3-4s instead. Still safe: a
+  // healthy browser auto-replies to pings at the protocol level near-instantly,
+  // so a live client would have to go ~2-3s totally silent to be dropped.
+  transport: new WebSocketTransport({ pingInterval: 1000, pingMaxRetries: 2 }),
   rooms: {
     // Fill the fullest non-locked room first (most racers before least), per
     // match-making.md's "Filling Rooms First". Room instances briefly lock

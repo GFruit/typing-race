@@ -918,6 +918,24 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   churn. Verified via a temporary close-code log that a real browser tab close
   hits the clean-close (fast) path, then removed the log; an unexpected code
   falls back to the 3s path harmlessly regardless.
+- 2026-07-25: KEY INSIGHT (user): the slow ~14s "left" happened when closing an
+  INCOGNITO tab; a normal tab left fast. Corrected diagnosis (verified by
+  driving real Chrome, puppeteer): a graceful close (normal tab, browser process
+  survives) fires BOTH the WS close frame AND the pagehide beacon -> fast (~1.5s).
+  An abrupt teardown (closing an incognito window kills the process) fires
+  NEITHER - no clean close, and the beacon can't flush before the process dies -
+  so the ONLY way the server notices is its ping/pong health check. So the
+  earlier "Render drops WS close frames" theory was only half-right: normal tabs
+  were always fine; only abrupt closes were slow, and behind Render's proxy
+  (which holds the dead upstream socket) they wait out the full ping-timeout.
+  Real fix: cut Colyseus's ping-timeout from the default (pingInterval 3s x
+  pingMaxRetries 2 ≈ 9-12s) to 1s x 2 ≈ 3-4s via a custom WebSocketTransport in
+  app.config.ts, and RECONNECTION_GRACE 3s -> 2s. So an abrupt/incognito close
+  now clears in ~5-6s instead of ~14s; a graceful close stays ~1.5s (beacon/WS
+  close). Can't do better for abrupt closes - no client-side signal fires at
+  all, as the test confirmed. Safe: a healthy browser auto-pongs at the protocol
+  level, so a live client must go ~2-3s fully silent to be dropped. The beacon
+  is kept as the fast path for graceful closes.
 - 2026-07-25: The pagehide beacon still showed ~14s live. Two follow-ups: (1)
   the beacon reached the server but `client.leave(1001)` starts a WS closing
   handshake that HANGS when the proxy's upstream socket is a dead-but-held
