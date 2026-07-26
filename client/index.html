@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Typing Race</title>
+  <title>Typro</title>
 
   <!--
     Colyseus client SDK (browser build, no bundler needed).
@@ -26,7 +26,8 @@
       display: flex; align-items: center; gap: 12px;
     }
     h1 { margin: 0; font-size: 18px; font-weight: 650; }
-    #status { color: #94a3b8; font-size: 13px; }
+    /* Same green as .btn's "Join Race" state, so the wordmark echoes it. */
+    h1 .brand-accent { color: #22c55e; }
     /* Dev/QA visibility: which room instance this tab landed in, and how
        full it is. Not part of the intended end-user UI, just makes the
        multi-room matchmaking behavior (see match-making.md) observable
@@ -469,8 +470,10 @@
     .switch-lobby-btn:hover { background: #334155; color: #e2e8f0; }
     #rosterView { padding-right: 16px; }
     ul { list-style: none; margin: 0; padding: 0; }
-    li { padding: 7px 0; }
-    li.me { color: #7dd3fc; font-weight: 600; }
+    /* Roster rows deliberately match a chat line: same 13px/1.4 text, same
+       "avatar then name" shape (see fillNames), so the two views read as the
+       same list of people rather than two unrelated designs. */
+    li { padding: 7px 0; font-size: 13px; line-height: 1.4; word-break: break-word; }
     .empty { color: #475569; font-style: italic; padding: 7px 0; }
 
     /* Toggles the panel between the roster and chat; icon swaps to show
@@ -500,20 +503,20 @@
     }
     #chatMessages .empty { padding-right: 16px; }
     .chat-msg { font-size: 13px; line-height: 1.4; word-break: break-word; padding-right: 16px; }
-    .chat-msg-name { font-weight: 600; color: #94a3b8; }
-    .chat-msg-name.me { color: #7dd3fc; }
-    .chat-msg-system { color: #64748b; font-style: italic; }
-    /* Local-only status line, never sent to or seen by anyone else - see
-       refreshSoundStatusMessage. Rendered like an ordinary system message
-       ("X joined the lobby") rather than a floating banner, so it sits in the
-       log as history instead of being a control that vanishes on click. */
-    .chat-msg-sound-blocked { color: #fdba74; font-style: italic; cursor: pointer; }
-    .chat-msg-sound-blocked:hover { text-decoration: underline; }
-    .chat-msg-sound-enabled { color: #64748b; font-style: italic; }
-    .chat-msg-sound-gear {
-      cursor: pointer; margin-left: 4px; font-style: normal; opacity: .75;
-    }
-    .chat-msg-sound-gear:hover { opacity: 1; }
+    /* Shared by chat lines and roster rows so the two can't drift apart; both
+       get the emoji-derived tint inline on top of this (see getEmojiColor),
+       with .me's cyan as the fallback when an emoji can't be sampled. */
+    .chat-msg-name, .player-name { font-weight: 600; color: #94a3b8; }
+    .chat-msg-name.me, .player-name.me { color: #7dd3fc; }
+    /* Server system messages ("X joined the lobby") and local-only status lines
+       (the connection status - see setConnectionStatus - and the sound notice -
+       see refreshSoundStatusMessage) are styled IDENTICALLY, deliberately: a
+       status line should read as one more quiet note in the log, not as a
+       banner or an alert. Hence one shared declaration rather than two that
+       happen to match. The separate class name is kept only because the two
+       differ in origin - system lines come from the server and everyone sees
+       them, status lines never leave this tab. */
+    .chat-msg-system, .chat-msg-status { color: #64748b; font-style: italic; }
     #chatForm { display: flex; gap: 8px; padding-right: 16px; }
     #chatInput {
       flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px;
@@ -541,8 +544,12 @@
 </head>
 <body>
   <header>
-    <h1>Typing Race</h1>
-    <div id="status">Connecting…</div>
+    <h1>Ty<span class="brand-accent">pro</span></h1>
+    <!-- Connection status is NOT shown here: it lives in the chat log as a
+         local status line (see setConnectionStatus), so the header stays a
+         clean wordmark + identity row rather than carrying a "Connected as
+         X (spectating)" label that restated the name and the join button
+         sitting right next to it. -->
     <div id="roomInfo"></div>
     <div id="identityBox">
       <div id="emojiBox">
@@ -945,7 +952,7 @@
     let soundStatusEntry = null;
 
     function newSoundStatusEntry() {
-      soundStatusEntry = { local: true, kind: "soundBlocked", text: "🔇 Sound is blocked, click anywhere to enable." };
+      soundStatusEntry = { local: true, kind: "soundBlocked", text: "Sound is blocked, click anywhere to enable." };
       myVisibleChat.push(soundStatusEntry);
       renderChatDom();
     }
@@ -989,7 +996,7 @@
         // where the user last saw it (and where they just clicked) rather than
         // jumping to the bottom of the log.
         soundStatusEntry.kind = "soundEnabled";
-        soundStatusEntry.text = "🔊 Sound enabled.";
+        soundStatusEntry.text = "Sound enabled.";
         renderChatDom();
         return;
       }
@@ -1197,6 +1204,66 @@
     const CHAT_HISTORY_LIMIT_CLIENT = 50; // mirrors RaceRoom.ts's CHAT_HISTORY_LIMIT
     let myVisibleChat = [];
 
+    // --- Connection status, as a chat line -----------------------------------
+    // Used to be a "Connected as X (spectating)" label in the header, which was
+    // both redundant (your name sits in the identity box, and the join button
+    // already spells out racing/queued/spectating) and misleading, since it
+    // claimed "Connected" throughout the SDK's silent reconnect retries. It's a
+    // chat line now: the header stays clean, and a drop reads as an event that
+    // HAPPENED at a moment in the log, which is what it is.
+    //
+    // Every one of these renders as the same quiet grey italic line as a
+    // system message - no icons, no color coding, however bad the news. The
+    // wording carries the severity on its own, and a log where one line shouts
+    // trains you to ignore the ones that don't.
+    //
+    // `transient` marks the states worth replacing in place rather than leaving
+    // behind as history - "Connecting…" resolving into "Connected." should be
+    // one line that changed, not two lines saying nearly the same thing.
+    const CONNECTION_STATUS = {
+      connecting:   { text: "Connecting…", transient: true },
+      connected:    { text: "Connected." },
+      reconnecting: { text: "Connection lost — reconnecting…", transient: true },
+      reconnected:  { text: "Reconnected." },
+      disconnected: { text: "Disconnected — reload to rejoin." },
+      failed:       { text: "Couldn't reach the server — reload to retry." },
+    };
+    let connectionStatusEntry = null;
+
+    function setConnectionStatus(kind) {
+      const status = CONNECTION_STATUS[kind];
+      if (!status) return;
+
+      // Same reconciliation the sound line needs, for the same two reasons: the
+      // log is capped and trims from the FRONT, and a Switch Lobby resets it
+      // wholesale - either can drop our line without going through us, leaving
+      // a pointer to something nobody can see. Trust the log, not the pointer.
+      if (connectionStatusEntry && myVisibleChat.indexOf(connectionStatusEntry) === -1) connectionStatusEntry = null;
+      if (connectionStatusEntry && connectionStatusEntry.statusKind === kind) return; // already says this
+
+      // Update in place ONLY while our line is still the last thing in the log
+      // and what it currently says was never meant to persist. That covers the
+      // pairs that are really one event resolving - connecting -> connected,
+      // reconnecting -> reconnected/disconnected - and nothing else: once other
+      // messages have arrived underneath, editing it would rewrite history up
+      // where the user isn't looking and show nothing where they are, so a new
+      // line is appended at the BOTTOM instead, arriving like any other message.
+      const isLast = connectionStatusEntry === myVisibleChat[myVisibleChat.length - 1];
+      const wasTransient = connectionStatusEntry && connectionStatusEntry.transient;
+      if (connectionStatusEntry && isLast && wasTransient) {
+        connectionStatusEntry.statusKind = kind;
+        connectionStatusEntry.text = status.text;
+        connectionStatusEntry.transient = !!status.transient;
+      } else {
+        connectionStatusEntry = {
+          local: true, statusKind: kind, text: status.text, transient: !!status.transient,
+        };
+        myVisibleChat.push(connectionStatusEntry);
+        while (myVisibleChat.length > CHAT_HISTORY_LIMIT_CLIENT) myVisibleChat.shift();
+      }
+      renderChatDom();
+    }
+
     // Who's "already in my lobby" right now, by clientId (see
     // Player.clientId's doc comment) - used to decide whether a "joined"
     // announcement is genuinely new or a re-announcement of someone I
@@ -1247,7 +1314,6 @@
     let announceRosterOnArrival = false;
 
     // --- Elements -------------------------------------------------------------
-    const statusEl   = document.getElementById("status");
     const roomInfoEl = document.getElementById("roomInfo");
     const joinBtn    = document.getElementById("joinBtn");
     const playersList = document.getElementById("playersList");
@@ -1480,24 +1546,16 @@
         myVisibleChat.forEach((msg) => {
           const row = document.createElement("div");
           if (msg.local) {
-            // The sound-status line: local to this tab, never sent to or seen
-            // by anyone else. See refreshSoundStatusMessage for the two kinds.
-            row.className = "chat-msg " + (msg.kind === "soundBlocked" ? "chat-msg-sound-blocked" : "chat-msg-sound-enabled");
+            // A local status line: never sent to or seen by anyone else. Two
+            // producers - the connection status (setConnectionStatus) and the
+            // sound notice (refreshSoundStatusMessage) - and nothing here needs
+            // to know which, nor how urgent it is: every one of them renders as
+            // the same quiet grey italic line as a system message. No
+            // affordances on the row itself either; the sound one says "click
+            // anywhere", and anywhere already works via the page-wide
+            // resumeAudio listener.
+            row.className = "chat-msg chat-msg-status";
             row.textContent = msg.text;
-            if (msg.kind === "soundBlocked") {
-              // Reinforces that the text itself is clickable; the actual
-              // unblocking already happens via the page-wide listener (see
-              // resumeAudio's callers), so this is a convenience, not the only
-              // way to trigger it.
-              row.onclick = resumeAudio;
-            } else {
-              const gear = document.createElement("span");
-              gear.className = "chat-msg-sound-gear";
-              gear.textContent = "⚙️";
-              gear.title = "Sound settings";
-              gear.onclick = (e) => { e.stopPropagation(); toggleSettings(false); };
-              row.appendChild(gear);
-            }
           } else if (msg.system) {
             // "X joined the lobby" / "X left the lobby" - a join is posted
             // identically whether that's a brand new visitor or someone
@@ -1675,21 +1733,46 @@
           try {
             attachRoom(await client.joinOrCreate("race_room", { name: myName, clientId: myClientId, emoji: myEmoji || undefined }));
           } catch (e2) {
-            statusEl.textContent = "Couldn't reconnect after switching lobbies.";
+            setConnectionStatus("failed");
             console.error(e2);
           }
         }
       });
 
+      // The SDK runs its OWN automatic reconnection (@colyseus/sdk's
+      // Room.reconnection: 15 retries on exponential backoff), and during it
+      // `onLeave` does NOT fire - which is why the old header label sat there
+      // claiming "Connected" for up to ~55s after the socket had actually died.
+      // These two signals are that window's start and end, so the log can say
+      // what's really happening while it runs.
+      //
+      // Only genuine drops reach here: a Switch Lobby / merge closes with
+      // CloseCode.CONSENTED (4000), which the SDK routes to onLeave instead, and
+      // the `redirecting` guard covers it there. The extra check below is
+      // belt-and-braces for the same reason onLeave has one.
+      room.onDrop(() => {
+        if (redirecting) return;
+        connected = false;
+        joinBtn.disabled = true;
+        setConnectionStatus("reconnecting");
+      });
+
+      room.onReconnect(() => {
+        connected = true;
+        joinBtn.disabled = false;
+        setConnectionStatus("reconnected");
+      });
+
       room.onLeave(() => {
         if (redirecting) return; // handled by the "redirect" listener above
         connected = false;
-        statusEl.textContent = "Disconnected.";
+        setConnectionStatus("disconnected");
         joinBtn.disabled = true;
       });
     }
 
     async function connect() {
+      setConnectionStatus("connecting");
       try {
         const savedToken = sessionStorage.getItem(RECONNECT_TOKEN_KEY);
         let initialRoom;
@@ -1708,8 +1791,9 @@
           initialRoom = await client.joinOrCreate("race_room", { name: myName, clientId: myClientId, emoji: myEmoji || undefined });
         }
         attachRoom(initialRoom);
+        setConnectionStatus("connected");
       } catch (e) {
-        statusEl.textContent = "Couldn't connect. Is the server running on :2567?";
+        setConnectionStatus("failed");
         console.error(e);
       }
     }
@@ -1828,9 +1912,11 @@
       // Drives both the "leaving" button styling and the click handler's
       // direction, so it tracks the slot, not racing specifically.
       joinBtn.dataset.racing = iHoldSlot ? "1" : "0";
+      // My own racing/queued/spectating status is no longer restated in the
+      // header - the button above says it (Spectate / Leave Queue / Join Race),
+      // and my name is already in the identity box. Connection status moved to
+      // the chat log entirely (see setConnectionStatus).
       if (connected) {
-        const myStatusText = iAmRacing ? "racing" : iAmQueued ? "queued" : "spectating";
-        statusEl.textContent = `Connected as ${myName} (${myStatusText})`;
         roomInfoEl.textContent = `Room ${room.roomId} · ${state.racerCount}/${MAX_RACERS} racers`;
       }
 
@@ -2092,7 +2178,11 @@
       renderQuote(quote, full, selStart, selEnd, true);
     }
 
-    // Plain name list for the "Players" sidebar panel.
+    // Name list for the "Players" sidebar panel. Built to look like a chat line
+    // - avatar, then the name in that avatar's color - so switching between the
+    // two views doesn't feel like switching between two different apps. The
+    // shared styling lives on .player-name / .chat-msg-name (one declaration,
+    // both selectors); only the trailing ": message" is chat-specific.
     function fillNames(ul, people) {
       ul.innerHTML = "";
       if (people.length === 0) {
@@ -2104,8 +2194,20 @@
       }
       for (const person of people) {
         const li = document.createElement("li");
-        li.textContent = person.name + (person.me ? " (you)" : "");
-        if (person.me) li.className = "me";
+        if (person.emoji) {
+          const emojiSpan = document.createElement("span");
+          emojiSpan.textContent = person.emoji + " ";
+          li.appendChild(emojiSpan);
+        }
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "player-name" + (person.me ? " me" : "");
+        nameSpan.textContent = person.name + (person.me ? " (you)" : "");
+        // Same tint the chat name and the progress bar use, so one player reads
+        // as one color everywhere. Falls back to the class color (cyan for me,
+        // grey otherwise) when the emoji can't be sampled.
+        const nameColor = getEmojiColor(person.emoji);
+        if (nameColor) nameSpan.style.color = nameColor;
+        li.appendChild(nameSpan);
         ul.appendChild(li);
       }
     }
