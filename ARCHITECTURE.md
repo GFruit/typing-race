@@ -70,9 +70,16 @@ race state and stats; clients only send *intents* (e.g. "I want to race",
     server-assigned random one, captured from synced state) in `localStorage`
     and sends it back as a join option, so an avatar stays stable across
     reloads.
-  - `status: string`: `"watching"` (spectating) or `"racing"` (in/awaiting race).
-    Joining is only allowed while `phase` is `"waiting"`/`"countdown"`; bailing
-    out to `"watching"` is always allowed, even mid-race.
+  - `status: string`: `"watching"` (spectating), `"racing"` (in the race being
+    set up or run), or `"queued"` (holding a racer slot for the race AFTER this
+    one). Joining as `"racing"` is only allowed while the room can still take
+    racers for the current race (`phase` `"waiting"`, or a `"countdown"` with
+    more than `LOCK_AT_COUNTDOWN_SECONDS` left - see `acceptsNewRacers()`);
+    opting in outside that window yields `"queued"` instead of being refused,
+    and the whole queue is promoted to `"racing"` when the room next settles
+    back to `"waiting"`. Bailing out to `"watching"` is always allowed from
+    either, even mid-race. Both `"racing"` and `"queued"` occupy one of the
+    `MAX_RACERS` slots.
   - `progress: number`, 0..1 fraction of the quote typed correctly so far.
   - `wpm: number`, live words-per-minute, server-computed.
   - `finished: boolean`, true once `progress` reaches 1. False for stragglers
@@ -151,6 +158,11 @@ The scaffold may instead generate the older `@colyseus/tools` style with
         someone now.
   - [x] Switch Lobby (generalized beyond just full-room spectators per user
         request - see Status log).
+  - [x] Queue for the next race (a third player status, `"queued"`) - the
+        other half of match-making.md's "Full Room Spectators" pair of
+        buttons, generalized the same way Switch Lobby was: opting in is no
+        longer refused for *timing* reasons anywhere, it just reserves you a
+        slot in the next race instead. See Status log.
   - [x] Remaining Anchor Host UX polish (join framing, timer bump banner;
         chat history through a merge needed no new work, already unbroken).
         A quote-update toast was tried and then deliberately dropped per
@@ -256,6 +268,10 @@ The scaffold may instead generate the older `@colyseus/tools` style with
      into it. The server protocol didn't need to change: the client still
      sends `committed + box` as one string to `typeProgress`, so RaceRoom's
      existing longest-matching-prefix scoring works unmodified.
+     **Superseded 2026-07-25 (see the last entry):** blocking the space key
+     turned out to be a bug. Space is now an ordinary character and the commit
+     is driven by `absorbCorrectWords()` off the resulting text instead; the
+     `committed`/box invariant and the wire protocol are unchanged.
   4. Added a subtle race-timeout clock: RaceRoom's existing 500ms ticker
      (renamed `tickRace`) now also writes `state.countdown` down from
      RACE_TIMEOUT_MS during `"racing"` (reusing the same field yet again,
@@ -1503,3 +1519,669 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   by the length-checker script turned out to be a quoted phrase inside a
   comment, not an actual array entry, fixed by rewording the comment);
   `tsc --noEmit` and the running dev server both stayed clean.
+
+- 2026-07-25: Typing-input fixes, both from user testing. (1) Bug: space was a
+  dead key on a word you'd mistyped - the old `keydown` handler always called
+  `preventDefault()` and only committed when the box exactly matched the
+  expected word, so a typo left you unable to type a space at all. Space is now
+  an ordinary character; the whole `keydown` handler is gone, replaced by
+  `absorbCorrectWords()`, which runs from `sendProgress()` after every keystroke
+  and moves any correct, space-terminated word at the front of the box into
+  `committed`. That's the same word-lock rule as before (a word locks in when
+  typed right and followed by a space), just applied to the resulting text
+  instead of to the space keypress, so it also catches the case the old code
+  couldn't: typing straight past a mistake and repairing it later still locks
+  those words in, rather than leaving the rest of the race to pile up in the
+  one-line input. Absorption defers while the caret is behind the word being
+  locked, so an in-place repair isn't cut short by its own text vanishing.
+  (2) New: a mistake can no longer be typed indefinitely past. `ERROR_TAIL_CAP`
+  (15) limits how many characters may follow an uncorrected error (the mistyped
+  character counts as the first); at the cap the input refuses insertions via a
+  `beforeinput` handler - so a blocked keystroke never lands and the caret never
+  jumps - and `#errorNotice` ("Fix errors to continue", red, right-aligned
+  inside the box) appears, blinking three times before going static. Deletions
+  of every kind pass through untouched and drop the count back under the cap,
+  which is what clears the notice. `enforceErrorCap()` re-checks after each
+  input event and trims anything that slipped past, covering input types whose
+  payload `beforeinput` can't inspect (paste, drop, IME). All client-side only:
+  the server still scores the raw input it's sent and is unaffected (it already
+  clamps to `quote.length` and counts the matching prefix). The input is now
+  wrapped in `#inputWrap`, which carries the show/hide so the notice follows it.
+  Also flipped the "Show racers on text" (live ghost carets) default from on to
+  off per user request; anyone who already set it keeps their choice.
+
+- 2026-07-25: Followed up on the error-cap work above with the two dead ends it
+  left at the END of the quote, both found in user testing. (1) Reaching the
+  last character with a mistake still outstanding is a state with no visible
+  exit: the race can't complete (the server scores a matching prefix, so an
+  earlier typo means `correctChars < quoteLength` forever), there are no
+  characters left to type, and `renderQuote` drew no caret there at all - the
+  cursor simply vanished, which read as the page breaking. Two fixes: the
+  render now emits one extra span past the last character purely as a caret
+  slot (it holds a space, because the cursor is a `box-shadow` offset -2px
+  behind the span's own box, so a zero-width element would paint nothing), and
+  `trackEndStuck()` arms a timer when you first arrive at the end with an error
+  outstanding, showing the existing #errorNotice after END_STUCK_NOTICE_MS
+  (5s). The clock runs from arrival, deliberately not reset per keystroke, so
+  hammering keys past the end can't hold the notice off - "went quiet" and
+  "kept typing wrong" are the same dead end and get the same prompt. Hitting
+  either cap still shows it immediately, so the timer only matters when you're
+  under the caps. (2) Characters typed past the end of the quote rendered as
+  nothing whatsoever (the loop stopped at `quote.length`), so overrunning was
+  invisible. The loop now runs to `max(quote.length, input.length)` and draws
+  the typed characters out there as `.bad` (red + underlined) - in-quote typos
+  still show the QUOTE character reddened so the text stays readable, but past
+  the end there is no quote character to show, so it shows what was actually
+  typed. Overrun gets its own `OVERFLOW_CAP` (5), much tighter than
+  ERROR_TAIL_CAP: whichever binds first stops the input, since a typo 2
+  characters from the end would otherwise have allowed 13 characters of
+  runaway overrun on the tail cap's budget. Note that overrun can only ever
+  happen alongside an earlier mistake - type it all correctly and you'd have
+  finished - so no server change was needed and no false finish is possible
+  (`countMatchingChars` clamps to `quote.length` and counts the prefix).
+  Verified by lifting the real functions out of index.html and driving them
+  against a mock input + a fake clock: 41 scenarios covering both caps, the
+  5s timer under both "idle" and "still typing", repair-and-complete, and the
+  render output for mid-quote/at-end/overrun.
+
+- 2026-07-25: Sound cues, per user request. Synthesized with WebAudio
+  oscillators rather than audio files - four short blips don't justify assets,
+  a fetch, or a loading state, and it keeps the client a single self-contained
+  HTML file. Arrivals are a rising pair (C5->G5), departures the same pair
+  falling, so direction alone tells them apart; the countdown is three flat low
+  ticks (A4) at 3/2/1 and a higher, longer one (A5) on "go". Notes are shaped
+  with a ramped gain envelope, since starting/stopping a bare oscillator cuts
+  the waveform mid-cycle and clicks audibly. Wiring: join/leave hang off the
+  existing announcement branches in `renderChat()` rather than off any new
+  roster diffing, so they inherit every suppression rule already worked out
+  there for free - silent for the roster absorbed on first connect, for
+  pre-existing history before `chatGenesisAt`, and for your own arrival - and
+  fire at most once per kind per patch, since a merge can land several
+  arrivals at once. Countdown cues are edge-triggered in `render()` off the
+  last second seen (render runs per state patch, not per second); "go" hangs
+  off the phase change into "racing", because the server calls startRace() in
+  the same tick it decrements to 0 and clients never observe `countdown === 0`.
+  A null `lastPhase` (first patch after connecting) is excluded so landing in a
+  race already underway doesn't sound like a start. Countdown cues are gated on
+  `iAmRacing`: "go" means "start typing", which is meaningless to a spectator.
+  Two things the autoplay policy forces: the AudioContext is created lazily on
+  the first gesture (not at load) and resumed from a document-level
+  pointerdown/keydown, and blip() DROPS notes whenever the context isn't
+  running rather than scheduling them - a suspended context's clock is frozen,
+  so anything scheduled against it stacks at one timestamp and would fire all
+  at once on resume (a page left untouched while people came and went would
+  greet its first click with every missed blip simultaneously; a backgrounded
+  tab suspends the same way). Added a "Sound cues" Settings toggle alongside
+  the existing two, on by default, persisted per browser; enabling it previews
+  the arrival cue, awaiting the resume first so the very first cue a user ever
+  hears isn't the one that gets dropped. Verified end-to-end with three real
+  browser sessions against the dev server, AudioContext stubbed to record
+  scheduled notes: own-arrival silence, join/leave in both directions, the
+  full 3-2-1-go sequence for both racers, and no countdown cues for the
+  spectator.
+
+- 2026-07-25: Sharpened the sound cues per user feedback ("more crisp and
+  clear"). Two changes, both to `blip()`. (1) Envelope: the attack went from
+  15ms to 3ms, which is the whole difference between a note that fades in and
+  one that reads as struck - 3ms is still long enough to avoid the click of
+  cutting a waveform mid-cycle. (2) Timbre: each note is now a fundamental
+  plus an octave and a fifth above it (PARTIALS, levels 1 / 0.4 / 0.14) rather
+  than a lone sine. A bare sine carries very little information about its own
+  pitch on a laptop speaker - it reads as a dull thud - and the overtones are
+  what make it land as a defined, bell-like note. Partial levels are
+  normalized against their own sum, so `peak` stays the true output amplitude
+  regardless of what's in the table. Notes were also retimed: the join/leave
+  pair is spaced 85ms (just under the first note's length) so the second lands
+  while the first is still ringing and the pair reads as one gesture, ticks
+  are short and dry at 95ms, and "go" got a 300ms tail so it rings past the
+  ticks. Verified by rendering the page's own cue functions through an
+  OfflineAudioContext and measuring the waveform: attack 3.2-4.1ms, decay to
+  10% of peak in 32-90ms, overtones present at the intended 0.39-0.40 and
+  0.13-0.14 ratios, true peak 0.145-0.21 (no clipping). Note that blip()'s
+  "context must be running" guard also (correctly) refuses to schedule into an
+  OfflineAudioContext, which reports "suspended" until rendering starts - the
+  harness shadows `state` to get around it.
+
+- 2026-07-25: Reworked the cue voice again per user feedback (didn't like the
+  instrument; asked for something piano-like). Still pure WebAudio synthesis -
+  no samples - but `blip()` is now a struck-string model rather than a fixed
+  chord of overtones. Three things make the difference, and the previous
+  version had none of them: (1) every partial gets its OWN envelope and higher
+  partials decay FASTER (decay = dur / n^0.55, so the 7th dies ~3x sooner than
+  the fundamental). This is the big one: a real string sheds its high harmonics
+  first, so the note is bright at the strike and mellows into a warm tail,
+  whereas partials sharing one envelope hold their brightness for the whole
+  note, which is precisely what an organ does - and was why the old cues read
+  as synthetic. (2) The partials sit slightly SHARP of exact multiples
+  (f(n) = n*f*sqrt(1 + B*n^2), B = 0.0006), because real strings are stiff
+  enough to stretch their own modes; the deviation is small (7th partial ~25
+  cents) but its absence is a large part of "sounds like a computer".
+  (3) A 2ms attack - a hammer strike has no perceptible rise time. Partial
+  count is 7, levels 1/n^1.35 normalized against their own sum so `peak` stays
+  the true output amplitude. Cue timings were stretched to suit: struck notes
+  need room to ring or they read as clicks, so decay times are long relative to
+  how short the cues actually sound (join/leave 520/620ms spaced 130ms apart,
+  ticks damped to 380ms so consecutive seconds don't blur, "go" left to ring at
+  1100ms). Verified by rendering the page's own cue functions through an
+  OfflineAudioContext: 2ms attack; high-partial energy relative to the
+  fundamental falls 0.34 -> 0.08 -> 0.006 across the first 200ms (the decaying
+  brightness that IS the piano character - a flat ratio here would mean an
+  organ); peaks 0.14-0.24, no clipping. The 9-assertion end-to-end cue test
+  still passes (the fundamental's stretch is under half a cent, so the
+  recorded frequencies are unchanged).
+
+- 2026-07-25: Voiced the cues warmer, again from listening feedback: the notes
+  themselves were right but the tone "stung" and read as a cheap, out-of-tune
+  piano. Three causes, all addressed in `blip()`. (1) Too much energy in the
+  upper partials: the 1/n^1.35 rolloff left partials 5-7 loud enough to pierce,
+  because 2-5kHz is where hearing is most sensitive - amplitudes that look
+  modest on paper are the harshest thing in the mix. Rolloff steepened to
+  1/n^1.9 and the stack cut from 7 partials to 6. (2) Too much inharmonic
+  stretch: B was 0.0006, putting the 7th partial 25 cents (a quarter semitone)
+  sharp. That is realistic for a real string, but a real piano hides it behind
+  a dense spectrum and multiple strings per note; six bare sines do not, so it
+  just sounded mistuned. B lowered to 0.0002, which is ~8 cents at the 7th -
+  enough to avoid sounding synthetic, not enough to sound wrong. (3) The 2ms
+  attack stacked all the in-phase partials into a spike at onset; 5ms still
+  reads as struck without the click. Also added a gentle lowpass (Butterworth,
+  Q 0.7) tracking the pitch at 4.5x the fundamental, clamped to 1.5-5kHz: real
+  instruments and every microphone that recorded one roll off up there, and
+  its absence is much of why raw oscillator stacks sound cheap. Measured
+  through an OfflineAudioContext: high-partial energy relative to the
+  fundamental at the strike fell 0.337 -> 0.124, and the spectral centroid (the
+  standard proxy for perceived sharpness) now starts at 721Hz for a 440Hz note
+  and falls to 461Hz over the note, i.e. energy sits near the fundamental
+  instead of up in the piercing range. Peaks 0.155-0.252, no clipping.
+  Note for future edits: the sound harness stubs AudioContext, so a new node
+  type used in blip() must be added to the stub or every cue silently fails -
+  adding the biquad broke all 9 assertions until the stub learned
+  createBiquadFilter.
+
+- 2026-07-25: Abandoned the musical cues entirely per user feedback - however
+  well voiced, a pitched note fired every 20-30 seconds became maddening. The
+  diagnosis is that pitch is the problem, not timbre: a note carries musical
+  intent, so it demands attention every single time and never fades into the
+  background, whereas a pitchless broadband click gets filed as incidental and
+  stops being attended to. So `blip()` (a stack of tuned oscillators) is gone,
+  replaced by `clack()`: a mechanical-keyboard style click, made from a very
+  short burst of white noise through a bandpass. A cached noise AudioBuffer is
+  shared by every click (AudioBuffers are bound to a sample rate, not a
+  context, so one serves the whole page), and each click starts at a RANDOM
+  offset into it so repeats are never bit-identical - an exactly repeating
+  sample is itself a thing that grates. Bandpass Q is a deliberately broad 1.1;
+  higher would ring and start sounding pitched again, which is the whole thing
+  being avoided. The low->high / high->low direction of the join/leave pairs is
+  preserved, carried by the bandpass CENTRE (dull 760Hz vs bright 1750Hz)
+  instead of by pitch, so the cues still mean opposite things without forming a
+  melody. Centres stay low by design - the earlier round established that
+  sustained energy in 2-5kHz stings. One measurement worth recording: a
+  bandpass passes only a slice of the noise's energy, so output is 3-4x quieter
+  than the envelope's nominal peak. The first attempt used the old peak values
+  directly and measured 0.014-0.033 at the output, around 20dB below the notes
+  it replaced and close to inaudible; the values in the cue functions are now
+  set from measured output, not guessed. Final: true peaks 0.057 (tick) to
+  0.109 ("go"), i.e. ~8-12dB below the old notes, audible 18-22ms per click
+  (84-88ms for a pair, which is two clicks 70ms apart). "Loudest band share"
+  of 0.10-0.15 confirms the result is genuinely broadband rather than a
+  disguised tone - a pure tone would sit near 1.0. The 9-assertion end-to-end
+  cue test passes unchanged apart from expecting bandpass centres in place of
+  note frequencies.
+
+- 2026-07-25: Cue tuning from listening feedback. The countdown clacks landed
+  well and are unchanged. Two changes to arrivals/departures. (1) Dropped the
+  departure cue entirely, per user request: someone leaving isn't news you need
+  to act on, and clicking at the room for every coming AND going is twice the
+  interruption for no added value. Departures are still announced in chat, just
+  silently - `cueLeft` is gone along with its `heardLeave` tracking in
+  renderChat(). (2) The join cue was reported as inaudible, and measurement
+  agreed: it was peaking at 0.067 against the "go" click's 0.109, i.e. ~4dB
+  quieter than the one cue the user could reliably hear. Roughly doubled it
+  (peaks 0.25/0.22 -> 0.40/0.36) and lifted the centres slightly (760/1750 ->
+  900/1800), which now measures 0.14 - level with "go". Note the measurement
+  has ~10% run-to-run variance, since each click starts at a random offset into
+  the noise buffer, so anything inside a decibel of a target is a match rather
+  than a miss. With the falling pair gone the rising pair no longer needs to
+  contrast with anything, but it stays a PAIR on purpose: the countdown is only
+  ever single clicks, so the two-click rhythm is what tells arrivals apart from
+  ticks, and neither has to be loud to be distinguishable. The end-to-end test
+  now asserts the inverse for departures - it confirms bob's "left the lobby"
+  actually reached the chat and THEN that no cue fired, so a silent departure
+  can't be confused with an event that simply went missing.
+
+- 2026-07-25: Fixed "the first cue after a quiet spell is silent, the next one
+  works", reported by the user for joins. Reproduced it first, with a test that
+  suspends a REAL AudioContext and counts nodes actually scheduled: the first
+  cue after the sleep scheduled 0, the next scheduled 2. The cause was our own
+  code, not the platform. clack() refuses to schedule into a non-running
+  context (rightly - a suspended context's clock is frozen, so queued sounds
+  stack at one timestamp and fire together on resume), and the cue functions
+  called resumeAudio() alongside, which resolves ASYNCHRONOUSLY - so the cue
+  was already discarded by the time the context woke, and only the NEXT one
+  found it running. Fix: `withAudio(play)` now wraps every cue and defers the
+  scheduling until after the resume resolves, rather than dropping it. At most
+  one cue may wait on a given resume, which preserves the anti-pile-up
+  property the original guard existed for.
+  ANSWERING THE USER'S QUESTION: yes, the countdown had exactly the same bug -
+  same code path, and the test confirms cueTick and cueGo each scheduled 0 when
+  fired first after a sleep. Since a countdown follows the quiet "waiting"
+  phase, its "3" was the tick most likely to be swallowed; hearing 2-1-go still
+  reads as correct, which is why it went unnoticed.
+  Also addressed the user's own hypothesis (the audio device having to wake),
+  which is a real and separate effect: many systems power the output down after
+  silence and clip the start of whatever wakes it, and for a ~20ms click "the
+  start" is the entire sound. Every click now gets a WAKE_LEAD (120ms) silent
+  run-up - the noise source starts immediately with the envelope pinned at the
+  floor, and the audible part is scheduled after it - so the device is already
+  awake when the click lands. Measured: onset lands at 121ms, run-up sits at
+  -88 to -91 dBFS (inaudible). This half is reasoned rather than verified,
+  since headless Chrome has no real audio hardware to sleep.
+  Two bugs found while measuring the change, both pre-existing in spirit:
+  (1) a GainNode defaults to 1.0 and that default governs all samples before
+  its first scheduled event, so the second click of a pair (whose envelope
+  starts later than the context clock) leaked one FULL-VOLUME sample - a sharp
+  tick at -44 dBFS, 50ms ahead of the intended sound. Setting `env.gain.value`
+  explicitly closes the window. (2) With playback now spanning the lead-in as
+  well as the click, a random start offset into a 0.25s noise buffer could run
+  past its end and truncate the click; the buffer is now 0.5s and the source
+  loops, so it can never run dry.
+
+- 2026-07-25: Root-caused "I never hear the join sound", and it was not a bug in
+  the cue at all. The user's own report pinned it: sound started working the
+  moment they clicked "Switch Lobby" in the LISTENING tab. That click was the
+  unlock. Browsers refuse to play audio until the user has interacted with that
+  specific tab, and it cannot be worked around - user activation requires a
+  TRUSTED event, so a synthesized click (isTrusted false) grants nothing, and
+  the usual folklore workarounds (priming with silent audio, creating the
+  context in a load handler) fail for the same reason. Verified the cue itself
+  was fine by tapping ctx.destination with an AnalyserNode on a real page and
+  measuring actual output during a real join: peak 0.193, LOUDER than the
+  countdown's 0.119. Nothing wrong with the sound; it was never allowed to play.
+  This bites this app specifically because "open the lobby and wait for someone
+  to turn up" is a normal way to use it and involves clicking nothing - so the
+  arrival cue is exactly the one the policy eats, while the countdown cues
+  always survive (you have just clicked Join). So instead of failing silently:
+  a "🔇 Enable sound" pill in the header, shown only while sound is enabled AND
+  the context isn't running, one click to clear, with the arrival cue played
+  back as confirmation. Any click anywhere already unblocks it, so for most
+  users it will vanish before it is ever read.
+  Two robustness fixes found on the way. (1) The `audioWakePending` latch added
+  in the previous entry could stick permanently: a browser still waiting for a
+  gesture can leave resume()'s promise pending forever, after which the latch
+  suppressed EVERY later cue for the life of the page. Replaced with a single
+  newest-pending-cue slot plus a freshness bound (AUDIO_WAKE_GRACE_MS, 1.5s),
+  which de-duplicates just as well and cannot wedge. Regression test included.
+  (2) The pending cue is now flushed from the context's own `statechange`
+  event rather than from whichever code path called resume(), so a wake we
+  didn't initiate still delivers it - and the prompt re-appears by itself if
+  the context is ever suspended again.
+  The stub-AudioContext trap noted two entries ago bit again, exactly as
+  predicted: adding the statechange listener made getAudioCtx() throw in the
+  harness (no addEventListener on the fake), which silently failed all 10
+  assertions. If the audio code touches a new Web Audio API, teach the stub.
+
+- 2026-07-25: Replaced the header "Enable sound" pill with a chat-log line, per
+  user feedback: the pill looked out of place, and clicking it made a whole
+  element vanish with no trace, which read as "did that even do anything?"
+  The new version is a LOCAL-ONLY line in the chat panel (never sent to or
+  seen by anyone else) that behaves like every other system line ("X joined
+  the lobby"): "🔇 Sound is blocked — click anywhere to enable." appears while
+  playSounds is on but the AudioContext isn't running, and the SAME line
+  transforms in place into "🔊 Sound enabled." plus an inline ⚙️ that opens
+  Settings, rather than a second line being appended or the first one
+  disappearing. Nothing vanishes; it just becomes part of the log, which is
+  what fixed the "did that work?" confusion - the user can SEE it changed.
+  Mechanically: `soundStatusEntry` holds the one object (if any) currently
+  sitting in myVisibleChat for this; refreshSoundStatusMessage() pushes it,
+  mutates it, or removes it, and `renderChatDom()` (the DOM-building tail of
+  renderChat(), pulled out into its own function so this can force a repaint
+  outside of a server broadcast) repaints immediately - no waiting for the
+  next state patch.
+  Per the user's explicit request, "off once -> quiet on future visits" is
+  implemented as reading the CURRENT playSounds setting live, not a permanent
+  one-way flag: turning sound off retracts the line immediately (nothing to
+  prompt about if cues are off anyway), and turning it back on later brings
+  the notice back if audio is still genuinely blocked. I flagged this
+  interpretation choice rather than silently picking one, since "turned off
+  once" could also have read as a permanent flag - the live-setting reading
+  matches how playSounds already worked everywhere else in the code, so it's
+  what shipped. Verified as a distinct behavior: a second tab that inherits
+  sound=off from localStorage never shows the line even though ITS OWN audio
+  is genuinely blocked too; flipping playSounds back to true while still
+  blocked brings the line back.
+  Placement note for future edits: myVisibleChat/chatMessages/renderChatDom
+  are declared much later in the script than the audio block, so the initial
+  refreshSoundStatusMessage() call had to move to right after
+  applySoundToggleUi() (near the end of the script) rather than living next to
+  getAudioCtx() where it's conceptually closer - calling it early throws (TDZ
+  on `let myVisibleChat`). The statechange listener, resumeAudio, and
+  withAudio all still call it directly since those only ever fire later
+  (post-load, async), so they're unaffected by the ordering constraint.
+  One more bug worth recording: `soundToggle.onclick` originally called
+  refreshSoundStatusMessage() BEFORE ensuring the AudioContext exists. A
+  context created directly inside a trusted click (as this one is) typically
+  starts "running" immediately rather than transitioning up from "suspended",
+  which means no statechange event ever fires to self-correct a wrongly-shown
+  "blocked" line - it would have stuck on "blocked" forever despite sound
+  actually working. Fixed by calling getAudioCtx()+cueJoined() first, THEN
+  refreshSoundStatusMessage(), so the check sees the context in the state it
+  will actually settle into.
+  Verified end-to-end (9 assertions): the line appears alone while blocked;
+  clicking it collapses to exactly one row (transformed, not duplicated); the
+  gear opens Settings; toggling sound off removes the line; a fresh tab that
+  inherited sound=off never shows it even though its own audio is blocked;
+  re-enabling while still blocked brings it back.
+
+- 2026-07-25: Three follow-ups from user feedback. (1) Removed the em dash from
+  the sound-blocked chat line ("Sound is blocked, click anywhere to enable.").
+  (2) Cues were reported as inaudible over background music at normal volume -
+  measured true output was only 0.05-0.16 peak, genuinely quiet in absolute
+  terms. Raised every cue's base `peak` argument by roughly 2x (tick 0.19->0.42,
+  go 0.32->0.68, join pair 0.40/0.36->0.85/0.78); re-measured true output now
+  0.15-0.27, no clipping (still well under 1.0, and clack()'s single-source-
+  per-note design means no risk of multiple simultaneous partials summing the
+  way the earlier piano voice could). (3) Added a volume slider: `masterGain`,
+  a single GainNode created alongside audioCtx and sitting between every
+  clack() and ctx.destination, so scaling is one gain change rather than
+  rescaling each cue's envelope individually. `soundVolume` (0-100, default
+  100 - the boosted levels above ARE the 100% point) persists to
+  typingRace.soundVolume and applies live while dragging, with a tick preview
+  on release (not on every `input` tick, which fires continuously mid-drag and
+  would otherwise retrigger a click many times a second). New Settings row
+  under Sound cues; dims and functionally disables (not just visually) while
+  Sound cues itself is off, since a volume that currently controls nothing
+  would be a confusing thing to let someone fiddle with.
+  Test-infrastructure note for future audio changes: the offline measurement
+  harness (tone.js) manually swaps `audioCtx` for an OfflineAudioContext,
+  bypassing getAudioCtx() entirely - which means masterGain (only ever built
+  INSIDE getAudioCtx()) was never created for it, so clack()'s new
+  `.connect(masterGain)` would have connected to null. Fixed by having the
+  harness build its own masterGain the same way getAudioCtx() does. Also hit,
+  while trying to verify "50% is half of 100%": pinning Math.random() for a
+  controlled comparison also zeroed getNoiseBuffer()'s sample-fill loop on any
+  sample rate that hadn't been cached yet, turning the "noise" itself to
+  silence - not an app bug, a test-harness footgun. Settled on reading
+  `masterGain.gain.value` directly for the proportionality claim (deterministic,
+  no rendering needed) and reserving an actual offline render for the one
+  thing worth rendering: confirming 0% produces genuine digital silence in the
+  output, not just a zeroed param.
+  All suites re-verified after the peak/volume changes: wake (5), wedge (5,
+  updated to check the chat line instead of the removed header pill), 10
+  end-to-end multi-tab, 9 chat-status-message, and 8 new volume-control
+  assertions - 37 total, all passing.
+
+- 2026-07-25: "Max sound still not high enough" - pushed the cue levels
+  significantly further, which required a real safety net first. Simply
+  raising the `peak` arguments again turned out to be dangerous: clack()'s
+  output is filtered white noise, so its peak SAMPLE is a random draw, not a
+  fixed number - measuring the SAME settings repeatedly showed nearly 2x
+  swing run to run (e.g. "go" ranged 0.50-0.85 across five otherwise-identical
+  renders). A level that measured safely under 1.0 on one take clipped (1.02,
+  1.05) on the next. Picking a number "by eye" from one measurement was
+  therefore not a real safety margin, just a probability.
+  First attempt: a DynamicsCompressorNode (threshold -3dB, ratio 20, attack
+  1ms) after masterGain. Rejected after measurement - even a 1ms attack is
+  still a ramp with real duration, and these clicks are only ~15-90ms long,
+  so enough of the click can pass before the compressor is fully engaged to
+  still clip.
+  What actually shipped: a WaveShaperNode hard ceiling (getLimiterNode,
+  LIMITER_CEILING = 0.85), applied after masterGain, before destination. A
+  WaveShaper is a fixed per-SAMPLE function with no envelope/timing at all, so
+  the ceiling is a mathematical guarantee rather than something that depends
+  on how fast a follower reacts - every sample is independently clamped,
+  including the very first one of a transient. Curve is `clamp(x, -0.85,
+  0.85)` sampled into a 4097-point array; WaveShaperNode clamps any input
+  outside its native domain [-1, 1] to the curve's own edge value rather than
+  extrapolating, which is exactly what turns a plain clamp() into a TRUE
+  ceiling regardless of how hard the input is driven. oversample: "4x" is
+  necessary too - the clamp's sharp corner is a discontinuity that aliases
+  into audible harshness without it.
+  With the ceiling now unconditional, raised the peak args hard: tick 0.42->
+  1.9, go 0.68->2.6, join pair 0.85/0.78->3.2/3.0. Stress-tested 120 renders
+  (40 of each cue) rather than a handful, specifically because of the
+  run-to-run variance discovered above - worst peak observed across all 120
+  was 0.89, comfortably under 1.0 even accounting for the oversample-induced
+  corner ripple that pushes slightly past the nominal 0.85 ceiling. True
+  peaks now average ~0.49 (tick), ~0.85 (go), ~0.86 (join) - roughly 3-6x
+  louder than the previous round depending on the cue, and 8-17x the
+  ORIGINAL (pre-any-boost) levels.
+  Test-infrastructure notes: (1) tone.js's and volcheck.js's offline-render
+  harnesses build their own masterGain (bypassing getAudioCtx()) and now call
+  the app's own getLimiterNode() directly rather than reimplementing the
+  limiter, since it's a plain function declaration already in scope - so
+  future tuning of the limiter only has to happen in one place. (2) sound.js's
+  stubbed AudioContext needed createWaveShaper() added (returning a
+  curve/oversample/connect stub) - getAudioCtx() now calls it on every context
+  it builds, and the stub didn't have it, which would have failed silently
+  the same way the createBiquadFilter gap did two entries ago. Recorded again
+  because it's the third time this exact class of bug has bitten: any new Web
+  Audio node type used in the real code needs a matching stub method, or the
+  end-to-end suite either throws or silently stops recording cues.
+  Full regression re-run after this change: sound.js (10), wake.js (5),
+  wedge.js (5), statusmsg.js (9), volcheck.js (8) all still pass - none of
+  them assert on absolute cue loudness, so the boost didn't need any of them
+  to change, only the two offline-measurement harnesses' internal wiring.
+
+- 2026-07-25: Fixed the "beginning of the sound is cut off after a quiet spell"
+  report - the user described losing the whole "3" of the 3-2-1-go countdown
+  (hearing only 2-1-go) and hearing only the second half of the join pair, and
+  correctly guessed the cause: the output DEVICE powering down after silence
+  and clipping whatever wakes it. For a ~20ms click, "the beginning" is the
+  entire sound, which is why a cue could vanish outright rather than merely
+  sound clipped.
+  WAKE_LEAD (120ms of scheduled silence ahead of each click, added earlier
+  specifically for this) turned out to be nowhere near enough: losing an entire
+  tick means the device gap is closer to a second, and no lead-in long enough
+  to cover that could also stay in sync with the countdown on screen (a
+  half-second-late tick would land while the number already read "2").
+  So rather than racing the wake, the sleep is now prevented: `updateKeepAlive`
+  runs a permanently-looping, inaudible BufferSource straight into destination
+  (bypassing masterGain and the limiter deliberately - whether the hardware
+  stays awake shouldn't depend on where the user left the volume slider), so
+  the output stream never goes idle and there is nothing to wake up. The level
+  is the crux: KEEP_ALIVE_LEVEL = 0.0001 (-80dBFS) is non-zero because both
+  the OS and the browser detect SILENCE rather than absence-of-stream, so
+  literal zeros would be optimised away and the device would sleep regardless -
+  but it is far below the noise floor of any real playback chain. Runs only
+  while `playSounds && state === "running"`: a suspended context can't feed the
+  device anyway, and holding the hardware awake for cues that are switched off
+  would be pure waste. WAKE_LEAD is kept as a second layer for the window right
+  after unlock, before the keep-alive has been running long.
+  Note this is the one part that cannot be verified here - headless Chrome has
+  no real audio hardware to fall asleep - so it is confirmed only structurally
+  (9 assertions: runs when it should, stops when cues are off or the context
+  suspends, restarts after resume, idempotent under repeated calls, and
+  renders non-silent-but-below--70dBFS). Whether it actually cures the symptom
+  needs the user's ears.
+  Also moved `noiseBuffer`/`getNoiseBuffer` above getAudioCtx(). The keep-alive
+  reaches for the noise buffer, and getAudioCtx() is called during the load
+  sequence, so leaving the `let` declaration below its consumer left a real
+  temporal-dead-zone hazard that only stayed latent because the context
+  happens to come up suspended in the common case.
+  Test-infrastructure notes, all from the keep-alive being a BufferSource like
+  the cues are: (1) sound.js's stub threw on `src.start()` with no arguments
+  (t.toFixed of undefined) - this is the FOURTH time a new Web Audio call has
+  broken that stub, and as before the failure mode was silent (all cues stop
+  recording). (2) The keep-alive would also have been counted AS a cue by
+  sound.js, wake.js and wedge.js. Fixed everywhere by the same distinction the
+  real code already implies: cue clicks are always started with an explicit
+  time, the keep-alive is started with none, so `typeof args[0] === "number"`
+  separates them. (3) statusmsg.js was counting every chat row, so leftover
+  players from the multi-tab suite posting real "joined the lobby" lines made
+  it pass or fail depending on run order - now filtered to the sound-status
+  rows only. Full battery re-run: sound (10), wake (5), wedge (5), statusmsg
+  (9), volcheck (8), keepalive (9), plus the 120-render clipping stress test
+  (worst peak 0.889, still no clipping).
+- 2026-07-26: Status-slot UI polish. (1) The pre-race countdown is no longer a
+  pill banner: it now uses the same big-number treatment as the WPM readout
+  (`#countdownDisplay`), with "Race starts in" as the small uppercase caption
+  ABOVE a 44px amber number. It always shows during `countdown`, independent of
+  the Large-WPM setting - so `#statusSlot` now reserves the tall height
+  unconditionally and the `data-reserve` toggle is gone (the banner, countdown
+  and WPM readouts all live in a fixed 64px slot, so no phase swap shifts the
+  text below). (2) "Waiting for challengers" -> "Waiting for racers" followed
+  by three dots pulsing in sequence, so an idle lobby reads as live rather than
+  stuck. The banner is plain textContent everywhere except that one state; the
+  waiting markup is only rebuilt when the dots aren't already present, since
+  render() runs on every state patch and re-creating the nodes would restart
+  the animation mid-cycle.
+- 2026-07-26: Merged the countdown and WPM readouts into one element
+  (`#bigReadout`), replacing `#countdownDisplay` + `#wpmDisplay`. They were two
+  separate blocks with the caption on opposite sides of the number, so the
+  digits jumped upward the moment countdown handed over to racing. Now there is
+  a single number row with a caption row above AND below it; both caption rows
+  are always laid out (fixed 13px height, toggled via `data-on` opacity, never
+  `display:none`), so the number occupies the same y in every state. The
+  handover is now just: "Race starts in" fades out, "WPM" fades in, and the
+  number recolors amber -> green (.18s each, `data-mode` drives the color).
+  Slot height is therefore fixed at 74px (13 + 2 + 44 + 2 + 13). The readout
+  still hides entirely when neither applies (spectating, or racing with the
+  Large-WPM setting off).
+- 2026-07-26: Added a third player status, `"queued"`, so opting into a race is
+  never refused for timing reasons. Previously `setStatus({racing:true})` was
+  silently ignored during `"racing"`/`"finished"`, which meant the entire span
+  of a race plus its results screen was dead time for the join button - you had
+  to sit there and remember to click the instant it reopened. Now the button
+  offers **"Queue for Next Race"** in exactly those windows (plus the
+  countdown's last `LOCK_AT_COUNTDOWN_SECONDS`, see below); clicking reserves a
+  racer slot immediately, sits out the current race entirely, and turns the
+  button into **"Leave Queue"**. `RaceRoom.promoteQueuedRacers()` moves the
+  whole queue into `"racing"` from `resetToWaiting()` - the single point where
+  the room starts setting a fresh race up, and therefore the moment "the next
+  race" becomes "this race". `resetToWaiting()` now ends by calling
+  `onRosterChanged()` itself (which is what starts that race's countdown), so
+  its callers no longer do; the one recursive-looking path is safe because
+  `onRosterChanged` only reaches it while the phase is `"racing"` and the phase
+  is no longer `"racing"` by the time the nested call reads it.
+  - The awkward part, and the thing to be careful around when editing
+    RaceRoom: there are now **two** counts, and they answer different
+    questions. `countRacers()` (racing only) drives the RACE LIFECYCLE -
+    start/cancel a countdown, is a live race still populated, is everyone
+    finished - so a queued player can never start or sustain a race they
+    aren't in. `countTakenSlots()` (racing + queued) drives CAPACITY - the
+    `MAX_RACERS` cap, merge-target free slots, `state.racerCount` and the
+    matchmaking metadata behind fullest-first placement - so a reserved slot is
+    never handed to someone else. `state.racerCount` therefore changed meaning
+    from "racers" to "slots taken"; the client's room indicator reads
+    "3/5 racers" accordingly.
+  - `LOCK_AT_COUNTDOWN_SECONDS` (3) now also governs the in-room opt-in, via
+    the new `acceptsNewRacers()` that both `setStatus` and `onJoin` read. That
+    reverses the 2026-07-2x decision to exempt people already in the room from
+    the cutoff (the reasoning then: they'd been watching the countdown, so they
+    couldn't be surprised by it, and refusing them would have been pure loss).
+    Queueing removes that trade-off - missing the cutoff now costs you nothing
+    but a race's wait - so all four "can this room take another racer"
+    decisions finally read the same threshold and can't disagree.
+  - It also closes two silent slot-loss edges on redirects: `resumeRacing` is
+    now sent for queued players as well as racing ones (both mean "put me in a
+    race over there"), and an arrival that finds the target mid-race lands
+    `"queued"` rather than being demoted to spectating. The redirect's decision
+    is still re-checked at arrival - only a genuinely full room costs the slot.
+  - Client: the button's four states are Spectate / Leave Queue / Race Full /
+    Join Race-or-Queue for Next Race, driven by `iHoldSlot` (racing OR queued,
+    which is also what `data-racing` now tracks) plus a mirrored copy of
+    `acceptsNewRacers`'s condition. Phase no longer disables the button at all;
+    a full room is the only dead click left. The plain-join label dropped
+    "Next" and is just **"Join Race"** now, since "next" is what the queue
+    means. Queued players appear in the roster exactly like anyone else (no
+    tag) and never appear in the leaderboard, which is strictly the CURRENT
+    race's field - they have no progress or wpm in it, and a 0% row would read
+    as a racer who hasn't started. A player AFK'd out of this race keeps their
+    held-in-place row and its "AFK" tag even after queueing for the next one:
+    the tag describes what happened in this race, and queueing doesn't undo
+    it. (`afk` is cleared for everyone in `resetToWaiting()`, so no row can
+    carry into a race its player wasn't in.)
+  - Verified by driving a real `RaceRoom` through two full race cycles with
+    stubbed Colyseus plumbing (25 assertions: late-countdown queueing, the
+    queue sitting out a race, promotion on both the normal results path and a
+    mid-race abort, the cap counting queued players, and leaving the queue).
+- 2026-07-26: Added a search box to the emoji picker, between the tabs and the
+  first group. **Answering the question it started with: emoji carry no labels
+  of their own, and no browser API exposes their Unicode names** - not
+  `Intl.DisplayNames`, not anything else - so there was nothing to search
+  against and a name table had to ship with the app. It is GENERATED rather than
+  hand-written, which matters for trust: the labels are the same ones every OS
+  emoji keyboard searches, not somebody's guesses about what 🫠 should be called.
+  - Source: CLDR `common/annotations/en.xml` (+ `annotationsDerived/en.xml`),
+    taking `type="tts"` as the name and the plain annotation as keywords, with
+    Unicode's `emoji-test.txt` names as a fallback. Emitted for exactly the
+    emoji present in `EMOJI_GROUPS`, and it covered all of them - 1161/1161, no
+    gaps to hand-fill. Keywords whose every word already appears in the name are
+    dropped (they can't affect a substring match), which is what keeps the table
+    to ~52KB; index.html went 153KB -> 211KB raw, 51KB -> 76KB gzipped.
+  - Stored as `EMOJI_SEARCH_DATA`, one line per emoji: `<emoji> <name>|<keywords>`.
+    Self-contained lines were a deliberate choice over a parallel array of names,
+    which could silently drift out of alignment with the palette. Parsed once
+    into `emojiInfo` (emoji -> {name, text}); `name` also became the cell's
+    tooltip, replacing a tooltip that just repeated the emoji you were looking at.
+  - Kept inline rather than lazily fetching a separate `emoji-names.txt`: the
+    alternative would keep index.html lean and cache the table separately
+    (index.html is `no-cache`, so it revalidates every load), but it adds an
+    async load state and an offline failure mode to a picker that currently has
+    neither, and CLAUDE.md's single-file client convention argues the same way.
+    Worth revisiting if the client ever grows a real asset pipeline.
+  - Matching is substring, per the request ("where the keyword appears in the
+    name"), with all space-separated terms required, so "smiling cat" narrows.
+    Substring alone ranks badly though - it makes "love" match g-**love** and
+    "fast" match break-**fast** - so results are scored: exact name, whole word
+    in name, whole word in keywords, starts a word in name, starts a keyword,
+    then mid-word-only last. Ties break on where the term appears in the name,
+    then name length, then palette order (`sort` is stable). The
+    keywords-before-prefixes ordering is load-bearing: plenty of emoji are known
+    by a word absent from their official name, so 🚗 is "automobile" with "car"
+    as a keyword, and "car" has to reach it ahead of 🥕 carrot, 📇 card index and
+    🪚 carpentry saw. Nothing is filtered out by ranking, only pushed down.
+  - UI: search mode hides the themed groups via CSS and swaps in a single
+    `#emojiResults` section (appended last, so `groupEls`/tab indices are
+    untouched); tabs dim, and clicking one clears the search and jumps there.
+    `updateActiveTab` no-ops while searching (every group is `display:none`, so
+    they'd all measure as position 0). The box clears on open, so the picker
+    never reopens on a stale query.
+  - One non-obvious prerequisite: `render()` re-focuses the typing input on
+    every state patch (several a second during a race), which would have yanked
+    focus out of the search box mid-keystroke. It now stands down while the
+    emoji picker is open, the same way it already did for the settings panel -
+    this is why the picker could get away with having no text input before.
+  - Also fixed a pre-existing palette bug the coverage check surfaced: ♨️ was
+    listed in both "Travel & Places" and "Symbols & Flags", so it rendered as a
+    duplicate cell. Removed from Symbols & Flags (Unicode groups it under travel).
+  - Verified with two scripted suites run against the code sliced out of
+    index.html itself, not reimplementations: 37 checks on the table and
+    ranking (full coverage, name sanity, keyword-only hits like "happy" -> 😀,
+    multi-term narrowing, case-insensitivity, the g-love/break-fast ordering),
+    and 31 on the DOM wiring under a small DOM shim (build order, focus on
+    open, the data-searching flags, result counts and titles, the empty state,
+    clearing, picking from results, and reopening clean).
+- 2026-07-26: Fixed two bugs in the local sound-status chat line (see
+  `refreshSoundStatusMessage`), both found by scripted testing after a user
+  asked to verify that a re-block would appear at the BOTTOM of the chat rather
+  than at the top. It didn't appear at all, and could also vanish for good.
+  - **Never re-shown.** The re-block path was guarded by `if (!soundStatusEntry)`,
+    which is false once the line exists - including when it exists as the
+    "🔊 Sound enabled." line. So audio being blocked again after having worked
+    did nothing whatsoever, and the log went on claiming sound was enabled while
+    it wasn't. Now an enabled -> blocked flip appends a NEW "🔇 Sound is blocked"
+    line at the bottom, arriving like any other chat message. It deliberately
+    does not edit the existing line in place: by then that line may be far up
+    the backlog, so rewriting it would change history where the user isn't
+    looking and show nothing where they are. The old "Sound enabled." stays as
+    the record of what happened then - consistent with these lines being history
+    like any other. The reverse flip (blocked -> enabled) still mutates in
+    place, since that's where the user just clicked and it shouldn't jump.
+  - **Could vanish permanently.** `myVisibleChat` is capped at
+    CHAT_HISTORY_LIMIT_CLIENT and trims from the FRONT - exactly where this line
+    sits after a normal page load, the log being empty when it's added - so
+    ~50 messages silently shifted it out while `soundStatusEntry` still pointed
+    at the orphaned object. Every later check then believed the line was on
+    screen and never re-added it. A Switch Lobby hit the same desync by another
+    route (`myVisibleChat = []`). `refreshSoundStatusMessage` now reconciles
+    against the log rather than trusting the pointer (`indexOf === -1` clears
+    it), and the Switch Lobby chat reset calls it explicitly so a fresh log
+    re-states a still-blocked status instead of losing it. Being trimmed out is
+    fine in itself - a notice pinned atop a 50-message backlog is one nobody
+    sees; what matters is that the next cue attempt re-adds it at the bottom,
+    and cues fire on every join and countdown tick (each routing through
+    `withAudio` -> `refreshSoundStatusMessage`).
+  - Verified with 16 checks driving the real function sliced out of index.html:
+    first appearance, messages landing below it, the in-place enable, the
+    re-block landing last exactly once, no duplicates on repeated refreshes,
+    the settings toggle removing/re-adding it, and the cap-trim/re-add cycle.

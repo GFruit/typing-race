@@ -25,7 +25,19 @@ export class Player extends Schema {
   @type("string") emoji: string = "🚀";
 
   /**
-   * "watching" = spectating; "racing" = joined the next/current race.
+   * "watching" = spectating; "racing" = in the race currently being set up or
+   * run; "queued" = holds a racer slot for the race AFTER this one.
+   *
+   * "queued" exists because there are stretches where joining the imminent
+   * race isn't possible but wanting in on the next one is perfectly
+   * reasonable: while a race is live, while its results are up, and in the
+   * last few seconds of a countdown (see RaceRoom's LOCK_AT_COUNTDOWN_SECONDS
+   * / acceptsNewRacers()). A queued player occupies a racer slot immediately
+   * (so the room can't be oversubscribed) but takes no part in the current
+   * race - no progress, no wpm, no place - and is promoted to "racing"
+   * wholesale when the room next settles back to "waiting" (see RaceRoom's
+   * resetToWaiting()).
+   *
    * Only the SERVER may change this (via the "setStatus" message handler).
    */
   @type("string") status: string = "watching";
@@ -138,9 +150,11 @@ export class RaceState extends Schema {
   @type("number") quoteId: number = 0;
 
   /**
-   * Mirrors `countRacers()`; how many of `players` currently have
-   * `status === "racing"`, out of MAX_RACERS (see RaceRoom). Kept in synced
-   * state (cheap, small) so clients can show "3/5" without counting players
+   * Mirrors `countTakenSlots()`; how many of MAX_RACERS's racer slots are
+   * currently spoken for - `status === "racing"` PLUS `status === "queued"`,
+   * since a queue spot reserves a real slot (see Player.status). Kept in
+   * synced state (cheap, small) so clients can show "3/5" - and decide
+   * whether joining/queueing is even possible - without counting players
    * themselves; also pushed into the room's matchmaking metadata (see
    * RaceRoom's `updateRacerCount()`) for cross-room fullest-first placement.
    */

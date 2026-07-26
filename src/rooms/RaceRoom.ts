@@ -14,8 +14,9 @@
  *     That same quote then carries unchanged through "countdown" into
  *     "racing" once at least one player queues (see the matchmaking scope
  *     note near the bottom of this comment for the current threshold).
- *   - Joining a race ("watching" -> "racing") is only allowed during
- *     "waiting"/"countdown" only, no jumping into one already live. Bailing out
+ *   - Joining the race being set up ("watching" -> "racing") is only allowed
+ *     during "waiting"/"countdown", no jumping into one already live (see the
+ *     "Queueing" scope note below for what happens instead). Bailing out
  *     ("racing" -> "watching") is always allowed, even mid-race.
  *
  * Step 3 scope (this file, added on top): typing + progress.
@@ -60,10 +61,10 @@
  *
  * Matchmaking scope (this file, added on top; see match-making.md): capped
  * racer slots + multi-room placement.
- *   - MAX_RACERS caps a room at 5 racers; `setStatus({racing:true})` is
- *     rejected past that (same silent-ignore treatment as trying to join a
- *     live race). Spectators remain uncapped - they share the room's chat
- *     and roster but never occupy a racer slot, so there's nothing to cap.
+ *   - MAX_RACERS caps a room at 5 racer slots; `setStatus({racing:true})` is
+ *     silently ignored once they're all taken. Spectators remain uncapped -
+ *     they share the room's chat and roster but never occupy a racer slot, so
+ *     there's nothing to cap.
  *   - `state.racerCount` mirrors `countRacers()` into synced state (cheap
  *     for clients that want to show "3/5") and is also pushed into the
  *     room's matchmaking metadata via `setMetadata`, which is what
@@ -119,6 +120,27 @@
  *     `client.joinById(...)` on the target instead of treating the drop as
  *     a real disconnect, carrying its reconnection token and UI state
  *     (chat log, etc.) forward across the swap.
+ *
+ * Queueing scope (this file, added on top): a third player status, "queued".
+ *   - Opting in is now never refused for timing reasons. When the room can't
+ *     add you to the race it's setting up - a live race, a results screen, or
+ *     a countdown with LOCK_AT_COUNTDOWN_SECONDS or less to go (see
+ *     `acceptsNewRacers()`) - `setStatus({racing:true})` makes you "queued"
+ *     instead of doing nothing: you take a racer slot immediately, sit out the
+ *     current race entirely, and are moved into the next one wholesale by
+ *     `promoteQueuedRacers()` when the room settles back to "waiting". The
+ *     only hard refusal left is a genuinely full room (see below).
+ *   - Two different counts now exist, and mixing them up is the easy bug here:
+ *     `countRacers()` (racing only) drives the RACE LIFECYCLE - start/cancel a
+ *     countdown, is a live race still populated, is everyone finished - so a
+ *     queued player can never start or sustain a race they aren't in.
+ *     `countTakenSlots()` (racing + queued) drives CAPACITY - the MAX_RACERS
+ *     cap, merge-target free slots, `state.racerCount`/matchmaking metadata -
+ *     so a reserved slot is never handed to someone else.
+ *   - It also removes the old "you lose your slot" edges from redirects: a
+ *     racing-or-queued player who merges or Switch-Lobbys into a room that
+ *     turns out to be mid-race by the time they land arrives "queued" rather
+ *     than demoted to spectating (see onJoin).
  */
 import { Room, Client, CloseCode } from "colyseus";
 import { Delayed } from "@colyseus/timer";
@@ -170,16 +192,18 @@ function isEmoji(s: string): boolean {
   }
   return hasPictographic;
 }
-// Governs three things uniformly, all "is this room open to someone who
-// isn't already sitting in it": pulling the room out of Colyseus's own
-// matchmaking once the countdown gets this low (new visitors), excluding
-// it as a merge/Switch Lobby target (findMergeTarget), and a target's
-// resumeRacing re-check at actual arrival time (onJoin) - all three read
-// the same number, so a merge/redirect/fresh-visitor placement decision
-// and its later arrival can never disagree. Does NOT restrict someone
-// already in the room from clicking "Join Next Race" right up until the
-// race actually starts (see setStatus) - they've been watching the
-// countdown the whole time, there's no "surprise" to protect them from.
+// How late into a countdown a player may still be added to the race it's
+// counting down to. Governs four things uniformly - pulling the room out of
+// Colyseus's own matchmaking (new visitors), excluding it as a merge/Switch
+// Lobby target (findMergeTarget), a redirected client's re-check at actual
+// arrival time (onJoin), and the in-room opt-in (setStatus) - all reading the
+// same number, so no two of those decisions can disagree, and nobody is ever
+// added to a race with only a couple of seconds' notice.
+//
+// Note what missing the cutoff costs, which differs by case: for a NEW visitor
+// it just means landing in some other room (or a fresh one), and for anyone
+// opting in or arriving with a slot it means "queued" - in the next race
+// rather than this one. Nobody is turned away outright by it.
 const LOCK_AT_COUNTDOWN_SECONDS = 3;
 const RESULTS_SECONDS = 3;
 const RACE_TIMEOUT_MS = 60_000;
@@ -274,28 +298,24 @@ export class RaceRoom extends Room {
 
       const wantsToRace = !!payload?.racing;
 
-      // Joining a live/finished race isn't allowed. The roster for the
-      // current race is locked once it starts. Bailing out to spectate,
-      // however, is always allowed (even mid-race).
-      if (wantsToRace && (this.state.phase === "racing" || this.state.phase === "finished")) {
+      // Giving up a slot is always allowed, from either state: bailing out of
+      // a live race, or leaving the queue before it starts.
+      if (!wantsToRace) {
+        player.status = "watching";
+        this.onRosterChanged();
         return;
       }
 
-      // Racer slots are capped at MAX_RACERS; past that, joining is silently
-      // ignored (same treatment as the live-race case above). Spectating out
-      // is still always allowed regardless of how full the room is.
-      if (wantsToRace && this.countRacers() >= MAX_RACERS) {
-        return;
-      }
+      // Racer slots are capped at MAX_RACERS, counting queued players (their
+      // slot is already reserved - see Player.status); past that, opting in is
+      // silently ignored. Spectating out is unaffected, handled above.
+      if (this.countTakenSlots() >= MAX_RACERS) return;
 
-      // Deliberately no countdown-based cutoff here: someone already in this
-      // room has been watching the countdown the whole time, so there's no
-      // "surprise" to protect them from - they can queue right up until the
-      // race actually starts (see LOCK_AT_COUNTDOWN_SECONDS's doc comment
-      // for where that protection actually belongs instead: keeping NEW
-      // arrivals, who haven't been watching, from landing with no notice).
-
-      player.status = wantsToRace ? "racing" : "watching";
+      // The one decision left: does this put them in the race being set up
+      // right now, or reserve them a slot in the one AFTER it? Nobody is ever
+      // turned away outright anymore - a live race, a results screen, or a
+      // countdown too far along to join all become "you're in the next one".
+      player.status = this.acceptsNewRacers() ? "racing" : "queued";
       this.onRosterChanged();
     },
 
@@ -373,12 +393,12 @@ export class RaceRoom extends Room {
       if (!player) return;
 
       // Always requires the target to have a free racer slot right now,
-      // regardless of whether this player is racing or spectating (a
+      // regardless of whether this player is racing, queued or spectating (a
       // deliberate simplification: guarantees "switch lobby" always lands
-      // somewhere with room to grow, not just any room). incomingRacerCount
-      // of 1 is exactly "needs at least one free slot" - the same
-      // eligibility findMergeTarget already uses for merges, just sized for
-      // one switching player instead of a whole room's worth of racers.
+      // somewhere with room to grow, not just any room). An
+      // incomingRacerCount of 1 is exactly "needs at least one free slot" -
+      // the same eligibility findMergeTarget already uses for merges, just
+      // sized for one switching player instead of a whole room's worth.
       const target = RaceRoom.findMergeTarget(this, 1);
       // `soloSwitch: true` distinguishes this (one player leaving alone) from
       // a whole-room merge's redirect (attemptMerge, no such flag). The
@@ -388,7 +408,7 @@ export class RaceRoom extends Room {
       // into the destination would be wrongly suppressed as "already known" -
       // see client/index.html's myKnownClientIds); a merge moves the whole
       // room together, so those teammates ARE still with you and stay known.
-      client.send("redirect", { roomId: target?.roomId ?? null, resumeRacing: player.status === "racing", soloSwitch: true });
+      client.send("redirect", { roomId: target?.roomId ?? null, resumeRacing: player.status !== "watching", soloSwitch: true });
 
       // Only this one client leaves (not this.disconnect(), which would
       // kill the whole room for everyone else still here). Must pass
@@ -492,25 +512,23 @@ export class RaceRoom extends Room {
     player.clientId = (options?.clientId || client.sessionId).toString().slice(0, 64);
     // Ordinarily everyone starts as a spectator; the one exception is a
     // client arriving via a post-race merge/Switch Lobby redirect (see
-    // attemptMerge()/the "switchLobby" handler), which passes
-    // `resumeRacing` to preserve "was this player queued to race" across
-    // the room swap - but only if that's still valid by the time they
-    // actually arrive (the target's roster/countdown can shift in the gap
-    // between the redirect decision and this join, e.g. an unrelated
-    // visitor queuing up, or the countdown ticking past
-    // LOCK_AT_COUNTDOWN_SECONDS - findMergeTarget only checked that at
-    // *selection* time, this is the re-check at actual arrival time): a
-    // free racer slot, same as setStatus's MAX_RACERS check, and not past
-    // the same lock threshold every other "is this room open to a new
-    // arrival" decision uses - otherwise they land as a spectator instead.
-    const pastArrivalLock = this.state.phase === "countdown" && this.state.countdown <= LOCK_AT_COUNTDOWN_SECONDS;
-    const canResumeRacing =
-      !!options?.resumeRacing &&
-      this.state.phase !== "racing" &&
-      this.state.phase !== "finished" &&
-      !pastArrivalLock &&
-      this.countRacers() < MAX_RACERS;
-    player.status = canResumeRacing ? "racing" : "watching";
+    // attemptMerge()/the "switchLobby" handler), which passes `resumeRacing`
+    // to preserve "this player wanted a racer slot" across the room swap -
+    // set for anyone who was racing OR queued over there, since both mean the
+    // same thing on arrival: put me in a race here.
+    //
+    // Whether that's still honorable is re-checked here rather than trusted
+    // from the redirect, because the target's roster/countdown can shift in
+    // the gap between the redirect decision and this join (an unrelated
+    // visitor taking the last slot, or the countdown ticking past
+    // LOCK_AT_COUNTDOWN_SECONDS - findMergeTarget only checked those at
+    // *selection* time). A free slot is the hard requirement; missing it means
+    // spectating. Missing only acceptsNewRacers() - landing mid-race, on a
+    // results screen, or in a countdown's final seconds - is no longer fatal
+    // though: that's exactly what "queued" is for, so they keep their slot and
+    // race in the next one instead of silently losing it.
+    const wantsSlot = !!options?.resumeRacing && this.countTakenSlots() < MAX_RACERS;
+    player.status = !wantsSlot ? "watching" : this.acceptsNewRacers() ? "racing" : "queued";
     this.state.players.set(client.sessionId, player);
 
     // Dedup by clientId: one browser tab (its persistent clientId) must never
@@ -540,7 +558,9 @@ export class RaceRoom extends Room {
 
     this.postSystemMessage(`${player.name} joined the lobby.`, player.clientId, false);
     console.log(`[RaceRoom] ${player.name} joined, ${this.state.players.size} online`);
-    if (player.status === "racing") this.onRosterChanged();
+    // Only if they took a slot (racing or queued): a plain spectator changes
+    // neither the racer count nor the phase, so there's nothing to re-evaluate.
+    if (player.status !== "watching") this.onRosterChanged();
   }
 
   /**
@@ -644,6 +664,14 @@ export class RaceRoom extends Room {
     }
   }
 
+  /**
+   * How many players are in the race currently being set up or run. This is
+   * the RACE LIFECYCLE number - what decides whether a countdown starts,
+   * cancels, or a live race has anyone left in it - so it deliberately
+   * excludes "queued" players, who belong to the race after this one and
+   * mustn't be able to keep the current one alive (or start one) on their own.
+   * For "is there room for one more", use countTakenSlots() instead.
+   */
   private countRacers(): number {
     let count = 0;
     this.state.players.forEach((p) => {
@@ -653,13 +681,65 @@ export class RaceRoom extends Room {
   }
 
   /**
-   * Pushes the current racer count into both synced state (`state.racerCount`,
-   * for clients) and matchmaking metadata (`setMetadata`, for the
-   * `.sortBy({"metadata.racerCount": -1})` fullest-first placement in
-   * app.config.ts). Call after anything that can change who's racing.
+   * How many of MAX_RACERS's slots are spoken for: racers PLUS queued players,
+   * since queueing reserves a real slot the moment it's taken (see
+   * Player.status). This is the CAPACITY number - every "does another racer
+   * fit here" decision reads it, whether that's this room's own opt-in cap,
+   * a merge target's free slots, or a redirected client's arrival re-check.
+   */
+  private countTakenSlots(): number {
+    let count = 0;
+    this.state.players.forEach((p) => {
+      if (p.status === "racing" || p.status === "queued") count++;
+    });
+    return count;
+  }
+
+  /**
+   * Whether opting in right now lands you in the race being set up, or only
+   * in the queue for the one after it. True while "waiting", and during a
+   * "countdown" that still has more than LOCK_AT_COUNTDOWN_SECONDS to go;
+   * false once a race is live, while results are up, and in the countdown's
+   * final seconds.
+   *
+   * Read by BOTH the in-room opt-in (setStatus) and the arrival check for
+   * redirected clients (onJoin), which is deliberate: it's the same question
+   * either way, and the same threshold that pulls this room out of
+   * matchmaking placement (see LOCK_AT_COUNTDOWN_SECONDS). It used to differ -
+   * someone already in the room could join right up until the race started,
+   * on the reasoning that they'd been watching the countdown and so couldn't
+   * be surprised by it - but now that missing the cutoff means "queued for the
+   * next race" rather than "rejected, stay a spectator", there's nothing left
+   * for that exception to buy them.
+   */
+  private acceptsNewRacers(): boolean {
+    if (this.state.phase === "waiting") return true;
+    if (this.state.phase === "countdown") return this.state.countdown > LOCK_AT_COUNTDOWN_SECONDS;
+    return false; // "racing" / "finished"
+  }
+
+  /**
+   * Moves everyone waiting on the next race into it (see Player.status's
+   * "queued"). Called from resetToWaiting(), which is the single point where
+   * the room starts setting up a fresh race - and thus the moment "the next
+   * race" becomes "this race". Safe to promote all of them unconditionally:
+   * queued players already hold their slots, so racers + queued can never
+   * exceed MAX_RACERS in the first place.
+   */
+  private promoteQueuedRacers() {
+    this.state.players.forEach((p) => {
+      if (p.status === "queued") p.status = "racing";
+    });
+  }
+
+  /**
+   * Pushes the current slot occupancy into both synced state
+   * (`state.racerCount`, for clients) and matchmaking metadata (`setMetadata`,
+   * for the `.sortBy({"metadata.racerCount": -1})` fullest-first placement in
+   * app.config.ts). Call after anything that can change who holds a slot.
    */
   private updateRacerCount() {
-    const racerCount = this.countRacers();
+    const racerCount = this.countTakenSlots();
     this.state.racerCount = racerCount;
     this.setMetadata({ racerCount });
   }
@@ -714,6 +794,15 @@ export class RaceRoom extends Room {
    * mid-race abort where everyone left/idled out), false when a countdown was
    * cancelled before the race started - in that case the previewed quote
    * should stay put rather than switch out from under everyone.
+   *
+   * This is also where anyone queued for "the next race" gets promoted into
+   * it (see promoteQueuedRacers), since settling back to "waiting" is exactly
+   * the moment the next race becomes the current one - so it ends by
+   * re-evaluating the roster, which is what actually starts that race's
+   * countdown. Callers therefore don't need to call onRosterChanged
+   * themselves. Safe from recursion despite onRosterChanged being one of those
+   * callers: it only reaches here while the phase is "racing", and the phase
+   * is "waiting"/"countdown" by the time the nested call reads it.
    */
   private resetToWaiting(pickNewQuote: boolean = true) {
     this.countdownTimer?.clear();
@@ -744,6 +833,13 @@ export class RaceRoom extends Room {
       p.place = 0;
       p.afk = false;
     });
+
+    // "The next race" is now this one: everyone who queued for it joins it.
+    this.promoteQueuedRacers();
+    // Starts that race's countdown if the promotion (or anyone still queued
+    // from before) left us with racers. Also the only re-evaluation the
+    // callers get - see this method's doc comment.
+    this.onRosterChanged();
   }
 
   private startRace() {
@@ -820,10 +916,12 @@ export class RaceRoom extends Room {
         // autoDispose finish the job, so there's nothing further to do on
         // this room afterward.
         if (!this.attemptMerge()) {
+          // Anyone still holding a slot - last race's racers who didn't
+          // switch to spectating, plus anyone who queued during the race or
+          // its results - is now in the next race, and resetToWaiting's own
+          // roster re-evaluation is what starts it. This is what makes it an
+          // *auto* next race.
           this.resetToWaiting();
-          // Anyone still queued (didn't switch to spectating) stays queued;
-          // this is what makes it an *auto* next race.
-          this.onRosterChanged();
         }
       }
     }, 1000);
@@ -843,7 +941,9 @@ export class RaceRoom extends Room {
   private attemptMerge(): boolean {
     if (this.clients.length === 0) return false;
 
-    const target = RaceRoom.findMergeTarget(this, this.countRacers());
+    // Sized by slots, not just racers: anyone queued here needs a slot over
+    // there too (they're about to be promoted into the target's next race).
+    const target = RaceRoom.findMergeTarget(this, this.countTakenSlots());
     if (!target) return false;
 
     target.mergeChatFrom(this.state.chat);
@@ -851,11 +951,12 @@ export class RaceRoom extends Room {
     for (const client of this.clients) {
       const player = this.state.players.get(client.sessionId);
       if (!player) continue;
-      // Tells the client which room to jump to next, and whether it should
-      // rejoin as a racer there; client/index.html reacts to this by
-      // calling client.joinById(...) instead of treating the disconnect
-      // (below) as a real one.
-      client.send("redirect", { roomId: target.roomId, resumeRacing: player.status === "racing" });
+      // Tells the client which room to jump to next, and whether it wants a
+      // racer slot there (true for racing AND queued - both mean "put me in a
+      // race"; the target's onJoin decides which of the two they land as);
+      // client/index.html reacts to this by calling client.joinById(...)
+      // instead of treating the disconnect (below) as a real one.
+      client.send("redirect", { roomId: target.roomId, resumeRacing: player.status !== "watching" });
     }
 
     console.log(`[RaceRoom] merging ${this.clients.length} player(s) from ${this.roomId} into ${target.roomId}`);
@@ -873,13 +974,16 @@ export class RaceRoom extends Room {
    * every other live room that's either "waiting" or already mid-"countdown"
    * but not yet locked (the same eligibility normal new-visitor matchmaking
    * placement uses - see app.config.ts's sortBy and the countdown lock rule)
-   * with enough free racer slots, picks the one that already has the most
-   * racers, consistent with the fullest-room-first philosophy used for
-   * new-visitor placement. A "racing"/"finished" room is never eligible;
-   * merging only ever happens between races. A target's `onJoin` still
-   * separately re-checks LOCK_AT_COUNTDOWN_SECONDS at actual arrival time
-   * (this only checked it at selection time), so racers who'd land too
-   * close to a countdown room's start get spectators instead.
+   * with enough free racer slots, picks the one whose slots are already the
+   * fullest, consistent with the fullest-room-first philosophy used for
+   * new-visitor placement. Free slots and fullness both count queued players
+   * as well as racers (see countTakenSlots), so a target can't be picked on
+   * the strength of slots that are in fact already reserved. A
+   * "racing"/"finished" room is never eligible; merging only ever happens
+   * between races. A target's `onJoin` still separately re-checks all of this
+   * at actual arrival time (this only checked it at selection time), so
+   * whoever lands too close to a countdown room's start gets queued for its
+   * following race instead, or spectates if the slots ran out entirely.
    */
   private static findMergeTarget(source: RaceRoom, incomingRacerCount: number): RaceRoom | undefined {
     let best: RaceRoom | undefined;
@@ -887,9 +991,9 @@ export class RaceRoom extends Room {
       if (candidate === source) continue;
       if (candidate.state.phase !== "waiting" && candidate.state.phase !== "countdown") continue;
       if (candidate.locked) continue;
-      const freeSlots = MAX_RACERS - candidate.countRacers();
+      const freeSlots = MAX_RACERS - candidate.countTakenSlots();
       if (incomingRacerCount > freeSlots) continue;
-      if (!best || candidate.countRacers() > best.countRacers()) best = candidate;
+      if (!best || candidate.countTakenSlots() > best.countTakenSlots()) best = candidate;
     }
     return best;
   }
