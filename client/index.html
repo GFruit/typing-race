@@ -4059,6 +4059,10 @@
     }
 
     function openEmojiPicker() {
+      // A real open both pays and "spends" the glyph-cache warm-up: once the
+      // cells have painted for real there's nothing left to pre-warm, and we
+      // must not let the idle warm-up (below) hide an open picker.
+      emojiGlyphsWarmed = true;
       // Always opens on the browse view, never on the last search's leftovers.
       emojiSearch.value = "";
       applyEmojiSearch();
@@ -4101,6 +4105,32 @@
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") closeEmojiPicker();
     });
+
+    // Warm the color-emoji glyph cache once, shortly after load and off the
+    // critical path. The picker's ~1000 cells are built up-front but never
+    // painted while it's display:none, so the FIRST open would otherwise have
+    // to rasterize every glyph at once - that's the visible lag (later opens
+    // are fast because the browser's glyph cache is warm). Painting the whole
+    // picker once at opacity:0 - which still rasterizes, unlike display:none or
+    // visibility:hidden - pays that cost invisibly ahead of time.
+    let emojiGlyphsWarmed = false;
+    function warmEmojiGlyphs() {
+      // Skip if a real open already warmed things (or is on screen right now):
+      // toggling data-open here would otherwise flash the picker away.
+      if (emojiGlyphsWarmed || emojiPicker.dataset.open === "1") return;
+      emojiGlyphsWarmed = true;
+      emojiPicker.style.opacity = "0";
+      emojiPicker.style.pointerEvents = "none";
+      emojiPicker.dataset.open = "1";
+      // One frame to lay out + paint the glyphs, then undo the temporary state.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        emojiPicker.dataset.open = "0";
+        emojiPicker.style.opacity = "";
+        emojiPicker.style.pointerEvents = "";
+      }));
+    }
+    if (window.requestIdleCallback) requestIdleCallback(warmEmojiGlyphs, { timeout: 2000 });
+    else setTimeout(warmEmojiGlyphs, 300);
 
     // --- Settings panel (gear icon) -------------------------------------------
     // Holds the username field and the "show racers on text" toggle. Opened
