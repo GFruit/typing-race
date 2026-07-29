@@ -154,70 +154,194 @@
     .emoji-empty { grid-column: 1 / -1; color: #64748b; font-size: 12px; font-style: italic; padding: 4px 2px; }
 
     /* Settings popover, opened by the header gear. Anchored to the button's
-       right edge so it stays on-screen. Holds the username field and the
-       "show racers on text" toggle. */
+       right edge so it stays on-screen. Laid out as titled groups (Profile /
+       Race view / Sound) sharing one row rhythm: every setting is a
+       label + hint on the left and its control on the right, so the panel
+       scans as a single list rather than a stack of one-off widgets.
+       Scrolls internally (with the shared thin scrollbar) on short viewports
+       instead of running off the bottom of the screen. */
     #settingsPanel {
-      display: none; position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
-      background: #111a2e; border: 1px solid #1e293b; border-radius: 12px;
-      padding: 14px; width: min(280px, 92vw);
-      box-shadow: 0 12px 32px rgba(2, 6, 16, .6);
+      display: none; position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
+      background: #111a2e; border: 1px solid #1e293b; border-radius: 14px;
+      width: min(324px, calc(100vw - 24px));
+      max-height: calc(100vh - 76px); overflow-y: auto; overscroll-behavior: contain;
+      box-shadow: 0 16px 40px rgba(2, 6, 16, .65);
     }
-    #settingsPanel[data-open="1"] { display: block; }
-    #settingsPanel h3 {
-      margin: 0 0 12px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
-      color: #94a3b8; font-weight: 650;
+    #settingsPanel[data-open="1"] { display: block; animation: settings-in .13s ease-out; }
+    @keyframes settings-in {
+      from { opacity: 0; transform: translateY(-5px); }
+      to   { opacity: 1; transform: none; }
     }
-    .settings-field { margin-bottom: 14px; }
-    .settings-label { display: block; font-size: 13px; color: #e2e8f0; font-weight: 600; margin-bottom: 5px; }
+    @media (prefers-reduced-motion: reduce) {
+      #settingsPanel[data-open="1"] { animation: none; }
+    }
+    /* Sticky so the title and the close button stay reachable while the body
+       scrolls under them. */
+    .settings-head {
+      position: sticky; top: 0; z-index: 2; background: #111a2e;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 12px 14px 10px; border-bottom: 1px solid #1e293b;
+      border-radius: 14px 14px 0 0;
+    }
+    .settings-head h3 { margin: 0; font-size: 13px; font-weight: 650; color: #e2e8f0; }
+    #settingsClose {
+      flex-shrink: 0; width: 24px; height: 24px; padding: 0; line-height: 1;
+      display: grid; place-items: center;
+      background: transparent; border: 0; border-radius: 7px;
+      color: #64748b; font-size: 13px; cursor: pointer;
+      transition: background .12s ease-out, color .12s ease-out;
+    }
+    #settingsClose:hover { background: #1e293b; color: #e2e8f0; }
+    #settingsClose:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    .settings-body { padding: 2px 14px 12px; }
+
+    /* Each group is a titled cluster; a hairline separates one from the next. */
+    .settings-group + .settings-group { border-top: 1px solid #1a2540; margin-top: 8px; }
+    .settings-group-title {
+      font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
+      color: #64748b; font-weight: 700; padding: 12px 2px 4px;
+    }
+    /* Row = one setting: text block on the left, control on the right. The
+       negative margin lets the hover highlight bleed to the panel's padding
+       edge without the text itself shifting. */
+    .settings-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 14px;
+      padding: 8px; margin: 0 -8px; border-radius: 10px;
+      transition: background .12s ease-out;
+    }
+    /* Toggle rows are clickable in full (the row forwards the click to its
+       switch - see the .settings-row-toggle wiring), so the whole row reacts
+       to hover, not just the switch itself. */
+    .settings-row-toggle { cursor: pointer; }
+    .settings-row-toggle:hover { background: #16213a; }
+    .settings-field { padding: 8px 0 10px; }
+    .settings-label { display: block; font-size: 13px; color: #e2e8f0; font-weight: 600; }
+    .settings-hint { font-size: 11px; color: #64748b; line-height: 1.4; margin-top: 2px; }
+    /* Hints inside a full-width field sit between the label and the control. */
+    .settings-field .settings-hint { margin: 2px 0 8px; }
+    .settings-text { min-width: 0; }
+
+    /* Name + avatar as one composite field: the avatar button on the left, the
+       text input filling the middle, a live character counter on the right.
+       The whole thing lights up on focus, so it reads as a single control. */
+    .name-field {
+      display: flex; align-items: center; gap: 8px;
+      background: #0b1120; border: 1px solid #334155; border-radius: 10px;
+      padding: 4px; transition: border-color .15s ease-out;
+    }
+    .name-field:focus-within { border-color: #7dd3fc; }
+    /* padding:0 matters: a button's UA default (1px 6px) leaves an 18px-wide
+       content box here, which an ~25px emoji glyph overflows to one side, so
+       place-items:center centered a box the glyph had already spilled out of.
+       With no padding the glyph fits and actually sits centered. */
+    /* No resting box, matching how the header's own emoji button reads: the
+       avatar is just the glyph, and the hover highlight is what says it's
+       clickable. */
+    #settingsAvatar {
+      flex-shrink: 0; width: 30px; height: 30px; padding: 0; display: grid; place-items: center;
+      font-size: 18px; line-height: 1; cursor: pointer;
+      background: transparent; border: 0; border-radius: 8px;
+      transition: transform .12s ease-out, background .12s ease-out;
+    }
+    #settingsAvatar:hover { background: #1e293b; transform: scale(1.08); }
+    #settingsAvatar:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
     #settingsUsername {
-      box-sizing: border-box; width: 100%; padding: 8px 10px;
-      border-radius: 8px; background: #0b1120; border: 1px solid #334155;
+      flex: 1; min-width: 0; padding: 6px 0; background: transparent; border: 0;
       color: #e2e8f0; font-size: 14px; font-family: inherit; outline: none;
     }
-    #settingsUsername:focus { border-color: #7dd3fc; }
-    .settings-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-    .settings-row .settings-label { margin-bottom: 2px; }
-    .settings-hint { font-size: 11px; color: #64748b; max-width: 180px; line-height: 1.4; }
-    /* On/off slider switch (used by the "show racers" toggle; #ghostToggle). */
+    #settingsUsername::placeholder { color: #475569; }
+    #nameCount {
+      flex-shrink: 0; padding-right: 6px; font-size: 11px; color: #475569;
+      font-variant-numeric: tabular-nums;
+    }
+    #nameCount[data-full="1"] { color: #94a3b8; }
+
+    /* On/off slider switch (Large WPM display, Show racers on text, Sound cues). */
     .switch {
-      position: relative; flex-shrink: 0; width: 40px; height: 22px; margin-top: 1px;
+      position: relative; flex-shrink: 0; width: 40px; height: 22px;
       border: 0; border-radius: 999px; background: #334155; cursor: pointer;
       transition: background .15s ease-out;
     }
     .switch::after {
       content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
-      border-radius: 50%; background: #e2e8f0; transition: transform .15s ease-out;
+      border-radius: 50%; background: #e2e8f0;
+      transition: transform .15s ease-out;
     }
     .switch[data-on="1"] { background: #22c55e; }
     .switch[data-on="1"]::after { transform: translateX(18px); }
+    .switch:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
 
-    /* The username field is the only other full-width settings-field; its hint
-       needs the same 180px cap the row-style hints use, but this one runs the
-       field's full width instead, so it's uncapped here. */
-    .settings-field .settings-hint { max-width: none; margin: 3px 0 8px; }
-    /* Three-way "Track display" picker (used by #trackModeGroup). */
+    /* Three-way "Track display" picker (#trackModeGroup). Each option carries a
+       tiny diagram of what it does (stacked bars / one bar / none), which says
+       more at a glance than its label alone. */
     .segmented {
-      display: flex; gap: 3px; background: #0b1120; border: 1px solid #334155;
-      border-radius: 8px; padding: 3px;
+      display: flex; gap: 4px; background: #0b1120; border: 1px solid #1e293b;
+      border-radius: 10px; padding: 4px;
     }
     .segmented-btn {
-      flex: 1; padding: 6px 4px; border: 0; border-radius: 6px; background: transparent;
-      color: #94a3b8; font-size: 11px; font-weight: 650; cursor: pointer;
+      flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+      padding: 8px 4px; border: 0; border-radius: 7px; background: transparent;
+      color: #94a3b8; font-size: 11px; font-weight: 650; font-family: inherit; cursor: pointer;
       transition: background .15s ease-out, color .15s ease-out;
     }
-    .segmented-btn:hover { color: #e2e8f0; }
-    .segmented-btn[data-active="1"] { background: #22c55e; color: #052e16; }
+    .segmented-btn:hover { background: #16213a; color: #e2e8f0; }
+    .segmented-btn[data-active="1"] { background: #1c2b45; color: #e2e8f0; }
+    .segmented-btn:focus-visible { outline: 2px solid #7dd3fc; outline-offset: -2px; }
+    /* The diagram: up to three stacked bars, sized per mode by the rules below. */
+    .seg-glyph { display: flex; flex-direction: column; gap: 2px; width: 26px; height: 14px; justify-content: center; }
+    .seg-glyph i { display: block; height: 3px; border-radius: 2px; background: #475569; transition: background .15s ease-out; }
+    .segmented-btn[data-active="1"] .seg-glyph i { background: #22c55e; }
+    .seg-glyph-all i:nth-child(1) { width: 100%; }
+    .seg-glyph-all i:nth-child(2) { width: 62%; }
+    .seg-glyph-all i:nth-child(3) { width: 38%; }
+    .seg-glyph-shared i { height: 6px; width: 100%; }
+    /* "Hide tracks": an empty dashed slot, i.e. visibly nothing there. */
+    .seg-glyph-hidden i { height: 10px; width: 100%; background: transparent; border: 1px dashed #475569; border-radius: 3px; }
+    .segmented-btn[data-active="1"] .seg-glyph-hidden i { background: transparent; border-color: #22c55e; }
 
-    /* Volume slider (sits under the Sound cues toggle). Dims and stops
-       accepting input while cues are off - adjusting a volume that currently
-       affects nothing would be confusing, so the row makes that unavailability
-       visible rather than just leaving the control live but inert. */
-    #soundVolumeRow { align-items: center; }
-    #soundVolumeRow[data-enabled="0"] { opacity: .45; }
-    #soundVolumeSlider {
-      flex-shrink: 0; width: 110px; margin-top: 1px; accent-color: #22c55e; cursor: pointer;
+    /* Volume, nested under the Sound cues toggle it depends on: the left rail
+       and indent show the dependency, and the row dims and stops accepting
+       input while cues are off (adjusting a volume that currently affects
+       nothing would be confusing). */
+    .settings-subrow {
+      margin-left: 10px; padding-left: 12px; border-left: 2px solid #1e293b;
+      border-radius: 0 10px 10px 0;
     }
-    #soundVolumeRow[data-enabled="0"] #soundVolumeSlider { cursor: not-allowed; }
+    #soundVolumeRow { transition: opacity .15s ease-out; }
+    #soundVolumeRow[data-enabled="0"] { opacity: .4; }
+    .volume-control { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    #soundVolumeValue {
+      min-width: 32px; text-align: right; font-size: 11px; color: #94a3b8;
+      font-variant-numeric: tabular-nums;
+    }
+    /* Custom-drawn so the filled portion reads at a glance in this palette
+       (--pct is written by applySoundVolumeUi as the slider moves). */
+    #soundVolumeSlider {
+      -webkit-appearance: none; appearance: none;
+      flex-shrink: 0; width: 92px; height: 4px; border-radius: 999px; cursor: pointer;
+      background:
+        linear-gradient(#22c55e, #22c55e) 0 / var(--pct, 70%) 100% no-repeat,
+        #334155;
+    }
+    #soundVolumeSlider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px; border: 0; border-radius: 50%;
+      background: #e2e8f0; cursor: pointer; box-shadow: 0 1px 3px rgba(2, 6, 16, .7);
+    }
+    #soundVolumeSlider::-moz-range-thumb {
+      width: 14px; height: 14px; border: 0; border-radius: 50%;
+      background: #e2e8f0; cursor: pointer; box-shadow: 0 1px 3px rgba(2, 6, 16, .7);
+    }
+    #soundVolumeSlider:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 4px; }
+    #soundVolumeRow[data-enabled="0"] #soundVolumeSlider,
+    #soundVolumeRow[data-enabled="0"] #soundVolumeSlider::-webkit-slider-thumb { cursor: not-allowed; }
+
+    /* Closing note: there's no Save button anywhere in here (every control
+       commits on change, the name on blur/Enter/close), so the panel says so
+       rather than leaving people hunting for one. */
+    .settings-foot {
+      border-top: 1px solid #1a2540; margin-top: 8px; padding: 10px 2px 2px;
+      font-size: 11px; color: #475569; text-align: center;
+    }
 
     /* Twitch-style layout: main content (quote) fills the remaining space,
        the sidebar (join button + player lists) hugs the right edge. Fills
@@ -665,13 +789,13 @@
     /* Custom scrollbar: thin, flat (no rounding, matching the rest of the
        sidebar), and transparent-tracked so it doesn't add its own visible
        gutter next to the screen edge. */
-    .arena, #chatMessages, #emojiScroll, .spectators { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
-    .arena::-webkit-scrollbar, #chatMessages::-webkit-scrollbar, #emojiScroll::-webkit-scrollbar, .spectators::-webkit-scrollbar { width: 8px; }
-    .arena::-webkit-scrollbar-track, #chatMessages::-webkit-scrollbar-track, #emojiScroll::-webkit-scrollbar-track, .spectators::-webkit-scrollbar-track { background: transparent; }
-    .arena::-webkit-scrollbar-thumb, #chatMessages::-webkit-scrollbar-thumb, #emojiScroll::-webkit-scrollbar-thumb, .spectators::-webkit-scrollbar-thumb {
+    .arena, #chatMessages, #emojiScroll, .spectators, #settingsPanel { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    .arena::-webkit-scrollbar, #chatMessages::-webkit-scrollbar, #emojiScroll::-webkit-scrollbar, .spectators::-webkit-scrollbar, #settingsPanel::-webkit-scrollbar { width: 8px; }
+    .arena::-webkit-scrollbar-track, #chatMessages::-webkit-scrollbar-track, #emojiScroll::-webkit-scrollbar-track, .spectators::-webkit-scrollbar-track, #settingsPanel::-webkit-scrollbar-track { background: transparent; }
+    .arena::-webkit-scrollbar-thumb, #chatMessages::-webkit-scrollbar-thumb, #emojiScroll::-webkit-scrollbar-thumb, .spectators::-webkit-scrollbar-thumb, #settingsPanel::-webkit-scrollbar-thumb {
       background: #334155; border-radius: 0;
     }
-    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover, #emojiScroll::-webkit-scrollbar-thumb:hover, .spectators::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover, #emojiScroll::-webkit-scrollbar-thumb:hover, .spectators::-webkit-scrollbar-thumb:hover, #settingsPanel::-webkit-scrollbar-thumb:hover { background: #475569; }
     .btn-send {
       padding: 8px 14px; border-radius: 8px; border: 0;
       background: #22c55e; color: #052e16; font-size: 13px; font-weight: 650; cursor: pointer;
@@ -695,49 +819,84 @@
       <span id="usernameDisplay" tabindex="0" title="Change your name in Settings"></span>
       <div id="settingsBox">
         <button id="settingsBtn" type="button" title="Settings">⚙️</button>
-        <div id="settingsPanel">
-          <h3>Settings</h3>
-          <div class="settings-field">
-            <label class="settings-label" for="settingsUsername">Username</label>
-            <input id="settingsUsername" type="text" maxlength="20" autocomplete="off" spellcheck="false" />
+        <div id="settingsPanel" role="dialog" aria-label="Settings">
+          <div class="settings-head">
+            <h3>Settings</h3>
+            <button id="settingsClose" type="button" aria-label="Close settings" title="Close">✕</button>
           </div>
-          <div class="settings-row">
-            <div>
-              <div class="settings-label">Large WPM display</div>
-              <div class="settings-hint">Show your live speed while racing.</div>
+          <div class="settings-body">
+
+            <div class="settings-group">
+              <div class="settings-group-title">Profile</div>
+              <div class="settings-field">
+                <label class="settings-label" for="settingsUsername">Name and avatar</label>
+                <div class="settings-hint">How you appear to everyone else in the lobby.</div>
+                <div class="name-field">
+                  <button id="settingsAvatar" type="button" title="Change your racer avatar" aria-label="Change your racer avatar">🚀</button>
+                  <input id="settingsUsername" type="text" maxlength="20" autocomplete="off" spellcheck="false" placeholder="guest" />
+                  <span id="nameCount" aria-hidden="true">0/20</span>
+                </div>
+              </div>
             </div>
-            <button id="wpmToggle" class="switch" type="button" role="switch" aria-label="Large WPM display"></button>
-          </div>
-          <div class="settings-field">
-            <div class="settings-label">Track display</div>
-            <div class="settings-hint">How other racers' progress is shown above the text.</div>
-            <div id="trackModeGroup" class="segmented" role="radiogroup" aria-label="Track display">
-              <button type="button" class="segmented-btn" data-mode="default">All tracks</button>
-              <button type="button" class="segmented-btn" data-mode="shared">Shared track</button>
-              <button type="button" class="segmented-btn" data-mode="hidden">Hide tracks</button>
+
+            <div class="settings-group">
+              <div class="settings-group-title">Race view</div>
+              <div class="settings-field">
+                <div class="settings-label">Track display</div>
+                <div class="settings-hint">How other racers' progress is shown above the text.</div>
+                <div id="trackModeGroup" class="segmented" role="radiogroup" aria-label="Track display">
+                  <button type="button" class="segmented-btn" data-mode="default" role="radio" aria-checked="false">
+                    <span class="seg-glyph seg-glyph-all"><i></i><i></i><i></i></span>
+                    <span>All tracks</span>
+                  </button>
+                  <button type="button" class="segmented-btn" data-mode="shared" role="radio" aria-checked="false">
+                    <span class="seg-glyph seg-glyph-shared"><i></i></span>
+                    <span>Shared</span>
+                  </button>
+                  <button type="button" class="segmented-btn" data-mode="hidden" role="radio" aria-checked="false">
+                    <span class="seg-glyph seg-glyph-hidden"><i></i></span>
+                    <span>Hidden</span>
+                  </button>
+                </div>
+              </div>
+              <div class="settings-row settings-row-toggle" data-switch="ghostToggle">
+                <div class="settings-text">
+                  <div class="settings-label">Show racers on text</div>
+                  <div class="settings-hint">See everyone's live caret as they type.</div>
+                </div>
+                <!-- EXPERIMENTAL: toggles other racers' live carets on the text -->
+                <button id="ghostToggle" class="switch" type="button" role="switch" aria-label="Show racers on text"></button>
+              </div>
+              <div class="settings-row settings-row-toggle" data-switch="wpmToggle">
+                <div class="settings-text">
+                  <div class="settings-label">Large WPM display</div>
+                  <div class="settings-hint">Show your live speed while racing.</div>
+                </div>
+                <button id="wpmToggle" class="switch" type="button" role="switch" aria-label="Large WPM display"></button>
+              </div>
             </div>
-          </div>
-          <div class="settings-row">
-            <div>
-              <div class="settings-label">Show racers on text</div>
-              <div class="settings-hint">See everyone's live caret as they type.</div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">Sound</div>
+              <div class="settings-row settings-row-toggle" data-switch="soundToggle">
+                <div class="settings-text">
+                  <div class="settings-label">Sound cues</div>
+                  <div class="settings-hint">A click when someone joins, and on the countdown.</div>
+                </div>
+                <button id="soundToggle" class="switch" type="button" role="switch" aria-label="Sound cues"></button>
+              </div>
+              <div class="settings-row settings-subrow" id="soundVolumeRow">
+                <div class="settings-text">
+                  <div class="settings-label">Volume</div>
+                </div>
+                <div class="volume-control">
+                  <input id="soundVolumeSlider" type="range" min="0" max="100" step="1" aria-label="Sound volume" />
+                  <span id="soundVolumeValue" aria-hidden="true">70%</span>
+                </div>
+              </div>
             </div>
-            <!-- EXPERIMENTAL: toggles other racers' live carets on the text -->
-            <button id="ghostToggle" class="switch" type="button" role="switch" aria-label="Show racers on text"></button>
-          </div>
-          <div class="settings-row">
-            <div>
-              <div class="settings-label">Sound cues</div>
-              <div class="settings-hint">A click when someone joins, and on the countdown.</div>
-            </div>
-            <button id="soundToggle" class="switch" type="button" role="switch" aria-label="Sound cues"></button>
-          </div>
-          <div class="settings-row settings-row-volume" id="soundVolumeRow">
-            <div>
-              <div class="settings-label">Sound volume</div>
-              <div class="settings-hint">How loud the cues above play.</div>
-            </div>
-            <input id="soundVolumeSlider" type="range" min="0" max="100" step="1" aria-label="Sound volume" />
+
+            <div class="settings-foot">Changes save automatically</div>
           </div>
         </div>
       </div>
@@ -1519,6 +1678,7 @@
     const soundToggle = document.getElementById("soundToggle");
     const soundVolumeRow = document.getElementById("soundVolumeRow");
     const soundVolumeSlider = document.getElementById("soundVolumeSlider");
+    const soundVolumeValue = document.getElementById("soundVolumeValue");
     const inputWrap   = document.getElementById("inputWrap");
     const typeInput   = document.getElementById("typeInput");
     const errorNotice = document.getElementById("errorNotice");
@@ -1527,6 +1687,9 @@
     const settingsBtn   = document.getElementById("settingsBtn");
     const settingsPanel = document.getElementById("settingsPanel");
     const settingsUsername = document.getElementById("settingsUsername");
+    const settingsClose  = document.getElementById("settingsClose");
+    const settingsAvatar = document.getElementById("settingsAvatar");
+    const nameCount      = document.getElementById("nameCount");
     const usernameDisplay = document.getElementById("usernameDisplay");
     const switchLobbyBtn = document.getElementById("switchLobbyBtn");
     const chatMessages = document.getElementById("chatMessages");        // scroll container
@@ -4394,8 +4557,21 @@
       if (room) room.send("setName", { name: myName });
     }
 
+    // "12/20" under the name field's right edge. Dimmed until you're actually
+    // near the cap, so it's a quiet reference rather than a nag.
+    function updateNameCount() {
+      const used = settingsUsername.value.length;
+      nameCount.textContent = used + "/20";
+      nameCount.dataset.full = used >= 16 ? "1" : "0";
+    }
+    settingsUsername.addEventListener("input", updateNameCount);
+
     function openSettings(focusName) {
       settingsUsername.value = myName; // reflect the current name each open
+      updateNameCount();
+      // The avatar preview mirrors the header button, which is the one place
+      // the current emoji is always up to date (server-assigned or chosen).
+      settingsAvatar.textContent = emojiBtn.textContent;
       settingsPanel.dataset.open = "1";
       if (focusName) { settingsUsername.focus(); settingsUsername.select(); }
     }
@@ -4412,6 +4588,24 @@
     }
 
     settingsBtn.onclick = (e) => { e.stopPropagation(); toggleSettings(false); };
+    settingsClose.onclick = (e) => { e.stopPropagation(); closeSettings(); };
+    // The avatar in the Profile field hands off to the existing emoji picker
+    // rather than duplicating it. Settings closes first so the two popovers are
+    // never stacked on top of each other.
+    settingsAvatar.onclick = (e) => {
+      e.stopPropagation();
+      closeSettings();
+      openEmojiPicker();
+    };
+    // Whole-row clicking for the switch rows: a 40px switch is a small target,
+    // and the label next to it is the obvious thing to aim at. Clicks landing
+    // on the switch itself are left alone (it handles its own), so a click
+    // never counts twice. Using .click() keeps the browser's user-activation
+    // (the sound toggle needs a real gesture to unblock the AudioContext).
+    document.querySelectorAll(".settings-row-toggle").forEach((row) => {
+      const sw = document.getElementById(row.dataset.switch);
+      row.onclick = (e) => { if (e.target !== sw) sw.click(); };
+    });
     // Clicking (or Enter/Space on) the header name opens Settings, focused on
     // the name field - the old "click your name to change it" affordance.
     usernameDisplay.onclick = (e) => { e.stopPropagation(); toggleSettings(true); };
@@ -4447,6 +4641,7 @@
 
     function applyWpmToggleUi() {
       wpmToggle.dataset.on = showWpm ? "1" : "0";
+      wpmToggle.setAttribute("aria-checked", showWpm ? "true" : "false");
     }
     applyWpmToggleUi();
 
@@ -4470,7 +4665,11 @@
     const trackModeBtns = Array.from(trackModeGroup.querySelectorAll(".segmented-btn"));
 
     function applyTrackModeUi() {
-      trackModeBtns.forEach((btn) => { btn.dataset.active = btn.dataset.mode === trackMode ? "1" : "0"; });
+      trackModeBtns.forEach((btn) => {
+        const active = btn.dataset.mode === trackMode;
+        btn.dataset.active = active ? "1" : "0";
+        btn.setAttribute("aria-checked", active ? "true" : "false");
+      });
       leaderboard.dataset.mode = trackMode;
     }
     applyTrackModeUi();
@@ -4488,6 +4687,7 @@
     // Sound cue toggle (Settings). On by default; persisted per browser.
     function applySoundToggleUi() {
       soundToggle.dataset.on = playSounds ? "1" : "0";
+      soundToggle.setAttribute("aria-checked", playSounds ? "true" : "false");
       // The volume row stays visible either way (so its own value is never
       // hidden/lost from view) but only accepts input while cues are on -
       // adjusting a volume that currently controls nothing would be confusing.
@@ -4496,14 +4696,20 @@
     }
     applySoundToggleUi();
 
+    // Also paints the slider's filled portion (--pct, read by its background
+    // gradient) and the "70%" readout next to it, so the level is legible
+    // without having to drag it to find out where it is.
     function applySoundVolumeUi() {
       soundVolumeSlider.value = String(soundVolume);
+      soundVolumeSlider.style.setProperty("--pct", soundVolume + "%");
+      soundVolumeValue.textContent = soundVolume + "%";
     }
     applySoundVolumeUi();
 
     soundVolumeSlider.addEventListener("input", () => {
       soundVolume = Number(soundVolumeSlider.value);
       localStorage.setItem(SOUND_VOLUME_KEY, String(soundVolume));
+      applySoundVolumeUi();
       // Live, not just on release: hearing the level change as you drag is
       // what makes a volume slider legible at all.
       if (masterGain) masterGain.gain.value = soundVolume / 100;
@@ -4761,6 +4967,7 @@
 
     function applyGhostToggleUi() {
       ghostToggle.dataset.on = showGhosts ? "1" : "0";
+      ghostToggle.setAttribute("aria-checked", showGhosts ? "true" : "false");
       quoteEl.dataset.ghosts = showGhosts ? "1" : "0"; // widens line-height only while on
     }
     applyGhostToggleUi();

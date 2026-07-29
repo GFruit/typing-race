@@ -2365,3 +2365,62 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     race, real progress from typing against the actual quote): all three
     modes switch correctly, sidebar stats never duplicate the arena's own,
     caret and fill stay pixel-locked, zero console errors.
+- 2026-07-29: Settings panel redesign (client-only; no behavior or wire-format
+  changes, every control keeps its existing key, handler, and semantics). The
+  panel had grown one control at a time into a flat 280px stack of mismatched
+  widgets; it's now a structured popover:
+  - **Grouped:** three titled sections (Profile / Race view / Sound) separated
+    by hairlines, with a sticky header (title + a real close button) so both
+    stay reachable if the body scrolls. The panel is `max-height:
+    calc(100vh - 76px)` with internal scrolling (sharing the site's thin
+    scrollbar) instead of running off the bottom of a short viewport, and
+    opens with a 130ms fade/slide that's dropped under
+    `prefers-reduced-motion`.
+  - **One row rhythm:** every setting is label + hint on the left, control on
+    the right (`.settings-row`), or a full-width `.settings-field` for the two
+    controls that need the width (name, track display). Hints sit under their
+    label instead of being width-capped to 180px, so nothing wraps awkwardly.
+  - **Whole-row toggling:** the three switch rows (`.settings-row-toggle`,
+    each pointing at its switch via `data-switch`) forward a row click to
+    their switch, so the label is a valid target rather than just the 40x22
+    switch. Clicks landing on the switch itself are left alone so nothing
+    toggles twice, and the forward uses `.click()` inside the real click
+    handler, which preserves user activation - the sound toggle depends on
+    that to unblock the AudioContext.
+  - **Profile field:** name and avatar as one composite control (avatar button,
+    input, live `n/20` counter) that lights up as a unit on focus. The avatar
+    hands off to the existing emoji picker (closing Settings first, so the two
+    popovers are never stacked) rather than duplicating it.
+  - **Track display** options now carry a small diagram of what they do
+    (stacked bars / one bar / an empty dashed slot), which says more at a
+    glance than the labels alone; the loud solid-green active state became a
+    quieter raised pill with green bars.
+  - **Volume** is nested under the Sound cues toggle it depends on (indent +
+    left rail) instead of sitting as a sibling row, shows its value as a "35%"
+    readout, and the slider is custom-drawn so the filled portion is visible
+    (`--pct`, written by `applySoundVolumeUi`).
+  - **A11y:** all three switches and the three segmented buttons now keep
+    `aria-checked` in sync (previously `role="switch"`/`radiogroup` with no
+    state exposed at all), and every control has a `:focus-visible` ring.
+  - A closing "Changes save automatically" line, since there's deliberately no
+    Save button anywhere in the panel.
+  - Verified with a headless-browser interaction pass (17 checks, zero console
+    errors): gear/close/Escape/outside-click open and close; row clicks toggle
+    exactly once and switch clicks don't double-fire; segmented selection
+    drives `#leaderboard`'s mode; volume readout and fill track the slider;
+    turning cues off dims and disables the volume row; the name counter tracks
+    input and Enter saves through to the header label; the avatar opens the
+    emoji picker with Settings closed; everything survives a reload; and the
+    panel stays fully on-screen at a 560px-tall viewport.
+- 2026-07-29: Follow-up fix to the above: the avatar in the Settings name field
+  was vertically centered but not horizontally. Cause was the button's UA
+  default `padding: 1px 6px`, which left an 18px-wide content box inside the
+  30px button while the emoji glyph renders ~25px wide - so the glyph spilled
+  out of the box that `place-items: center` was centering, landing ~4px right
+  of true center. `padding: 0` lets the glyph fit, after which it centers
+  properly (measured in-browser: 2.64px of gap on both sides, exactly equal).
+  Then, per follow-up feedback, dropped the avatar's resting box (background +
+  border) entirely: it's now just the glyph, with the hover highlight alone
+  carrying the "this is clickable" signal, the same way the header's own emoji
+  button reads. Centering is unaffected (re-measured: 2.64px left/right,
+  6px top/bottom).
