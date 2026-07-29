@@ -121,6 +121,44 @@
  *     a real disconnect, carrying its reconnection token and UI state
  *     (chat log, etc.) forward across the swap.
  *
+ * Seat-reservation scope (this file, added on top): closing the redirect gap.
+ *   - Choosing a merge/Switch Lobby target and the redirected client actually
+ *     ARRIVING there are separate moments, with a reconnect handshake in
+ *     between. Without a hold, findMergeTarget's answer is only advisory: two
+ *     rooms whose races end a moment apart both hunt for the fullest room with
+ *     space, so they can pick the same target and both be told the same last
+ *     seat is free - and whoever landed second lost it.
+ *   - `reserveSlots()` (called by the SOURCE room on its chosen target, before
+ *     redirecting anyone) holds seats by `Player.clientId`, the only
+ *     identifier that survives a redirect - the sessionId is reissued on
+ *     arrival. `countCommittedSlots()` = seats sat in + seats held, and every
+ *     capacity decision reads it, so an in-room opt-in or a waitlist promotion
+ *     can't take a held seat either. `onJoin` claims the hold, which is what
+ *     frees the seat for its intended owner and nobody else.
+ *   - Holds lapse after SLOT_RESERVATION_MS, purged on every read rather than
+ *     by the timer that also gets set: a leaked hold would be strictly worse
+ *     than the race it fixes (a phantom seat, permanently unclaimable and
+ *     unfreeable), so correctness can't rest on a timer firing. The timer is
+ *     only a nudge to re-evaluate so a lapsed hold doesn't leave a waitlister
+ *     stuck until some unrelated roster change happens by.
+ *
+ * Race-queue scope (this file, added on top): a fourth player status,
+ * "waitlist" - wanting in when every slot is already taken.
+ *   - `setStatus({racing:true})` against a full room no longer does nothing
+ *     (which surfaced as a dead "Race Full" button); it puts the player in
+ *     LINE, stamped with a `waitlistOrder`. They hold no slot and are counted
+ *     by neither `countRacers()` nor `countTakenSlots()` - a waitlisted player
+ *     is capacity-wise a spectator, which is what keeps the MAX_RACERS cap
+ *     honest while the queue behind it is unbounded.
+ *   - `promoteFromWaitlist()` hands each freed slot to the front of the line.
+ *     It runs from `onRosterChanged()` (the choke point for Spectate,
+ *     departures and switch-aways) and from the AFK sweep. Deliberately NOT
+ *     from the race lifecycle: a race ending frees nothing, since its racers
+ *     keep their slots for the next one.
+ *   - Promotion respects `acceptsNewRacers()` exactly like a normal opt-in, so
+ *     coming off the queue mid-race means "queued" for the next race, never
+ *     being dropped into one already running.
+ *
  * Queueing scope (this file, added on top): a third player status, "queued".
  *   - Opting in is now never refused for timing reasons. When the room can't
  *     add you to the race it's setting up - a live race, a results screen, or
@@ -228,6 +266,12 @@ const CHAT_MESSAGE_MAX_LENGTH = 200;
 //     connection is dead before this grace even starts.
 const UNLOAD_GRACE_SECONDS = 1.5;
 const RECONNECTION_GRACE_SECONDS = 2;
+// How long a racer seat is held for a client another room has already
+// redirected here but who hasn't finished connecting yet (see reserveSlots).
+// It only has to cover the redirect's reconnect handshake - well under a
+// second - so this is deliberately generous. A hold nobody ever claims (the
+// tab closed mid-jump) costs the room one seat for this long and no longer.
+const SLOT_RESERVATION_MS = 5000;
 
 export class RaceRoom extends Room {
   // Every live RaceRoom instance, keyed by roomId. Only valid within a
@@ -248,6 +292,15 @@ export class RaceRoom extends Room {
   private correctCharsBySession = new Map<string, number>();
   private lastActivityBySession = new Map<string, number>();
   private nextPlace = 1;
+  // Hands out Player.slotOrder: bumped every time someone takes a racer slot
+  // in this room, so the stamps read as "who opted in first". Never reset -
+  // it's an ordering key, not a count, and reusing a number would let a new
+  // racer tie with (and so reorder against) an existing one.
+  private nextSlotOrder = 1;
+  // Same idea for Player.waitlistOrder: the race queue's ordering key. Also
+  // never reset, so a departing waitlister can't free a number that would let
+  // a later arrival tie with (and reorder against) someone already in line.
+  private nextWaitlistOrder = 1;
   // Set right before attemptMerge() disconnects everyone as part of a
   // merge's mass teardown; checked by onLeave to skip posting "left the
   // lobby" for those departures (they're framed as joining wherever they
@@ -263,6 +316,12 @@ export class RaceRoom extends Room {
   // announcement for them (the tab isn't actually leaving, just shedding a
   // stale duplicate session).
   private dedupKicking = new Set<string>();
+  // Seats held for clients that another room has already decided to send here
+  // but that are still mid-reconnect: Player.clientId -> when the hold lapses.
+  // Ephemeral and server-only per the state-minimalism rule - the *number* of
+  // held seats reaches clients through state.racerCount (see
+  // countCommittedSlots/updateRacerCount); this bookkeeping doesn't.
+  private slotReservations = new Map<string, number>();
 
   onCreate(options: any) {
     this.state.phase = "waiting";
@@ -298,24 +357,45 @@ export class RaceRoom extends Room {
 
       const wantsToRace = !!payload?.racing;
 
-      // Giving up a slot is always allowed, from either state: bailing out of
-      // a live race, or leaving the queue before it starts.
+      // Backing out is always allowed, from any of the three "I want in"
+      // states: bailing out of a live race, giving up a reserved slot before
+      // the next race, or leaving the race queue.
       if (!wantsToRace) {
         player.status = "watching";
+        player.waitlistOrder = 0;
         this.onRosterChanged();
         return;
       }
 
-      // Racer slots are capped at MAX_RACERS, counting queued players (their
-      // slot is already reserved - see Player.status); past that, opting in is
-      // silently ignored. Spectating out is unaffected, handled above.
-      if (this.countTakenSlots() >= MAX_RACERS) return;
+      // Already racing, holding a slot, or in line - opting in again is a
+      // no-op. Without this an extra/duplicate message would re-stamp their
+      // ordering key and jump them to the back of their own list.
+      if (player.status !== "watching") return;
 
-      // The one decision left: does this put them in the race being set up
-      // right now, or reserve them a slot in the one AFTER it? Nobody is ever
-      // turned away outright anymore - a live race, a results screen, or a
-      // countdown too far along to join all become "you're in the next one".
+      // Racer slots are capped at MAX_RACERS, counting queued players (their
+      // slot is already reserved - see Player.status) and seats being held for
+      // players mid-redirect (see reserveSlots), so opting in from in here
+      // can't snatch a seat out from under someone already on their way to it.
+      // With every slot taken, opting in means getting in LINE for one: no
+      // slot is held, and promoteFromWaitlist() moves them in the moment one
+      // frees up. (This used to be a silent refusal, which surfaced
+      // client-side as a dead "Race Full" button.)
+      if (this.countCommittedSlots() >= MAX_RACERS) {
+        player.status = "waitlist";
+        player.waitlistOrder = this.nextWaitlistOrder++;
+        this.onRosterChanged();
+        return;
+      }
+
+      // A slot is free, so the one decision left is: does this put them in the
+      // race being set up right now, or reserve them a slot in the one AFTER
+      // it? A live race, a results screen, or a countdown too far along to
+      // join all become "you're in the next one".
       player.status = this.acceptsNewRacers() ? "racing" : "queued";
+      // Stamped here, on taking the slot, rather than when a "queued" player
+      // is later promoted: the queue's whole point is that you're in line from
+      // the moment you opt in, so that's the moment the order is fixed.
+      player.slotOrder = this.nextSlotOrder++;
       this.onRosterChanged();
     },
 
@@ -400,6 +480,13 @@ export class RaceRoom extends Room {
       // the same eligibility findMergeTarget already uses for merges, just
       // sized for one switching player instead of a whole room's worth.
       const target = RaceRoom.findMergeTarget(this, 1);
+    // Hold that seat until this client actually lands (see reserveSlots) -
+    // exactly the one seat findMergeTarget was asked to verify. Only for a
+    // player who'll try to claim one on arrival, which is the same condition
+    // as the `resumeRacing` flag below: a spectator switching rooms needs the
+    // target to have room (that's the policy above) but doesn't take a seat
+    // when they get there, so holding one would just idle it for 5 seconds.
+    if (target && player.status !== "watching") target.reserveSlots([player.clientId]);
       // `soloSwitch: true` distinguishes this (one player leaving alone) from
       // a whole-room merge's redirect (attemptMerge, no such flag). The
       // client uses it to decide what to do with its "who's already in my
@@ -486,6 +573,10 @@ export class RaceRoom extends Room {
       p.status = "watching";
       p.afk = true;
     }
+    // Slots just freed, so the race queue advances into them (as "queued" -
+    // acceptsNewRacers() is false mid-race - so this can't drop someone into
+    // a race already underway, nor affect the countRacers() checks below).
+    this.promoteFromWaitlist();
     this.updateRacerCount();
 
     if (this.countRacers() === 0) {
@@ -527,8 +618,24 @@ export class RaceRoom extends Room {
     // results screen, or in a countdown's final seconds - is no longer fatal
     // though: that's exactly what "queued" is for, so they keep their slot and
     // race in the next one instead of silently losing it.
-    const wantsSlot = !!options?.resumeRacing && this.countTakenSlots() < MAX_RACERS;
-    player.status = !wantsSlot ? "watching" : this.acceptsNewRacers() ? "racing" : "queued";
+    //
+    // A seat held for this exact client (see reserveSlots) is claimed first,
+    // which is what makes the re-check below pass for them: dropping the hold
+    // frees the very seat it was protecting, and only for whoever it was held
+    // for. Claimed on ANY arrival, not just one still wanting to race - a
+    // client that changed its mind in transit must release the hold rather
+    // than leave the seat idling until it lapses.
+    const claimedReservation = this.slotReservations.delete(player.clientId);
+    const wantsIn = !!options?.resumeRacing;
+    const wantsSlot = wantsIn && this.countCommittedSlots() < MAX_RACERS;
+    player.status = !wantsIn ? "watching"
+      : !wantsSlot ? "waitlist" // arrived wanting in, but the slots are gone: get in line rather than lose the intent entirely
+      : this.acceptsNewRacers() ? "racing" : "queued";
+    // Arriving with a slot counts as taking one here (this room's ordering is
+    // its own - a merged-in racer takes their place behind whoever was already
+    // racing here, in arrival order).
+    if (wantsSlot) player.slotOrder = this.nextSlotOrder++;
+    else if (wantsIn) player.waitlistOrder = this.nextWaitlistOrder++;
     this.state.players.set(client.sessionId, player);
 
     // Dedup by clientId: one browser tab (its persistent clientId) must never
@@ -560,7 +667,9 @@ export class RaceRoom extends Room {
     console.log(`[RaceRoom] ${player.name} joined, ${this.state.players.size} online`);
     // Only if they took a slot (racing or queued): a plain spectator changes
     // neither the racer count nor the phase, so there's nothing to re-evaluate.
-    if (player.status !== "watching") this.onRosterChanged();
+    // Unless they arrived holding a reservation and DIDN'T take a slot - then
+    // releasing it just freed one, which the waitlist should get a shot at.
+    if (player.status !== "watching" || claimedReservation) this.onRosterChanged();
   }
 
   /**
@@ -630,6 +739,12 @@ export class RaceRoom extends Room {
 
   /** Re-evaluate the phase after a join/leave/status change. */
   private onRosterChanged() {
+    // First, because this is the choke point every slot-freeing path runs
+    // through (Spectate, a departure, a switch away): whoever's next in line
+    // takes the slot before anything below counts racers, so a promotion into
+    // an empty "waiting" room starts that room's countdown in this same pass.
+    this.promoteFromWaitlist();
+
     const racerCount = this.countRacers();
     this.updateRacerCount();
 
@@ -696,6 +811,80 @@ export class RaceRoom extends Room {
   }
 
   /**
+   * Holds one racer seat here for each of `clientIds` (see Player.clientId)
+   * until they arrive or SLOT_RESERVATION_MS elapses.
+   *
+   * Called by the SOURCE room on the target it just picked, before it
+   * redirects anyone (see attemptMerge / the "switchLobby" handler). It closes
+   * the gap between a target being *chosen* and the redirected client actually
+   * *landing*: those are separate moments with a reconnect handshake in
+   * between, and without a hold, findMergeTarget's answer is only advisory.
+   * Two rooms whose races end a moment apart both look for the fullest room
+   * with space, so they can easily pick the SAME target and be told the same
+   * last seat is free - and whoever's handshake lands second used to lose it
+   * silently. Anything else that could take the seat meanwhile (a spectator
+   * here clicking Join, a waitlist promotion) is held off the same way, since
+   * every capacity decision reads countCommittedSlots().
+   *
+   * Keyed by clientId rather than sessionId deliberately: a redirect issues a
+   * brand new sessionId on arrival, while clientId is stable for the whole
+   * browser tab - it's the only identifier that survives the jump.
+   *
+   * Reserve exactly what was checked for: whatever count findMergeTarget was
+   * asked to verify is what may be held, or a room could reserve seats whose
+   * existence nobody ever confirmed.
+   */
+  private reserveSlots(clientIds: string[]) {
+    const expiresAt = Date.now() + SLOT_RESERVATION_MS;
+    for (const clientId of clientIds) {
+      if (clientId) this.slotReservations.set(clientId, expiresAt);
+    }
+    // Holding a seat doesn't change who's racing, so there's no phase to
+    // re-evaluate - but the room IS fuller now, for clients and for
+    // matchmaking placement alike.
+    this.updateRacerCount();
+    // Purely a nudge to re-evaluate once these lapse, so a hold nobody claimed
+    // doesn't leave the room showing itself as full (and any waitlister stuck
+    // in line) until some unrelated roster change happens along. Correctness
+    // never depends on it firing - see activeReservations.
+    this.clock.setTimeout(() => this.onRosterChanged(), SLOT_RESERVATION_MS + 50);
+  }
+
+  /**
+   * How many held seats are still live, discarding any that have lapsed.
+   *
+   * The purge happens HERE, on every read, rather than in the timer that
+   * reserveSlots sets: a hold then cannot outlive its window even if that
+   * timer never runs (the room disposed, the clock stopped, the callback threw
+   * on the way in). That matters more than it might seem - a leaked hold is
+   * strictly worse than the problem reservations solve, since it would show
+   * the room as permanently fuller than it is, with a phantom seat nobody can
+   * claim and nobody can free.
+   */
+  private activeReservations(): number {
+    const now = Date.now();
+    for (const [clientId, expiresAt] of this.slotReservations) {
+      if (expiresAt <= now) this.slotReservations.delete(clientId);
+    }
+    return this.slotReservations.size;
+  }
+
+  /**
+   * The real capacity number: seats sat in (countTakenSlots) PLUS seats held
+   * for people on their way here (activeReservations). Every "does another
+   * racer fit" decision reads this - the in-room opt-in, waitlist promotion, a
+   * redirected arrival's re-check, and merge-target eligibility - so a held
+   * seat is as spoken for as an occupied one, whoever is asking.
+   *
+   * countTakenSlots() is still the right number for the other question,
+   * "how many of MY people need a seat somewhere" (see attemptMerge), which is
+   * about players and not about holds.
+   */
+  private countCommittedSlots(): number {
+    return this.countTakenSlots() + this.activeReservations();
+  }
+
+  /**
    * Whether opting in right now lands you in the race being set up, or only
    * in the queue for the one after it. True while "waiting", and during a
    * "countdown" that still has more than LOCK_AT_COUNTDOWN_SECONDS to go;
@@ -733,13 +922,54 @@ export class RaceRoom extends Room {
   }
 
   /**
+   * Hands every free racer slot to the front of the race queue (see
+   * Player.status's "waitlist"), in `waitlistOrder`, until either the queue
+   * empties or the slots fill back up.
+   *
+   * Note what does NOT free a slot: a race merely ending. Racers keep their
+   * slots for the next race, so the queue only advances when someone actually
+   * gives one up (Spectate, going AFK mid-race) or leaves the room - which is
+   * why this hangs off onRosterChanged() and the AFK sweep rather than the
+   * race lifecycle.
+   *
+   * A promoted player lands as "racing" or "queued" by the same rule as
+   * opting in normally does (see acceptsNewRacers), so getting in off the
+   * queue mid-race means the next race, not this one. They're stamped a fresh
+   * slotOrder, which puts them at the END of the racer list - correct, since
+   * that's exactly when they took the slot.
+   *
+   * Callers must run updateRacerCount() afterward: this changes who holds a
+   * slot but deliberately doesn't push the count itself, so a caller doing
+   * several roster mutations only syncs once.
+   */
+  private promoteFromWaitlist() {
+    // countCommittedSlots, so a seat being held for someone mid-redirect isn't
+    // handed to the queue out from under them.
+    while (this.countCommittedSlots() < MAX_RACERS) {
+      let next: Player | undefined;
+      this.state.players.forEach((p) => {
+        if (p.status !== "waitlist") return;
+        if (!next || p.waitlistOrder < next.waitlistOrder) next = p;
+      });
+      if (!next) return; // queue empty; the remaining slots just stay open
+      next.status = this.acceptsNewRacers() ? "racing" : "queued";
+      next.slotOrder = this.nextSlotOrder++;
+      next.waitlistOrder = 0;
+    }
+  }
+
+  /**
    * Pushes the current slot occupancy into both synced state
    * (`state.racerCount`, for clients) and matchmaking metadata (`setMetadata`,
    * for the `.sortBy({"metadata.racerCount": -1})` fullest-first placement in
    * app.config.ts). Call after anything that can change who holds a slot.
    */
   private updateRacerCount() {
-    const racerCount = this.countTakenSlots();
+    // Held seats included: a room with one is genuinely fuller, and leaving
+    // them out would have the client show "4 / 5" with a Join Race button that
+    // the server then answers with a waitlist spot. Better a count that's
+    // briefly ahead of the visible roster than a button that lies.
+    const racerCount = this.countCommittedSlots();
     this.state.racerCount = racerCount;
     this.setMetadata({ racerCount });
   }
@@ -943,19 +1173,36 @@ export class RaceRoom extends Room {
 
     // Sized by slots, not just racers: anyone queued here needs a slot over
     // there too (they're about to be promoted into the target's next race).
+    // countTakenSlots (not committed) is right here - this asks "how many of
+    // MY people need a seat", which is about players, not about any holds this
+    // dying room may itself have taken.
     const target = RaceRoom.findMergeTarget(this, this.countTakenSlots());
     if (!target) return false;
 
     target.mergeChatFrom(this.state.chat);
 
+    // Hold the target's seats before anyone starts reconnecting, so nothing
+    // can take them during the handshake (see reserveSlots). Exactly the
+    // slot-holders findMergeTarget was asked to verify seats for - deliberately
+    // NOT this room's waitlisted players, who have no seat here and were never
+    // counted in the eligibility check. They still travel (with resumeRacing,
+    // like everyone else who wants in) and simply join the target's own queue
+    // if it has no room left for them.
+    const seatSeekers: string[] = [];
+    this.state.players.forEach((p) => {
+      if (p.status === "racing" || p.status === "queued") seatSeekers.push(p.clientId);
+    });
+    target.reserveSlots(seatSeekers);
+
     for (const client of this.clients) {
       const player = this.state.players.get(client.sessionId);
       if (!player) continue;
       // Tells the client which room to jump to next, and whether it wants a
-      // racer slot there (true for racing AND queued - both mean "put me in a
-      // race"; the target's onJoin decides which of the two they land as);
-      // client/index.html reacts to this by calling client.joinById(...)
-      // instead of treating the disconnect (below) as a real one.
+      // racer slot there (true for racing, queued AND waitlisted - all three
+      // mean "put me in a race"; the target's onJoin decides which of them
+      // they land as); client/index.html reacts to this by calling
+      // client.joinById(...) instead of treating the disconnect (below) as a
+      // real one.
       client.send("redirect", { roomId: target.roomId, resumeRacing: player.status !== "watching" });
     }
 
@@ -991,9 +1238,13 @@ export class RaceRoom extends Room {
       if (candidate === source) continue;
       if (candidate.state.phase !== "waiting" && candidate.state.phase !== "countdown") continue;
       if (candidate.locked) continue;
-      const freeSlots = MAX_RACERS - candidate.countTakenSlots();
+      // Committed, not merely occupied: a candidate holding seats for players
+      // another room is already sending has that many fewer to offer us. This
+      // is what stops two rooms finishing a moment apart from both being
+      // promised the same last seat (see reserveSlots).
+      const freeSlots = MAX_RACERS - candidate.countCommittedSlots();
       if (incomingRacerCount > freeSlots) continue;
-      if (!best || candidate.countTakenSlots() > best.countTakenSlots()) best = candidate;
+      if (!best || candidate.countCommittedSlots() > best.countCommittedSlots()) best = candidate;
     }
     return best;
   }

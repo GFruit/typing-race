@@ -28,12 +28,6 @@
     h1 { margin: 0; font-size: 18px; font-weight: 650; }
     /* Same green as .btn's "Join Race" state, so the wordmark echoes it. */
     h1 .brand-accent { color: #22c55e; }
-    /* Dev/QA visibility: which room instance this tab landed in, and how
-       full it is. Not part of the intended end-user UI, just makes the
-       multi-room matchmaking behavior (see match-making.md) observable
-       without reading server logs. */
-    #roomInfo { color: #475569; font-size: 12px; font-family: ui-monospace, monospace; }
-
     /* Emoji avatar picker, top-right of the header, just left of the settings
        gear. The button shows your current racer avatar (the same one that
        rides your progress bar); clicking it opens a grid popover to change it.
@@ -429,6 +423,7 @@
       padding: 0; background: #0d1524; border-left: 1px solid #1e293b;
     }
     .btn {
+      position: relative; /* anchors #joinBtnBadge */
       display: block; width: 100%; padding: 14px;
       border: 0; border-radius: 0; font-size: 15px; font-weight: 650;
       cursor: pointer; background: #22c55e; color: #052e16; transition: opacity .15s;
@@ -436,70 +431,121 @@
     .btn:hover { opacity: .9; }
     .btn[data-racing="1"] { background: #334155; color: #e2e8f0; }
     .btn:disabled { opacity: .5; cursor: default; }
+    /* Race-queue position, pinned to the button's right edge. Absolute rather
+       than a flex sibling so it can't shift the label off center - the label
+       reads the same whether or not a position is showing. Empty (and so
+       invisible) in every state but "in line". */
+    #joinBtnBadge {
+      position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      font-size: 13px; font-weight: 650; opacity: .75; font-variant-numeric: tabular-nums;
+    }
 
-    /* One box for the whole roster (Racing + Watching), not a separate box
-       per group; a divider line between groups shows they're related
-       without splitting them into their own cards. Also hosts the chat
-       view, toggled with the roster via #viewToggleBtn. */
-    .panel {
-      position: relative; flex: 1; min-height: 0;
-      display: flex; flex-direction: column;
-      background: #111a2e; border: 1px solid #1e293b; border-radius: 0; padding: 14px 0 14px 16px;
-    }
-    /* Shared header row for the panel: title (left, swaps "Players"/"Chat"
-       depending on which view is showing) / Switch Lobby button (dead
-       center, visible in both views) / roster<->chat toggle icon (right).
-       A 3-column grid keeps the middle button truly centered regardless of
-       how wide the title text or icon are, rather than eyeballing margins. */
-    .panel-header {
-      display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
-      margin: 0 0 12px; padding: 0 16px 10px 0; /* right padding since .panel itself has none */
-      border-bottom: 1px solid #1e293b;
-    }
-    .panel-header h2 {
-      margin: 0; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
-      color: #94a3b8; font-weight: 600;
-      line-height: 28px; /* matches .icon-btn's height so the row vertically centers */
+    /* Switch Lobby's own row, directly under the join button: it's a
+       lobby-level action like the button above it, not part of the roster
+       below, so it gets the separating space rather than a header to sit in. */
+    .lobby-row {
+      flex-shrink: 0; display: flex; justify-content: center;
+      padding: 10px 16px; border-bottom: 1px solid #1e293b;
     }
     .switch-lobby-btn {
-      justify-self: center; white-space: nowrap;
+      white-space: nowrap;
       padding: 5px 12px; border-radius: 8px; border: 1px solid #334155;
       background: #1e293b; color: #cbd5e1; font-size: 11px; font-weight: 650;
       letter-spacing: .02em; cursor: pointer;
     }
     .switch-lobby-btn:hover { background: #334155; color: #e2e8f0; }
-    #rosterView { padding-right: 16px; }
+
+    /* Roster block: "Racers" (in join order, matching the race tracks) then
+       "Watching". Sized by its contents - it never steals height from the
+       chat below beyond what its rows actually need, and only the spectator
+       list is allowed to cap-and-scroll (see .spectators). */
+    .roster {
+      flex-shrink: 0; padding: 12px 0 12px 16px; border-bottom: 1px solid #1e293b;
+    }
+    /* Shared by both roster groups and the chat: an uppercase label on the
+       left, an optional count on the right. One declaration so the three
+       headers can't drift apart. */
+    .section-header {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+      padding-right: 16px; margin-bottom: 6px;
+    }
+    .section-header h2 {
+      margin: 0; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+      color: #94a3b8; font-weight: 600;
+    }
+    .section-count {
+      font-size: 12px; color: #64748b; font-weight: 600; font-variant-numeric: tabular-nums;
+    }
+    /* The Watching group needs air above whatever precedes it (the racer list,
+       or the race queue when someone's in line); the first header sits right
+       under the .lobby-row divider and doesn't. */
+    .roster .section-header ~ .section-header { margin-top: 14px; }
+
+    /* Race queue. The rule on top is the divider under the racer list; the
+       one on #waitlistSelf separates my pinned row from the "+N more". Both
+       stop short of the right edge (margin-right) so they read as internal
+       separators rather than as the panel's own borders. */
+    #waitlistBlock {
+      margin-top: 8px; padding-top: 6px;
+      border-top: 1px solid #334155; margin-right: 16px;
+    }
+    #waitlistBlock[hidden], #waitlistMore[hidden], #waitlistSelf[hidden] { display: none; }
+    /* "+3 more": a count, not a person, so it's deliberately quieter than the
+       rows around it and doesn't get an avatar. */
+    #waitlistMore {
+      padding: 5px 0; font-size: 12px; color: #64748b; font-style: italic;
+    }
+    #waitlistSelf { margin-top: 6px; padding-top: 6px; border-top: 1px solid #334155; }
+    /* The block's own margin-right already holds the rules off the edge, so
+       the rows inside it must not inset their text a second time. */
+    #waitlistBlock li { padding-right: 0; }
+
     ul { list-style: none; margin: 0; padding: 0; }
     /* Roster rows deliberately match a chat line: same 13px/1.4 text, same
-       "avatar then name" shape (see fillNames), so the two views read as the
-       same list of people rather than two unrelated designs. */
-    li { padding: 7px 0; font-size: 13px; line-height: 1.4; word-break: break-word; }
-    .empty { color: #475569; font-style: italic; padding: 7px 0; }
+       "avatar then name" shape (see fillNames), so the roster and the chat
+       read as the same list of people rather than two unrelated designs. */
+    li { padding: 5px 16px 5px 0; font-size: 13px; line-height: 1.4; word-break: break-word; }
+    .empty { color: #475569; font-style: italic; padding: 5px 0; }
 
-    /* Toggles the panel between the roster and chat; icon swaps to show
-       whichever view clicking it would switch TO (chat icon while looking
-       at the roster, people icon while looking at chat). */
-    .icon-btn {
-      justify-self: end;
-      width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center;
-      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
-      color: #94a3b8; cursor: pointer;
+    /* Spectators are secondary to the racers, so they're dimmed as a group.
+       Capped at 5 rows (row = 5px + 18.2px line + 5px, so 5 * 28.2 ≈ 141px)
+       and scrolling past that - but it's a MAX, not a height: with fewer
+       spectators the list only takes the room it needs and the chat below
+       keeps the rest. */
+    .spectators { opacity: .62; max-height: 141px; overflow-y: auto; }
+    .spectators .empty { opacity: .8; }
+
+    /* Trailing label on a roster row: "next race" for a racer holding a slot
+       for the one after this (see Player.status's "queued") - they count
+       toward the "3 / 5" above, so they belong in the list, and the tag is
+       what stops that from reading as "racing right now" - or "queue #2" for
+       a place in line. `.mine` is my own row, in the same cyan the rest of the
+       UI uses for me (.me), so my own position is findable at a glance. */
+    .roster-tag { margin-left: 6px; font-size: 11px; color: #64748b; font-weight: 600; }
+    .roster-tag.mine { color: #7dd3fc; }
+
+    /* Chat fills whatever height the roster above leaves. */
+    .panel {
+      position: relative; flex: 1; min-height: 0;
+      display: flex; flex-direction: column;
+      background: #111a2e; border: 0; border-radius: 0; padding: 12px 0 14px 16px;
     }
-    .icon-btn:hover { background: #334155; color: #e2e8f0; }
-    .icon-btn svg { width: 16px; height: 16px; }
-
-    #rosterView[data-hidden="1"], #chatView[data-hidden="1"] { display: none; }
-
-    #chatView { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    /* Fills whatever space is left in the (now full sidebar-height) panel,
-       rather than growing with the message count; scrolls internally once
-       there's more history than fits. No right padding here on purpose: the
-       panel itself has none either, so the scrollbar sits flush against the
-       screen's right edge instead of floating with a gap next to it. Message
-       rows get their own right padding below to keep text off the scrollbar. */
+    /* Scrolls internally once there's more history than fits. No right padding
+       here on purpose: the panel itself has none either, so the scrollbar sits
+       flush against the screen's right edge instead of floating with a gap next
+       to it. Message rows get their own right padding below to keep text off
+       the scrollbar. */
     #chatMessages {
       flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
-      gap: 6px; margin-bottom: 10px;
+      margin-bottom: 10px;
+    }
+    /* Messages fill from the BOTTOM up, so a near-empty chat sits just above
+       the input instead of hanging from the top of a tall empty panel. The
+       push is `margin-top: auto` on an inner wrapper rather than
+       justify-content on the scroll container itself: with justify-content,
+       content that overflows the top gets clipped out of scroll reach. */
+    #chatMessagesInner {
+      margin-top: auto; display: flex; flex-direction: column; gap: 6px;
     }
     #chatMessages .empty { padding-right: 16px; }
     .chat-msg { font-size: 13px; line-height: 1.4; word-break: break-word; padding-right: 16px; }
@@ -528,13 +574,13 @@
     /* Custom scrollbar: thin, flat (no rounding, matching the rest of the
        sidebar), and transparent-tracked so it doesn't add its own visible
        gutter next to the screen edge. */
-    .arena, #chatMessages, #emojiScroll { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
-    .arena::-webkit-scrollbar, #chatMessages::-webkit-scrollbar, #emojiScroll::-webkit-scrollbar { width: 8px; }
-    .arena::-webkit-scrollbar-track, #chatMessages::-webkit-scrollbar-track, #emojiScroll::-webkit-scrollbar-track { background: transparent; }
-    .arena::-webkit-scrollbar-thumb, #chatMessages::-webkit-scrollbar-thumb, #emojiScroll::-webkit-scrollbar-thumb {
+    .arena, #chatMessages, #emojiScroll, .spectators { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    .arena::-webkit-scrollbar, #chatMessages::-webkit-scrollbar, #emojiScroll::-webkit-scrollbar, .spectators::-webkit-scrollbar { width: 8px; }
+    .arena::-webkit-scrollbar-track, #chatMessages::-webkit-scrollbar-track, #emojiScroll::-webkit-scrollbar-track, .spectators::-webkit-scrollbar-track { background: transparent; }
+    .arena::-webkit-scrollbar-thumb, #chatMessages::-webkit-scrollbar-thumb, #emojiScroll::-webkit-scrollbar-thumb, .spectators::-webkit-scrollbar-thumb {
       background: #334155; border-radius: 0;
     }
-    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover, #emojiScroll::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover, #emojiScroll::-webkit-scrollbar-thumb:hover, .spectators::-webkit-scrollbar-thumb:hover { background: #475569; }
     .btn-send {
       padding: 8px 14px; border-radius: 8px; border: 0;
       background: #22c55e; color: #052e16; font-size: 13px; font-weight: 650; cursor: pointer;
@@ -545,12 +591,11 @@
 <body>
   <header>
     <h1>Ty<span class="brand-accent">pro</span></h1>
-    <!-- Connection status is NOT shown here: it lives in the chat log as a
-         local status line (see setConnectionStatus), so the header stays a
-         clean wordmark + identity row rather than carrying a "Connected as
-         X (spectating)" label that restated the name and the join button
-         sitting right next to it. -->
-    <div id="roomInfo"></div>
+    <!-- Nothing sits between the wordmark and the identity box on purpose.
+         Connection status lives in the chat log as a local status line (see
+         setConnectionStatus), and the room id / racer count that used to be
+         here are gone: the count is the sidebar's "Racers 3 / 5" row, and the
+         room id was only ever dev/QA visibility. -->
     <div id="identityBox">
       <div id="emojiBox">
         <button id="emojiBtn" type="button" title="Choose your racer avatar">🚀</button>
@@ -624,29 +669,57 @@
       </div>
     </section>
 
-    <!-- Right: sidebar. Join/spectate control on top, then either the
-         players list or chat, one panel, toggled via the icon button in
-         its top-right corner. -->
+    <!-- Right: sidebar. Top-down: the join/spectate control, Switch Lobby,
+         the roster (racers in join order, then spectators), and chat filling
+         whatever height is left. One column, no view toggle - the roster and
+         the chat are both always visible now. -->
     <div class="sidebar">
-      <button id="joinBtn" class="btn" disabled>Join Race</button>
+      <!-- The badge carries the race-queue position ("#2") when you're in
+           line; it's absolutely positioned so the label stays optically
+           centered in every state, badge or no badge. -->
+      <button id="joinBtn" class="btn" disabled><span id="joinBtnLabel">Join Race</span><span id="joinBtnBadge"></span></button>
+      <div class="lobby-row">
+        <button id="switchLobbyBtn" class="switch-lobby-btn" type="button">Switch Lobby</button>
+      </div>
+
+      <div class="roster">
+        <div class="section-header">
+          <h2>Racers</h2>
+          <span id="racerCount" class="section-count"></span>
+        </div>
+        <ul id="racersList"></ul>
+
+        <!-- The race queue: people waiting for a slot to free up. Sits between
+             the racers and the spectators (its members left the Watching group
+             when they got in line), separated from the racers by its top rule -
+             the queue isn't part of the "x / 5" above it. Hidden entirely while
+             nobody is in line. Shows the first 3, then "+N more"; if I'm
+             further back than that, my own row is pinned below its own rule so
+             my position is always on screen. -->
+        <div id="waitlistBlock" hidden>
+          <ul id="waitlistTop"></ul>
+          <div id="waitlistMore" hidden></div>
+          <ul id="waitlistSelf" hidden></ul>
+        </div>
+
+        <div class="section-header">
+          <h2>Watching <span id="spectatorCount" class="section-count"></span></h2>
+        </div>
+        <!-- Grows with its contents up to 5 rows, then scrolls; see .spectators. -->
+        <ul id="spectatorsList" class="spectators"></ul>
+      </div>
+
       <div class="panel">
-        <div class="panel-header">
-          <h2 id="panelTitle">Chat</h2>
-          <button id="switchLobbyBtn" class="switch-lobby-btn" type="button">Switch Lobby</button>
-          <button id="viewToggleBtn" class="icon-btn" type="button" title="Open chat"></button>
+        <div class="section-header">
+          <h2>Chat</h2>
         </div>
-
-        <div id="rosterView">
-          <ul id="playersList"></ul>
-        </div>
-
-        <div id="chatView">
-          <div id="chatMessages"></div>
-          <form id="chatForm">
-            <input id="chatInput" type="text" maxlength="200" autocomplete="off" placeholder="Send a message" />
-            <button type="submit" class="btn-send">Send</button>
-          </form>
-        </div>
+        <!-- Scroll container; the inner wrapper is what actually holds the
+             rows, so it can be pushed to the bottom (see #chatMessagesInner). -->
+        <div id="chatMessages"><div id="chatMessagesInner"></div></div>
+        <form id="chatForm">
+          <input id="chatInput" type="text" maxlength="200" autocomplete="off" placeholder="Send a message" />
+          <button type="submit" class="btn-send">Send</button>
+        </form>
       </div>
     </div>
   </div>
@@ -657,8 +730,8 @@
     // this file) and once deployed (one process, one URL, no CORS/mixed-content
     // setup needed). Colyseus upgrades http(s) origins to ws(s) automatically.
     const ENDPOINT = window.location.origin;
-    // Mirrors RaceRoom.ts's MAX_RACERS; used for the "3/5" dev/QA room
-    // indicator's denominator (see #roomInfo) and to gray out the join button
+    // Mirrors RaceRoom.ts's MAX_RACERS; used as the denominator of the
+    // sidebar's "Racers 3 / 5" count and to gray out the join button
     // once every slot is taken. Not real enforcement - the server is what
     // actually caps racer slots; this only keeps the UI from offering a click
     // that would be silently ignored.
@@ -1314,9 +1387,17 @@
     let announceRosterOnArrival = false;
 
     // --- Elements -------------------------------------------------------------
-    const roomInfoEl = document.getElementById("roomInfo");
     const joinBtn    = document.getElementById("joinBtn");
-    const playersList = document.getElementById("playersList");
+    const joinBtnLabel = document.getElementById("joinBtnLabel");
+    const joinBtnBadge = document.getElementById("joinBtnBadge");
+    const racersList = document.getElementById("racersList");
+    const spectatorsList = document.getElementById("spectatorsList");
+    const racerCountEl = document.getElementById("racerCount");
+    const spectatorCountEl = document.getElementById("spectatorCount");
+    const waitlistBlock = document.getElementById("waitlistBlock");
+    const waitlistTop  = document.getElementById("waitlistTop");
+    const waitlistMore = document.getElementById("waitlistMore");
+    const waitlistSelf = document.getElementById("waitlistSelf");
     const phaseBanner = document.getElementById("phaseBanner");
     const bigReadout    = document.getElementById("bigReadout");
     const readoutNumber = bigReadout.querySelector(".readout-number");
@@ -1340,12 +1421,9 @@
     const settingsPanel = document.getElementById("settingsPanel");
     const settingsUsername = document.getElementById("settingsUsername");
     const usernameDisplay = document.getElementById("usernameDisplay");
-    const viewToggleBtn = document.getElementById("viewToggleBtn");
-    const panelTitle = document.getElementById("panelTitle");
     const switchLobbyBtn = document.getElementById("switchLobbyBtn");
-    const rosterView = document.getElementById("rosterView");
-    const chatView   = document.getElementById("chatView");
-    const chatMessages = document.getElementById("chatMessages");
+    const chatMessages = document.getElementById("chatMessages");        // scroll container
+    const chatMessagesInner = document.getElementById("chatMessagesInner"); // the rows themselves
     const chatForm   = document.getElementById("chatForm");
     const chatInput  = document.getElementById("chatInput");
 
@@ -1402,35 +1480,17 @@
     const CURSOR_IDLE_BEFORE_BLINK_MS = 500;
     let lastKeystrokeAt = 0;
 
-    // --- Sidebar view toggle (roster <-> chat) ---------------------------------
-    // The icon shown is whatever view clicking it switches TO, not the
-    // current one: a chat bubble while looking at the roster, a people icon
-    // while looking at chat.
-    const CHAT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H9l-4 4V4z"/></svg>`;
-    const PEOPLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"/><path d="M2 20a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.5"/><path d="M13 20a4.5 4.5 0 0 1 9 0"/></svg>`;
+    // The roster and the chat used to be one panel with a toggle between
+    // them; they're separate rows of the sidebar now (roster above, chat
+    // below), both always visible, so there's no view state left to track.
 
-    let sidebarView = "chat"; // "roster" | "chat"
-
-    function updateSidebarView() {
-      const showingChat = sidebarView === "chat";
-      rosterView.dataset.hidden = showingChat ? "1" : "0";
-      chatView.dataset.hidden = showingChat ? "0" : "1";
-      panelTitle.textContent = showingChat ? "Chat" : "Players";
-      // Scrolling to bottom while the panel is display:none is a no-op
-      // (scrollHeight collapses to 0), which is why chat could load scrolled
-      // to the top: it starts hidden behind the roster view. Redo the scroll
-      // now that it's actually visible and has real layout.
-      if (showingChat) chatMessages.scrollTop = chatMessages.scrollHeight;
-      viewToggleBtn.innerHTML = showingChat ? PEOPLE_ICON : CHAT_ICON;
-      viewToggleBtn.title = showingChat ? "Show players" : "Open chat";
-    }
-
-    viewToggleBtn.onclick = () => {
-      sidebarView = sidebarView === "roster" ? "chat" : "roster";
-      updateSidebarView();
-    };
-
-    updateSidebarView();
+    // Resting state, painted before the first server patch lands so the
+    // sidebar reads as an empty lobby rather than a blank gap while the
+    // connect is in flight. render() owns it from the first state change on.
+    fillNames(racersList, [], "No racers yet");
+    fillNames(spectatorsList, [], "No one watching");
+    racerCountEl.textContent = `0 / ${MAX_RACERS}`;
+    spectatorCountEl.textContent = "0";
 
     // See myVisibleChat/seenChatKeys/myKnownClientIds' declarations above:
     // only ever ADDS messages not yet incorporated, never rebuilds the log
@@ -1536,12 +1596,14 @@
     // repaint immediately when audio unlocks or the setting changes, rather
     // than waiting for the next server broadcast to happen to arrive.
     function renderChatDom() {
-      chatMessages.innerHTML = "";
+      // Rows go in the inner wrapper, which is bottom-anchored (see
+      // #chatMessagesInner) so the log grows upward from the input.
+      chatMessagesInner.innerHTML = "";
       if (myVisibleChat.length === 0) {
         const empty = document.createElement("div");
         empty.className = "empty";
         empty.textContent = "No messages yet";
-        chatMessages.appendChild(empty);
+        chatMessagesInner.appendChild(empty);
       } else {
         myVisibleChat.forEach((msg) => {
           const row = document.createElement("div");
@@ -1582,7 +1644,7 @@
             row.appendChild(nameSpan);
             row.appendChild(document.createTextNode(msg.text));
           }
-          chatMessages.appendChild(row);
+          chatMessagesInner.appendChild(row);
         });
       }
       chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1829,20 +1891,33 @@
     function render(state) {
       renderChat(state);
 
-      const racing = [], allPlayers = [], leaderboardEntries = [];
+      const racing = [], rosterRacers = [], waitlist = [], spectators = [], leaderboardEntries = [];
       state.players.forEach((p, sessionId) => {
         const entry = {
           sessionId, name: p.name, me: sessionId === room.sessionId,
           progress: p.progress, wpm: p.wpm, finished: p.finished, place: p.place, afk: p.afk,
-          emoji: p.emoji,
+          emoji: p.emoji, slotOrder: p.slotOrder, waitlistOrder: p.waitlistOrder,
         };
-        allPlayers.push(entry);
+        // The sidebar splits the room three ways: whoever holds a racer slot
+        // (racing OR queued - both count toward state.racerCount, so both have
+        // to be in the list the "3 / 5" sits above), whoever's in line for a
+        // slot, and everyone else. A waitlisted player is deliberately NOT a
+        // spectator here even though they hold no slot: they've opted in, and
+        // showing them under "Watching" would read as the opposite.
+        if (p.status === "racing" || p.status === "queued") {
+          entry.tag = p.status === "queued" ? "next race" : null;
+          rosterRacers.push(entry);
+        } else if (p.status === "waitlist") {
+          waitlist.push(entry);
+        } else {
+          spectators.push(entry);
+        }
         // The leaderboard is strictly the CURRENT race's field. "queued"
         // players are in the NEXT one, so they never appear here no matter how
         // long they've held their slot - they have no progress or wpm in this
         // race to show, and listing them at 0% would read as a racer who
-        // hasn't started. (They're in `allPlayers`, i.e. the roster, like
-        // everyone else in the room.)
+        // hasn't started. (They're still in the sidebar's racer list, tagged
+        // "next race" - they do hold a slot.)
         if (p.status === "racing") {
           racing.push(entry);
           leaderboardEntries.push(entry);
@@ -1859,16 +1934,38 @@
         }
       });
 
+      // Join order, server-stamped (see Player.slotOrder). Both the sidebar
+      // list and the race tracks use it, which is the point: the order you
+      // read in the sidebar before the race is the order of the tracks in it.
+      const byJoinOrder = (a, b) => a.slotOrder - b.slotOrder;
+      rosterRacers.sort(byJoinOrder);
+      leaderboardEntries.sort(byJoinOrder);
+
+      // The race queue, in the order people got in line (server-stamped
+      // waitlistOrder). Positions are just this order's indices, so someone
+      // leaving the queue renumbers everyone behind them with no renumbering
+      // to actually do - here or on the server.
+      waitlist.sort((a, b) => a.waitlistOrder - b.waitlistOrder);
+      waitlist.forEach((entry, i) => {
+        entry.queuePos = i + 1;
+        entry.tag = `queue #${entry.queuePos}`;
+      });
+      const myQueueEntry = waitlist.find((entry) => entry.me);
+
       // Once results are in, show final standings (by place) instead of the
-      // live progress order. Results only ever include true finishers/DNFs
-      // that RaceRoom actually ranked, not mid-race AFK dropouts (which have
+      // join order. Results only ever include true finishers/DNFs that
+      // RaceRoom actually ranked, not mid-race AFK dropouts (which have
       // no place), so this uses `racing` rather than `leaderboardEntries`.
       const resultsMode = state.phase === "finished";
       if (resultsMode) {
         racing.sort((a, b) => (a.place || Infinity) - (b.place || Infinity));
       }
 
-      fillNames(playersList, allPlayers);
+      fillNames(racersList, rosterRacers, "No racers yet");
+      fillWaitlist(waitlist);
+      fillNames(spectatorsList, spectators, "No one watching");
+      racerCountEl.textContent = `${state.racerCount} / ${MAX_RACERS}`;
+      spectatorCountEl.textContent = spectators.length;
       fillLeaderboard(leaderboard, resultsMode ? racing : leaderboardEntries, resultsMode);
 
       // Sync the button + status line to MY current status. Recomputed on
@@ -1876,16 +1973,20 @@
       const me = state.players.get(room.sessionId);
       const iAmRacing = !!me && me.status === "racing";
       const iAmQueued = !!me && me.status === "queued";
+      const iAmWaitlisted = !!me && me.status === "waitlist";
       // Racing and queued both mean "I hold one of the MAX_RACERS slots", which
       // is what the button toggles and what the full check must exempt me from.
+      // Being in line is NOT holding a slot - that's the whole distinction -
+      // so it's tracked separately.
       const iHoldSlot = iAmRacing || iAmQueued;
       // Mirrors RaceRoom's acceptsNewRacers(): would opting in right now put me
       // in the race being set up, or only reserve me a slot in the next one?
       const canJoinNow =
         state.phase === "waiting" ||
         (state.phase === "countdown" && state.countdown > LOCK_AT_COUNTDOWN_SECONDS);
-      // The only case where opting in genuinely can't happen (the server would
-      // silently ignore it), so it's the only case the button is disabled for.
+      // Every slot spoken for, so opting in would put me in line rather than
+      // in the race (mirrors RaceRoom's setStatus). Exempts me when I already
+      // hold a slot - a full room isn't "full" from the inside.
       const slotsFull = !iHoldSlot && state.racerCount >= MAX_RACERS;
 
       // Capture/refresh my avatar from synced state: this is how a first-visit
@@ -1900,25 +2001,32 @@
         updateGridSelection();
       }
 
-      // Four states, in priority order: give up the slot I'm racing on, give
-      // up the slot I'm holding for the next race, nothing to give up but no
-      // slot to be had, or take one - as either an immediate join or a queue
-      // spot, whichever this moment in the race cycle allows.
-      joinBtn.textContent =
+      // Five states, in priority order: give up the slot I'm racing on, give
+      // up the slot I'm holding for the next race, give up my place in line,
+      // get in line because every slot is taken, or take a free one - as
+      // either an immediate join or a slot in the next race, whichever this
+      // moment in the race cycle allows.
+      //
+      // "Queue" here always means the race QUEUE (the waitlist). The
+      // slot-holding states deliberately say "next race" instead, since
+      // calling both of them a queue is what made the old "Leave Queue"
+      // ambiguous once a second kind of waiting existed.
+      joinBtnLabel.textContent =
         iAmRacing ? "Spectate" :
-        iAmQueued ? "Leave Queue" :
-        slotsFull ? "Race Full" :
-        canJoinNow ? "Join Race" : "Queue for Next Race";
+        iAmQueued ? "Leave Next Race" :
+        iAmWaitlisted ? "Leave Race Queue" :
+        slotsFull ? "Join Race Queue" :
+        canJoinNow ? "Join Race" : "Join Next Race";
+      // My position in line, on the button itself, so it's readable without
+      // looking down at the roster. Blank in every other state.
+      joinBtnBadge.textContent = myQueueEntry ? `#${myQueueEntry.queuePos}` : "";
       // Drives both the "leaving" button styling and the click handler's
-      // direction, so it tracks the slot, not racing specifically.
-      joinBtn.dataset.racing = iHoldSlot ? "1" : "0";
-      // My own racing/queued/spectating status is no longer restated in the
-      // header - the button above says it (Spectate / Leave Queue / Join Race),
-      // and my name is already in the identity box. Connection status moved to
-      // the chat log entirely (see setConnectionStatus).
-      if (connected) {
-        roomInfoEl.textContent = `Room ${room.roomId} · ${state.racerCount}/${MAX_RACERS} racers`;
-      }
+      // direction: any of the three opted-in states means the click backs out.
+      joinBtn.dataset.racing = (iHoldSlot || iAmWaitlisted) ? "1" : "0";
+      // Nothing about my status goes in the header: the button above says it
+      // (Spectate / Leave Queue / Join Race), my name is in the identity box,
+      // the slot count is the sidebar's "Racers 3 / 5" row, and connection
+      // status lives in the chat log (see setConnectionStatus).
 
       // Large WPM readout: your own live speed while racing AND your final
       // speed on the results screen (so it isn't overwritten by "Next race
@@ -2085,13 +2193,14 @@
         typeInput.focus();
       }
 
-      // Phase no longer disables this: whenever the race being set up can't
-      // take you, queueing for the next one can (see the label above), so the
-      // only dead click left is a room with every slot taken. Giving up a slot
-      // stays enabled at all times. Kept gated on `connected` so a state patch
-      // arriving around a disconnect can't re-enable a button that leads
-      // nowhere (room.onLeave disables it).
-      joinBtn.disabled = !connected || slotsFull;
+      // Nothing about the room's state disables this any more: if the race
+      // being set up can't take you, the next one can, and if every slot is
+      // taken the race queue can (see the label above). A full room used to
+      // disable it as "Race Full", which left the player staring at a dead
+      // control with nothing to do about it. Only an actual disconnect
+      // disables it now - a state patch arriving around one mustn't re-enable
+      // a button that leads nowhere (room.onLeave disables it).
+      joinBtn.disabled = !connected;
     }
 
     function formatTime(totalSeconds) {
@@ -2178,17 +2287,18 @@
       renderQuote(quote, full, selStart, selEnd, true);
     }
 
-    // Name list for the "Players" sidebar panel. Built to look like a chat line
-    // - avatar, then the name in that avatar's color - so switching between the
-    // two views doesn't feel like switching between two different apps. The
-    // shared styling lives on .player-name / .chat-msg-name (one declaration,
-    // both selectors); only the trailing ": message" is chat-specific.
-    function fillNames(ul, people) {
+    // One roster group (Racers or Watching) in the sidebar. Rows are built to
+    // look like a chat line - avatar, then the name in that avatar's color -
+    // so the roster and the chat right below it read as one list of people
+    // rather than two designs. The shared styling lives on .player-name /
+    // .chat-msg-name (one declaration, both selectors); only the trailing
+    // ": message" is chat-specific.
+    function fillNames(ul, people, emptyText) {
       ul.innerHTML = "";
       if (people.length === 0) {
         const li = document.createElement("li");
         li.className = "empty";
-        li.textContent = "No one here yet";
+        li.textContent = emptyText;
         ul.appendChild(li);
         return;
       }
@@ -2208,8 +2318,45 @@
         const nameColor = getEmojiColor(person.emoji);
         if (nameColor) nameSpan.style.color = nameColor;
         li.appendChild(nameSpan);
+        // "next race" (holding a slot for the one after this) or "queue #2" (a
+        // place in line) - see .roster-tag. Mine is tinted like the rest of my
+        // own identity in the UI.
+        if (person.tag) {
+          const tag = document.createElement("span");
+          tag.className = "roster-tag" + (person.me ? " mine" : "");
+          tag.textContent = person.tag;
+          li.appendChild(tag);
+        }
         ul.appendChild(li);
       }
+    }
+
+    // How many of the race queue are listed before it collapses to "+N more".
+    const WAITLIST_VISIBLE = 3;
+
+    // The race queue block between the racers and the spectators. Shows the
+    // front of the line and hides the tail behind a count - a queue of 20 is
+    // 20 rows of information nobody needs, and the only row past the front
+    // that matters to YOU is your own, which is why it gets pinned below
+    // rather than left somewhere off in the collapsed tail.
+    function fillWaitlist(people) {
+      waitlistBlock.hidden = people.length === 0;
+      if (people.length === 0) return;
+
+      const shown = people.slice(0, WAITLIST_VISIBLE);
+      const hidden = people.length - shown.length;
+      fillNames(waitlistTop, shown, "");
+
+      waitlistMore.hidden = hidden === 0;
+      waitlistMore.textContent = `+${hidden} more`;
+
+      // Only when I'm actually in the collapsed tail: in the visible front of
+      // the line my row is already on screen, so pinning it again would just
+      // list me twice.
+      const mine = people.find((p) => p.me);
+      const pinMine = !!mine && mine.queuePos > WAITLIST_VISIBLE;
+      waitlistSelf.hidden = !pinMine;
+      if (pinMine) fillNames(waitlistSelf, [mine], "");
     }
 
     // Derives a soft track color from an emoji's own palette, so each racer's
@@ -2378,12 +2525,14 @@
     // the input box hold what was actually typed, which is just local text).
     joinBtn.onclick = () => {
       if (!room) return;
-      // One message either way: give up my slot, or ask for one. The server
-      // decides what asking gets me - a place in the race being set up, or a
-      // queue spot in the next one (see RaceRoom's setStatus/acceptsNewRacers)
-      // - and render() reflects whichever came back. Nothing is assumed here.
-      const iHoldSlot = joinBtn.dataset.racing === "1";
-      room.send("setStatus", { racing: !iHoldSlot });
+      // One message either way: back out, or ask to be in. The server decides
+      // what asking gets me - the race being set up, a slot in the next one,
+      // or a place in the race queue if every slot is taken (see RaceRoom's
+      // setStatus/acceptsNewRacers) - and render() reflects whichever came
+      // back. Nothing is assumed here. `data-racing` covers all three
+      // opted-in states, so backing out is one message regardless of which.
+      const iAmIn = joinBtn.dataset.racing === "1";
+      room.send("setStatus", { racing: !iAmIn });
     };
 
     // Always available, regardless of phase or whether we're racing or

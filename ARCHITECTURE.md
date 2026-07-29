@@ -71,15 +71,33 @@ race state and stats; clients only send *intents* (e.g. "I want to race",
     and sends it back as a join option, so an avatar stays stable across
     reloads.
   - `status: string`: `"watching"` (spectating), `"racing"` (in the race being
-    set up or run), or `"queued"` (holding a racer slot for the race AFTER this
-    one). Joining as `"racing"` is only allowed while the room can still take
-    racers for the current race (`phase` `"waiting"`, or a `"countdown"` with
-    more than `LOCK_AT_COUNTDOWN_SECONDS` left - see `acceptsNewRacers()`);
-    opting in outside that window yields `"queued"` instead of being refused,
-    and the whole queue is promoted to `"racing"` when the room next settles
-    back to `"waiting"`. Bailing out to `"watching"` is always allowed from
-    either, even mid-race. Both `"racing"` and `"queued"` occupy one of the
-    `MAX_RACERS` slots.
+    set up or run), `"queued"` (holding a racer slot for the race AFTER this
+    one), or `"waitlist"` (wants in, but every slot is taken). Joining as
+    `"racing"` is only allowed while the room can still take racers for the
+    current race (`phase` `"waiting"`, or a `"countdown"` with more than
+    `LOCK_AT_COUNTDOWN_SECONDS` left - see `acceptsNewRacers()`); opting in
+    outside that window yields `"queued"` instead of being refused, and the
+    whole queue is promoted to `"racing"` when the room next settles back to
+    `"waiting"`. Bailing out to `"watching"` is always allowed from any of
+    them, even mid-race. `"racing"` and `"queued"` occupy one of the
+    `MAX_RACERS` slots; `"waitlist"` does NOT - capacity-wise a waitlisted
+    player is a spectator, which is what keeps the cap honest while the queue
+    behind it stays unbounded.
+  - Seats can also be HELD for a player another room has already redirected
+    here but who hasn't finished connecting yet - server-only bookkeeping on
+    the room instance, keyed by `clientId` (see RaceRoom's `reserveSlots` /
+    `countCommittedSlots`), never in synced state. Capacity decisions all read
+    "sat in + held", so nothing can take a seat out from under someone
+    mid-jump. `state.racerCount` counts held seats too.
+  - `waitlistOrder: number`, position in the race queue (0 = not in it), from
+    a per-room counter that only increases. The displayed "#1, #2" is this
+    field's sort order, so a departure renumbers everyone behind by itself.
+    Slots are handed to the front of the line by `promoteFromWaitlist()`,
+    which runs whenever one frees up (Spectate, a departure, an AFK kick) -
+    NOT when a race merely ends, since its racers keep their slots for the
+    next one. A promoted player lands as `"racing"` or `"queued"` by the same
+    `acceptsNewRacers()` rule as any opt-in, so coming off the queue mid-race
+    never drops anyone into a race already underway.
   - `progress: number`, 0..1 fraction of the quote typed correctly so far.
   - `wpm: number`, live words-per-minute, server-computed.
   - `finished: boolean`, true once `progress` reaches 1. False for stragglers
@@ -87,6 +105,13 @@ race state and stats; clients only send *intents* (e.g. "I want to race",
   - `place: number`, final standing (1 = first, ...), 0 until ranked. Assigned
     in finish order; racers still going when the race times out are ranked
     afterward by progress.
+  - `slotOrder: number`, a per-room counter stamped the moment this player
+    takes a racer slot (`"racing"` or `"queued"`); 0 = never held one here.
+    Only ever increases, and is deliberately NOT cleared on the way back to
+    `"watching"`, so an AFK dropout's leaderboard row keeps its position.
+    Re-taking a slot re-stamps it, so it means "who opted in first", not "who
+    first ever raced". Clients order both the sidebar racer list and the race
+    tracks by it, so the sidebar's order IS the track order.
   - `afk: boolean`, true if the server auto-moved this player to `"watching"`
     for going idle mid-race (no `"typeProgress"` for INACTIVITY_TIMEOUT_MS).
     Reset false at the start of every race. Lets clients keep their
@@ -2185,3 +2210,109 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     first appearance, messages landing below it, the in-place enable, the
     re-block landing last exactly once, no duplicates on repeated refreshes,
     the settings toggle removing/re-adding it, and the cap-trim/re-add cycle.
+- 2026-07-26: Sidebar redesigned into one always-visible column, and the header
+  stripped back to the wordmark + identity box.
+  - **Header:** the room id / "3/5 racers" readout (`#roomInfo`) is gone. It was
+    dev/QA visibility for the matchmaking behavior; the count now lives where a
+    player actually looks for it (the sidebar's "Racers 3 / 5" row).
+  - **Sidebar, top to bottom:** Join Race (unmoved), Switch Lobby on its own row
+    under it, then the roster, then chat filling the rest. The roster/chat view
+    toggle is gone entirely (`#viewToggleBtn`, `#rosterView`, the `sidebarView`
+    state): with both lists on screen at once there's nothing left to toggle
+    between, which was the point of the request.
+  - **Roster:** "Racers" (left) with the slot count (right), listing everyone
+    holding a slot - `"queued"` players included, since they're part of that
+    count; they carry a small "next race" tag so the list can't read as "all of
+    these are in the current race". Then "Watching N", dimmed as a group, capped
+    at 5 rows and scrolling past that but only as tall as its contents otherwise,
+    so a quiet lobby doesn't reserve space it isn't using. Rows are the same
+    avatar + tinted-name shape as a chat line (shared `fillNames`).
+  - **Racer order** is server-stamped: new `Player.slotOrder` (see Core model),
+    handed out by RaceRoom's `nextSlotOrder` in `setStatus` and in `onJoin` for
+    a redirect arriving with a slot. Both the sidebar list and the leaderboard
+    tracks sort by it, so the order you read before the race is the order of the
+    tracks in it. Results mode still sorts by `place` - that's the standings,
+    not the field.
+  - **Chat now fills bottom-up**, even when nearly empty: rows moved into a
+    `#chatMessagesInner` wrapper with `margin-top: auto` inside the scroll
+    container. Deliberately not `justify-content: flex-end` on the scroller
+    itself - that clips overflowing content out of scroll reach.
+- 2026-07-27: Race queue (a fourth player status, `"waitlist"`), replacing the
+  dead-end "Race Full" button. Opting into a full room now puts you in LINE
+  instead of being silently ignored.
+  - **Server:** `Player.waitlistOrder` + `promoteFromWaitlist()` (see Core
+    model). A waitlisted player holds no slot and is counted by neither
+    `countRacers()` nor `countTakenSlots()`, so MAX_RACERS still means what it
+    says while the queue behind it is unbounded. Promotion hangs off
+    `onRosterChanged()` (the choke point for Spectate/departure/switch-away)
+    and the AFK sweep - deliberately not the race lifecycle, since a race
+    ending frees nothing. `setStatus({racing:true})` also now ignores repeat
+    opt-ins (`status !== "watching"`), which previously would have re-stamped
+    an ordering key and jumped the sender to the back of their own list.
+  - A redirected player (merge / Switch Lobby) who finds the target's slots
+    gone now lands on its waitlist rather than being demoted to spectating -
+    the intent survives the room swap either way.
+  - **Button:** five states now - Spectate / Leave Next Race / Leave Race Queue
+    (+ your position, right-aligned) / Join Race Queue / Join Race. It is no
+    longer disabled by anything except an actual disconnect.
+  - **Naming:** the pre-existing slot-holding state's labels moved off the word
+    "queue" ("Queue for Next Race"/"Leave Queue" -> "Join/Leave Next Race"),
+    which now belongs exclusively to the waitlist. Two different kinds of
+    waiting both called "Queue" would have been unreadable; "next race" also
+    matches the tag that state already carried in the roster.
+  - **Sidebar:** the queue renders between the racers and the spectators
+    (getting in line takes you out of "Watching"), under a divider, as the
+    first 3 + "+N more"; if you're further back, your own row is pinned below
+    a second divider so your position is always visible, with your "queue #N"
+    label in the same cyan the UI uses for you elsewhere.
+  - Verified with 27 scripted checks driving the real room (its own handlers
+    and private methods, real schema state, stubbed clock/metadata): fill →
+    queue → promote on Spectate/departure/AFK, leaving the queue renumbering,
+    re-joining going to the back, mid-race promotion landing as `"queued"` and
+    racing only in the NEXT race, duplicate opt-ins being no-ops, a slotless
+    redirect arrival getting in line, and a promotion restarting a room whose
+    racers all bailed.
+- 2026-07-28: Seat reservations, closing the redirect gap that the race queue
+  had been catching as a fallback.
+  - **The gap:** choosing a merge/Switch Lobby target and the redirected client
+    actually landing there are separate moments, with a reconnect handshake in
+    between. `findMergeTarget`'s answer was therefore only advisory - two rooms
+    whose races ended a moment apart both hunt for the fullest room with space,
+    so they could pick the same target and both be told the same last seat was
+    free. Whoever's handshake landed second lost it.
+  - **The fix:** `reserveSlots()`, called by the SOURCE room on its chosen
+    target before it redirects anyone, holds seats by `Player.clientId` - the
+    only identifier that survives a redirect, since the sessionId is reissued
+    on arrival. `countCommittedSlots()` (seats sat in + seats held) is what
+    every capacity decision now reads: the in-room opt-in, waitlist promotion,
+    a redirected arrival's re-check, and merge-target eligibility. So an
+    in-room Join or a queue promotion can't take a held seat either. `onJoin`
+    claims the hold, which is precisely what frees that seat for its intended
+    owner and nobody else.
+  - **Reserve exactly what was checked for.** A merge holds for its racers +
+    queued (what `findMergeTarget` was sized against), NOT for its waitlisted
+    players, who had no seat here and were never part of the eligibility check
+    - they travel too and simply join the target's own queue. Switch Lobby
+    holds the single seat it verified, and only when the switcher will actually
+    claim one (a switching spectator needs the target to have room, per the
+    existing policy, but doesn't take a seat on arrival).
+  - **Lapsing is purge-on-read, not timer-driven.** SLOT_RESERVATION_MS is 5s,
+    generous for a sub-second handshake. Expired holds are discarded inside
+    `activeReservations()` on every read, so a hold can't outlive its window
+    even if the timer never runs (room disposed, clock stopped). A leaked hold
+    would be strictly worse than the race it fixes - a phantom seat, forever
+    unclaimable and unfreeable - so correctness can't rest on a timer firing.
+    The timer that IS set is only a nudge to re-evaluate, so a lapsed hold
+    doesn't leave a waitlister stuck in line until some unrelated roster change
+    wanders past.
+  - `state.racerCount` includes held seats: leaving them out would show
+    "4 / 5" next to a Join Race button the server then answers with a waitlist
+    spot. A count briefly ahead of the visible roster beats a button that lies.
+  - Verified with 27 more scripted checks (same harness style as the race
+    queue's): a held seat refused to a local opt-in and then claimed by its
+    owner, two rooms merging at once failing to collide, an unclaimed hold
+    lapsing and feeding the waitlist, a lapsed hold ignored even with the timer
+    discarded, a holder arriving having changed their mind releasing the seat,
+    Switch Lobby holding for a racer but not a spectator, and a merge that
+    doesn't fit being refused with nothing held. The race-queue suite was
+    re-run against the change and still passes.

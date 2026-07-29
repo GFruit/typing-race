@@ -26,7 +26,8 @@ export class Player extends Schema {
 
   /**
    * "watching" = spectating; "racing" = in the race currently being set up or
-   * run; "queued" = holds a racer slot for the race AFTER this one.
+   * run; "queued" = holds a racer slot for the race AFTER this one;
+   * "waitlist" = wants a slot but every one of them is taken.
    *
    * "queued" exists because there are stretches where joining the imminent
    * race isn't possible but wanting in on the next one is perfectly
@@ -38,9 +39,28 @@ export class Player extends Schema {
    * wholesale when the room next settles back to "waiting" (see RaceRoom's
    * resetToWaiting()).
    *
+   * "waitlist" is the opposite kind of waiting, and the distinction matters:
+   * a queued player HAS a slot and is guaranteed the next race, a waitlisted
+   * player has NO slot (they don't count toward MAX_RACERS at all) and is
+   * simply first in line for whenever one frees up - which only happens when
+   * a racer gives theirs up or leaves, never merely because a race ended.
+   * They're promoted one at a time, in `waitlistOrder`, by RaceRoom's
+   * promoteFromWaitlist(). It replaced the old hard refusal: opting into a
+   * full room used to be silently ignored, leaving a dead "Race Full" button.
+   *
    * Only the SERVER may change this (via the "setStatus" message handler).
    */
   @type("string") status: string = "watching";
+
+  /**
+   * Position in the race queue, as a per-room counter that only ever
+   * increases (0 = not on the waitlist). Stamped when a player joins the
+   * waitlist and cleared when they leave or are promoted off it, so the
+   * displayed "#1, #2, #3" is just this field's sort order - which means
+   * everyone behind a departing waitlister moves up by itself, with nothing
+   * to renumber.
+   */
+  @type("number") waitlistOrder: number = 0;
 
   /**
    * Race progress, computed and owned by the server from the client's raw
@@ -66,6 +86,20 @@ export class Player extends Schema {
    * rest of the list.
    */
   @type("boolean") afk: boolean = false;
+
+  /**
+   * WHEN this player took their racer slot, as a per-room counter that only
+   * ever increases (0 = they have never held one here). Stamped by RaceRoom
+   * the moment a player becomes "racing" or "queued", and deliberately NOT
+   * cleared when they drop back to "watching": a mid-race AFK dropout keeps
+   * its leaderboard row, and that row must keep its position rather than
+   * jump. Re-taking a slot re-stamps it, so the order is always "who opted
+   * in first", not "who first ever raced".
+   *
+   * Clients order both the sidebar racer list and the race tracks by it, so
+   * the two always agree and the tracks read in join order.
+   */
+  @type("number") slotOrder: number = 0;
 
   /**
    * A random identifier the CLIENT generates once per browser tab (see
