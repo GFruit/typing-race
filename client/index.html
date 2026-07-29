@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Typro</title>
 
+  <!-- Favicon: a rounded square rotated 45deg into a diamond/emerald, in the
+       site's button green (#22c55e) with a subtle lighter-to-darker gradient
+       for a bit of gem depth. Inlined as an SVG data URI so there's no extra
+       asset to serve. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Cdefs%3E%3ClinearGradient%20id='g'%20x1='0'%20y1='0'%20x2='0'%20y2='1'%3E%3Cstop%20offset='0'%20stop-color='%234ade80'/%3E%3Cstop%20offset='1'%20stop-color='%2316a34a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20x='8'%20y='8'%20width='16'%20height='16'%20rx='3'%20transform='rotate(45%2016%2016)'%20fill='url(%23g)'/%3E%3C/svg%3E" />
+
   <!--
     Colyseus client SDK (browser build, no bundler needed).
     Exposes a global `Colyseus`. Keep this version in sync with the server
@@ -25,7 +31,10 @@
       padding: 14px 24px; border-bottom: 1px solid #1e293b;
       display: flex; align-items: center; gap: 12px;
     }
-    h1 { margin: 0; font-size: 18px; font-weight: 650; }
+    /* line-height:1 keeps the taller wordmark from growing the header - its
+       height is set by the emoji button (20px glyph + padding), which the
+       wordmark now matches rather than exceeds. */
+    h1 { margin: 0; font-size: 26px; font-weight: 650; line-height: 1; }
     /* Same green as .btn's "Join Race" state, so the wordmark echoes it. */
     h1 .brand-accent { color: #22c55e; }
     /* Emoji avatar picker, top-right of the header, just left of the settings
@@ -182,6 +191,23 @@
     .switch[data-on="1"] { background: #22c55e; }
     .switch[data-on="1"]::after { transform: translateX(18px); }
 
+    /* The username field is the only other full-width settings-field; its hint
+       needs the same 180px cap the row-style hints use, but this one runs the
+       field's full width instead, so it's uncapped here. */
+    .settings-field .settings-hint { max-width: none; margin: 3px 0 8px; }
+    /* Three-way "Track display" picker (used by #trackModeGroup). */
+    .segmented {
+      display: flex; gap: 3px; background: #0b1120; border: 1px solid #334155;
+      border-radius: 8px; padding: 3px;
+    }
+    .segmented-btn {
+      flex: 1; padding: 6px 4px; border: 0; border-radius: 6px; background: transparent;
+      color: #94a3b8; font-size: 11px; font-weight: 650; cursor: pointer;
+      transition: background .15s ease-out, color .15s ease-out;
+    }
+    .segmented-btn:hover { color: #e2e8f0; }
+    .segmented-btn[data-active="1"] { background: #22c55e; color: #052e16; }
+
     /* Volume slider (sits under the Sound cues toggle). Dims and stops
        accepting input while cues are off - adjusting a volume that currently
        affects nothing would be confusing, so the row makes that unavailability
@@ -271,10 +297,61 @@
     }
     #raceTimer[data-visible="1"] { display: block; }
 
-    /* Progress bars + wpm for the racers, shown above the text. */
+    /* Progress bars + wpm for the racers, shown above the text. Holds either
+       the per-racer rows built by fillLeaderboard() (mode "default") or the
+       single #sharedTrack (mode "shared"); mode "hidden" hides the whole
+       thing. See applyTrackModeUi(). */
     #leaderboard {
       width: 100%; max-width: 640px; margin-bottom: 20px;
       display: flex; flex-direction: column; gap: 16px;
+    }
+    #leaderboard[data-mode="hidden"] { display: none; }
+    #leaderboard[data-mode="shared"] > .racer-row { display: none; }
+
+    /* One big track. It's colored per-viewer, not per-racer: the fill is
+       always MY OWN progress (my screen colors mine, yours colors yours -
+       see fillSharedTrack) - there's no single fill that could show every
+       racer's progress at once without their colors fighting over the same
+       pixels. Every racer, including me, also rides a caret+emoji marker on
+       top so everyone else's position is still visible. Deliberately taller
+       than .racer-track (14px) per the ask for "significantly bigger". */
+    #sharedTrack {
+      display: none; position: relative; width: 100%; height: 48px;
+    }
+    #leaderboard[data-mode="shared"] #sharedTrack { display: block; }
+    /* Square, not pill-shaped, to match the carets riding on it - those are
+       straight bars too, so rounding just the track would clash. */
+    #sharedTrackBase { height: 100%; background: #1e293b; }
+    /* No transition, deliberately - see .shared-caret below: my own caret
+       shares this exact value every render, and even a smoothing transition
+       that both nominally share can drift the two apart by a visible sliver
+       while chasing frequent updates (fast typing). Snapping both instantly
+       is the only way to guarantee they're always pixel-locked together. */
+    #sharedTrackFill {
+      height: 100%; width: 100%; background: #22c55e;
+      transform: scaleX(0); transform-origin: left;
+    }
+    #sharedTrackFill.finished { background: #7dd3fc; }
+    #sharedTrackFill.afk { background: #475569; }
+    /* Same "regular caret + emoji lollipop on top" language as .ghost-caret /
+       .ghost-caret-emoji (the live carets drawn on the quote text), just
+       bigger and positioned by overall progress% instead of by character. No
+       names - with everyone on one track there's no clean place to put them.
+       Overlapping carets (same/near progress) simply stack by z-index rather
+       than offsetting vertically - see fillSharedTrack for the ordering. */
+    .shared-caret {
+      position: absolute; top: 0; bottom: 0; width: 4px; border-radius: 4px;
+      background: #22c55e; transform: translateX(-50%);
+      /* No transition - see #sharedTrackFill: my own caret and the track fill
+         must snap in lockstep, and any independent smoothing on this one
+         (even nominally matching) can let a gap open between the two. */
+    }
+    .shared-caret.finished { background: #7dd3fc; }
+    .shared-caret.afk { background: #475569; opacity: .6; }
+    .shared-caret-emoji {
+      position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
+      margin-bottom: 3px; font-size: 26px; line-height: 1;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5));
     }
     .racer-name { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
     .racer-wpm { color: #94a3b8; }
@@ -524,6 +601,20 @@
     .roster-tag { margin-left: 6px; font-size: 11px; color: #64748b; font-weight: 600; }
     .roster-tag.mine { color: #7dd3fc; }
 
+    /* Racer rows gain a right-aligned wpm/AFK/rank column when the arena's
+       tracks are hidden or collapsed to one shared track - see
+       augmentRacerRowsWithStats(). Only rows augmented that way get this
+       class, so the roster's other lists (queue, spectators) are untouched. */
+    #racersList li.roster-row-stats {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    }
+    .roster-row-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .roster-stat {
+      flex-shrink: 0; font-size: 12px; color: #94a3b8; font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .roster-stat.mine { color: #7dd3fc; }
+
     /* Chat fills whatever height the roster above leaves. */
     .panel {
       position: relative; flex: 1; min-height: 0;
@@ -617,6 +708,15 @@
             </div>
             <button id="wpmToggle" class="switch" type="button" role="switch" aria-label="Large WPM display"></button>
           </div>
+          <div class="settings-field">
+            <div class="settings-label">Track display</div>
+            <div class="settings-hint">How other racers' progress is shown above the text.</div>
+            <div id="trackModeGroup" class="segmented" role="radiogroup" aria-label="Track display">
+              <button type="button" class="segmented-btn" data-mode="default">All tracks</button>
+              <button type="button" class="segmented-btn" data-mode="shared">Shared track</button>
+              <button type="button" class="segmented-btn" data-mode="hidden">Hide tracks</button>
+            </div>
+          </div>
           <div class="settings-row">
             <div>
               <div class="settings-label">Show racers on text</div>
@@ -656,7 +756,11 @@
         </div>
       </div>
       <div id="raceTimer"></div>
-      <div id="leaderboard"></div>
+      <div id="leaderboard">
+        <div id="sharedTrack">
+          <div id="sharedTrackBase"><div id="sharedTrackFill"></div></div>
+        </div>
+      </div>
       <!-- EXPERIMENTAL: #quote wrapped so #ghostLayer can overlay other racers'
            carets without touching the quote's own render (see renderGhostCarets) -->
       <div id="quoteWrap">
@@ -1406,6 +1510,9 @@
     const wpmToggle   = document.getElementById("wpmToggle");
     const raceTimer   = document.getElementById("raceTimer");
     const leaderboard = document.getElementById("leaderboard");
+    const sharedTrack = document.getElementById("sharedTrack");
+    const sharedTrackFill = document.getElementById("sharedTrackFill");
+    const trackModeGroup = document.getElementById("trackModeGroup");
     const quoteEl     = document.getElementById("quote");
     const ghostLayer  = document.getElementById("ghostLayer");   // experimental: other racers' carets
     const ghostToggle = document.getElementById("ghostToggle");  // experimental: toggle for the above
@@ -1959,14 +2066,24 @@
       const resultsMode = state.phase === "finished";
       if (resultsMode) {
         racing.sort((a, b) => (a.place || Infinity) - (b.place || Infinity));
+        // Track modes that move the numbers into the sidebar (see below) read
+        // as a results list once they do, so it should rank-sort top to
+        // bottom just like the arena's own rows do above.
+        if (trackMode !== "default") rosterRacers.sort((a, b) => (a.place || Infinity) - (b.place || Infinity));
       }
 
       fillNames(racersList, rosterRacers, "No racers yet");
+      // wpm/AFK/rank only goes in the sidebar when the arena isn't already
+      // showing it inline (mode "default") - never both, so it's never shown
+      // twice. See applyTrackModeUi/augmentRacerRowsWithStats.
+      if (trackMode !== "default") augmentRacerRowsWithStats(racersList, rosterRacers, resultsMode);
       fillWaitlist(waitlist);
       fillNames(spectatorsList, spectators, "No one watching");
       racerCountEl.textContent = `${state.racerCount} / ${MAX_RACERS}`;
       spectatorCountEl.textContent = spectators.length;
-      fillLeaderboard(leaderboard, resultsMode ? racing : leaderboardEntries, resultsMode);
+      const trackEntries = resultsMode ? racing : leaderboardEntries;
+      if (trackMode === "shared") fillSharedTrack(trackEntries);
+      else if (trackMode === "default") fillLeaderboard(leaderboard, trackEntries, resultsMode);
 
       // Sync the button + status line to MY current status. Recomputed on
       // every state change (not just once at connect) so it never goes stale.
@@ -2331,6 +2448,49 @@
       }
     }
 
+    // Adds a right-aligned wpm/AFK/rank column to the sidebar's racer rows -
+    // only called when the arena's own tracks are hidden or collapsed to one
+    // shared track (see applyTrackModeUi/render), so this number is the one
+    // and only place it's shown. Runs as a second pass over the `<li>`s
+    // fillNames(racersList, ...) just built, in the same order as `people`,
+    // rather than folding into fillNames itself - the rest of the roster
+    // (queue, spectators) reuses that function as-is and must stay untouched.
+    function augmentRacerRowsWithStats(ul, people, resultsMode) {
+      const lis = ul.children;
+      people.forEach((person, i) => {
+        // Queued (holding a slot for the NEXT race) already has its "next
+        // race" tag from fillNames - no live stats to show alongside it.
+        if (person.tag) return;
+        const li = lis[i];
+        if (!li) return;
+        li.classList.add("roster-row-stats");
+
+        // Same "#1 Name (DNF)" convention the arena's own rows use once
+        // results are in (see fillLeaderboard) - applied here as a prefix on
+        // the name fillNames already wrote, so both stay in sync for free.
+        if (resultsMode) {
+          const nameSpan = li.querySelector(".player-name");
+          if (nameSpan) {
+            const rank = person.place || (i + 1);
+            const dnf = person.finished ? "" : " (DNF)";
+            nameSpan.textContent = `#${rank} ${nameSpan.textContent}${dnf}`;
+          }
+        }
+
+        // Group the emoji + name together as one flex item so the stat lands
+        // at the row's right edge instead of splitting them apart.
+        const main = document.createElement("span");
+        main.className = "roster-row-main";
+        while (li.firstChild) main.appendChild(li.firstChild);
+        li.appendChild(main);
+
+        const stat = document.createElement("span");
+        stat.className = "roster-stat" + (person.me ? " mine" : "");
+        stat.textContent = person.afk ? "AFK" : `${person.wpm} wpm`;
+        li.appendChild(stat);
+      });
+    }
+
     // How many of the race queue are listed before it collapses to "+N more".
     const WAITLIST_VISIBLE = 3;
 
@@ -2427,12 +2587,31 @@
       return color;
     }
 
+    // Same hue as getEmojiColor's soft pastel, punched up in saturation and
+    // darkened, for spots where a racer's color needs to stand out FROM their
+    // own softer color rather than blend into it - namely the shared track's
+    // caret riding on its own (soft) fill; see fillSharedTrack. Reuses
+    // getEmojiColor's cached hue instead of resampling the emoji a second
+    // time, and keeps the same "essentially grayscale" fallback neutral
+    // rather than inventing a hue for emoji that don't really have one.
+    function getEmojiAccentColor(emoji) {
+      const soft = getEmojiColor(emoji);
+      if (!soft) return null;
+      const parts = soft.match(/^hsl\((\d+),\s*(\d+)%/);
+      if (!parts) return null;
+      const [, hue, sat] = parts;
+      if (Number(sat) <= 15) return "hsl(220, 10%, 42%)";
+      return `hsl(${hue}, 82%, 46%)`;
+    }
+
     // Progress bars + live wpm, rendered above the quote in the arena.
     // Rows are kept per sessionId across renders (not wiped/rebuilt each
     // time) so the CSS width transition on .racer-fill has a persisting
     // element to animate from. Otherwise every render creates a brand new
     // bar already at its final width, and there's nothing to animate.
     const leaderboardRows = new Map(); // sessionId -> { el, nameSpan, wpmSpan, fill }
+    // Same idea, one caret per racer in #sharedTrack (see fillSharedTrack).
+    const sharedTrackCarets = new Map(); // sessionId -> { el, emoji }
 
     function fillLeaderboard(container, racers, resultsMode) {
       const seen = new Set();
@@ -2484,6 +2663,72 @@
           leaderboardRows.delete(sessionId);
         }
       }
+    }
+
+    // The "shared" track-display mode: one big track, colored by MY OWN
+    // progress only (#sharedTrackFill - there's no single fill that could
+    // show every racer's progress at once without their colors fighting over
+    // the same pixels), with every racer - including me - riding a caret +
+    // emoji marker on top so everyone else's position is still visible. No
+    // names here - with everyone on one track there's no clean place to put
+    // them (that's what the sidebar's stats column is for; see
+    // augmentRacerRowsWithStats). Carets are kept per sessionId (see
+    // sharedTrackCarets) for the same reason leaderboardRows is: an existing
+    // element for the CSS `left` transition to animate from, instead of
+    // popping in already at its final position.
+    function fillSharedTrack(racers) {
+      const me = racers.find((p) => p.me);
+      sharedTrackFill.className = "" + (me && me.finished ? "finished" : "") + (me && me.afk ? " afk" : "");
+      // Unrounded (and via scaleX, not width - see the CSS), to match the
+      // caret's own left% exactly. A quantized/layout-based fill here would
+      // fall a step or a frame behind the caret's cheap reposition, opening a
+      // visible gray gap between the fill's edge and my own caret while
+      // typing fast.
+      sharedTrackFill.style.transform = `scaleX(${me && me.progress || 0})`;
+      sharedTrackFill.style.background = me && !me.afk ? (getEmojiColor(me.emoji) || "") : "";
+
+      const seen = new Set();
+      // Ties (same/near progress) overlap rather than stack vertically -
+      // z-index decides what's on top instead. Mine is always frontmost
+      // regardless of when I joined; everyone else follows the race list's
+      // own join order (first-joined frontmost among them), same for every
+      // viewer - only "which racer is me" changes from screen to screen.
+      racers.forEach((person, index) => {
+        seen.add(person.sessionId);
+        let caret = sharedTrackCarets.get(person.sessionId);
+        if (!caret) {
+          caret = buildSharedCaret();
+          sharedTrackCarets.set(person.sessionId, caret);
+        }
+        sharedTrack.appendChild(caret.el);
+
+        caret.el.className = "shared-caret" + (person.finished ? " finished" : "") + (person.afk ? " afk" : "");
+        caret.el.style.left = `${(person.progress || 0) * 100}%`;
+        caret.el.style.zIndex = person.me ? racers.length + 1 : racers.length - index;
+        if (!person.afk) {
+          // Stronger than the track fill's own soft tint (see
+          // getEmojiAccentColor) so my caret reads clearly against my own
+          // fill instead of melting into it.
+          const color = getEmojiAccentColor(person.emoji);
+          if (color) caret.el.style.background = color;
+        }
+        caret.emoji.textContent = person.emoji || "🚀";
+      });
+      for (const [sessionId, caret] of sharedTrackCarets) {
+        if (!seen.has(sessionId)) {
+          caret.el.remove();
+          sharedTrackCarets.delete(sessionId);
+        }
+      }
+    }
+
+    function buildSharedCaret() {
+      const el = document.createElement("div");
+      el.className = "shared-caret";
+      const emoji = document.createElement("span");
+      emoji.className = "shared-caret-emoji";
+      el.appendChild(emoji);
+      return { el, emoji };
     }
 
     function buildLeaderboardRow() {
@@ -4211,6 +4456,34 @@
       applyWpmToggleUi();
       if (room) render(room.state); // reflect immediately
     };
+
+    // Track display picker (Settings): "default" (a stacked track per racer,
+    // the original design), "shared" (one big track, everyone's caret on it -
+    // see fillSharedTrack), or "hidden" (no arena track visualization at
+    // all). The latter two free up #leaderboard's space but drop the
+    // per-racer wpm/rank it used to carry inline, so render() puts that back
+    // as a right-aligned column on the sidebar's racer rows instead (see
+    // augmentRacerRowsWithStats) - never both at once, so the number never
+    // shows twice.
+    const TRACK_MODE_KEY = "typingRace.trackMode";
+    let trackMode = localStorage.getItem(TRACK_MODE_KEY) || "default";
+    const trackModeBtns = Array.from(trackModeGroup.querySelectorAll(".segmented-btn"));
+
+    function applyTrackModeUi() {
+      trackModeBtns.forEach((btn) => { btn.dataset.active = btn.dataset.mode === trackMode ? "1" : "0"; });
+      leaderboard.dataset.mode = trackMode;
+    }
+    applyTrackModeUi();
+
+    trackModeBtns.forEach((btn) => {
+      btn.onclick = () => {
+        if (btn.dataset.mode === trackMode) return;
+        trackMode = btn.dataset.mode;
+        localStorage.setItem(TRACK_MODE_KEY, trackMode);
+        applyTrackModeUi();
+        if (room) render(room.state); // reflect immediately
+      };
+    });
 
     // Sound cue toggle (Settings). On by default; persisted per browser.
     function applySoundToggleUi() {

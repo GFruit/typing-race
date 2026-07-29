@@ -2316,3 +2316,52 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     Switch Lobby holding for a racer but not a spectator, and a merge that
     doesn't fit being refused with nothing held. The race-queue suite was
     re-run against the change and still passes.
+- 2026-07-29: Client-only polish, no server changes.
+  - Bigger "Typro" wordmark (18px -> 26px, `line-height: 1`) without growing
+    the header - it now matches the header's existing height (set by the
+    emoji button) instead of exceeding it.
+  - Inline SVG favicon: a rotated rounded square (a green diamond/emerald) in
+    the site's button green, no separate asset to serve.
+  - First-open lag on the emoji picker fixed: its ~1000 cells were built
+    up-front but never painted while `display:none`, so the first open had to
+    rasterize every color-emoji glyph at once. `warmEmojiGlyphs()` now pays
+    that cost once, invisibly, during idle time after load (briefly painting
+    the picker at `opacity:0`, which still rasterizes unlike `display:none`).
+  - **Track display setting** (Settings panel, `#trackModeGroup`): a 3-way
+    picker - "All tracks" (the original stacked per-racer rows, still
+    default), "Shared track", "Hide tracks". Persisted per browser
+    (`typingRace.trackMode`).
+    - **Hide tracks:** the arena leaderboard disappears; the sidebar's Racers
+      list gains a right-aligned wpm/AFK column (and `#rank` prefixed onto
+      names once results are in) - see `augmentRacerRowsWithStats`. Only
+      shown when the arena isn't already showing it inline, so the number
+      never appears twice.
+    - **Shared track:** one big track (`#sharedTrack`), square-edged (not
+      pill-shaped, to match the caret bars riding on it). It's colored
+      per-viewer, not per-racer - the fill is always MY OWN progress, tinted
+      with my emoji's color; there's no single fill that could show every
+      racer's progress at once without their colors fighting over the same
+      pixels. Every racer, including me, also gets a caret + emoji marker on
+      top (same visual language as the live ghost carets on the quote text),
+      positioned by overall progress instead of by character - see
+      `fillSharedTrack`. Ties (same/near progress) overlap by z-index rather
+      than stacking vertically: mine is always frontmost, everyone else
+      follows the race list's own join order, the same for every viewer -
+      only "which racer is me" changes per screen.
+    - The caret uses a punched-up, higher-saturation/lower-lightness variant
+      of the same emoji hue (`getEmojiAccentColor`, reusing `getEmojiColor`'s
+      sampled hue rather than resampling) so it reads clearly against the
+      softer fill instead of blending into it.
+    - Both the fill and the caret update with NO CSS transition - they're set
+      from the literal same progress value in the same code, but even a
+      transition both nominally shared could let a visible gray sliver open
+      between them while chasing frequent updates (fast typing). Snapping
+      both instantly was the only way to guarantee they never visibly drift
+      apart. (The unrelated `.racer-fill`/`.racer-emoji` pair in the default
+      view keeps its smoothing - that gap is masked by the avatar's own
+      bulk, since the avatar overlaps the fill edge; the shared track's thin
+      caret has no such cover.)
+  - Verified via automated headless-browser testing (two tabs joining a live
+    race, real progress from typing against the actual quote): all three
+    modes switch correctly, sidebar stats never duplicate the arena's own,
+    caret and fill stay pixel-locked, zero console errors.
