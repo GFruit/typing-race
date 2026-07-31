@@ -7,21 +7,28 @@ import express from "express";
 import { defineServer, defineRoom, WebSocketTransport } from "colyseus";
 import { RaceRoom } from "./rooms/RaceRoom";
 
-// Faster dead-connection detection. When a client vanishes ABRUPTLY (an
-// incognito window teardown, a crash, or - behind a proxy like Render that
-// holds the dead upstream socket - even an ordinary close whose signal never
-// reaches us), there's no clean WS close and the pagehide beacon can't fire,
-// so the ONLY way we notice is this ping/pong health check. The defaults
-// (pingInterval 3s x pingMaxRetries 2) take ~9-12s to give up, which is the
-// bulk of the ~14s "X left" delay a user saw when closing an incognito tab.
-// 1s x 2 detects a truly dead connection in ~3-4s instead. Still safe: a
-// healthy browser auto-replies to pings at the protocol level near-instantly,
-// so a live client would have to go ~2-3s totally silent to be dropped.
-// (On a host whose proxy answers the pings for a dead connection - Render -
-// this can't beat the proxy's own idle timeout; an abrupt/incognito close
-// there still waits that out. A graceful close stays fast via the beacon.)
+// Dead-connection detection via ping/pong. This is the ONLY way we notice a
+// client that vanished ABRUPTLY (a crash, an incognito teardown, or - behind a
+// proxy like Render that holds the dead upstream socket - a close whose signal
+// never reaches us): there's no clean WS close and the pagehide beacon can't
+// fire, so we fall back to "has this socket answered a ping lately?".
+//
+// This was previously 1s x 2 (~3s to give up), chased down as low as it would
+// go to clear an abruptly-closed incognito tab from the roster fast. That
+// turned out to be FAR too twitchy for live play: a client only has to go ~2s
+// silent to be terminated, and ordinary causes do that all the time - Render's
+// proxy jittering, a flaky mobile link, or (the big one when testing multiple
+// tabs) a browser FREEZING a backgrounded tab, which suspends even its
+// protocol-level pong replies. Every one of those killed a perfectly healthy
+// connection, and the drop then cascaded into the "stuck reconnecting" bug
+// (see RECONNECTION_GRACE_SECONDS in RaceRoom.ts). Connection stability matters
+// more than shaving seconds off roster cleanup, so this is relaxed to ~15s of
+// tolerance (5s x 3): a live client answers one trivial ping per 5s, and only
+// a genuinely dead socket goes a full ~15s silent. The cost is only that a
+// crash/incognito close (no beacon) lingers in the roster ~15s before "X left"
+// instead of ~3s - a graceful close/refresh still clears fast via the beacon.
 export const server = defineServer({
-  transport: new WebSocketTransport({ pingInterval: 1000, pingMaxRetries: 2 }),
+  transport: new WebSocketTransport({ pingInterval: 5000, pingMaxRetries: 3 }),
   rooms: {
     // Fill the fullest non-locked room first (most racers before least), per
     // match-making.md's "Filling Rooms First". Room instances briefly lock

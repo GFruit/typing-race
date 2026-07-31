@@ -2753,6 +2753,15 @@
     // with the same name - each tab gets its own sessionStorage, so there's
     // no risk of two tabs fighting over one session/token.
     const RECONNECT_TOKEN_KEY = "typingRace.reconnectionToken";
+    // The id of the room we're currently in, persisted per-tab alongside the
+    // token. The token only resumes a session while the server still holds it
+    // (its short reconnection grace); once that's expired - e.g. the tab slept
+    // for minutes - the token is dead, but the ROOM itself may well still be
+    // running. This lets recovery rejoin THAT SAME room by id (as a fresh
+    // spectator) instead of letting matchmaking scatter us into a different
+    // lobby. Kept current by attachRoom, so after a Switch Lobby or a merge it
+    // points at wherever we actually are now, not where we started.
+    const ROOM_ID_KEY = "typingRace.roomId";
 
     // Wires up a freshly-joined room object (initial connect, a reconnect,
     // or a post-race merge redirect - see the "redirect" handling below) the
@@ -2764,6 +2773,7 @@
     function attachRoom(newRoom) {
       room = newRoom;
       sessionStorage.setItem(RECONNECT_TOKEN_KEY, room.reconnectionToken);
+      sessionStorage.setItem(ROOM_ID_KEY, room.roomId);
       connected = true;
       joinBtn.disabled = false;
       switching = false; // we've landed in a room; allow Switch Lobby again
@@ -2916,35 +2926,102 @@
       room.onLeave(() => {
         if (redirecting) return; // handled by the "redirect" listener above
         connected = false;
-        setConnectionStatus("disconnected");
         joinBtn.disabled = true;
+        setConnectionStatus("disconnected");
+        // The SDK gave up reconnecting (the server-side session is gone). Don't
+        // leave the page stuck with dead buttons pointed at a dead room; try to
+        // re-join automatically so the site becomes usable again on its own. If
+        // even that fails (server truly unreachable) connect() lands on
+        // "failed" and refocusing the tab will retry (see visibilitychange).
+        recoverConnection();
       });
     }
 
     async function connect() {
       setConnectionStatus("connecting");
+      const opts = { name: myName, clientId: myClientId, emoji: myEmoji || undefined };
       try {
         const savedToken = sessionStorage.getItem(RECONNECT_TOKEN_KEY);
-        let initialRoom;
+        const savedRoomId = sessionStorage.getItem(ROOM_ID_KEY);
+        let initialRoom = null;
+
+        // Tier 1: resume the EXACT same session - same sessionId, same room,
+        // seat/progress/racing-status all intact. Only possible while the
+        // server still holds our session, i.e. within its reconnection grace
+        // window (see RECONNECTION_GRACE_SECONDS in RaceRoom.ts): a brief blip
+        // or a quick refresh. This is the ideal path when it's available.
         if (savedToken) {
           try {
-            // Resume the exact same sessionId as before the refresh (works
-            // as long as the server's reconnection grace window - see
-            // RECONNECTION_GRACE_SECONDS in RaceRoom.ts - hasn't elapsed).
             initialRoom = await client.reconnect(savedToken);
           } catch (e) {
-            // Token expired, or this is a genuinely fresh visit with a
-            // stale leftover token. Fall back to a normal join.
-            initialRoom = await client.joinOrCreate("race_room", { name: myName, clientId: myClientId, emoji: myEmoji || undefined });
+            initialRoom = null; // grace elapsed, or a stale leftover token
           }
-        } else {
-          initialRoom = await client.joinOrCreate("race_room", { name: myName, clientId: myClientId, emoji: myEmoji || undefined });
         }
+
+        // Tier 2: the session is gone (e.g. the tab slept past the grace
+        // window) but the ROOM may still be alive. Rejoin THAT SAME room by id,
+        // as a fresh spectator session, so we land back in the lobby we were
+        // actually in rather than being scattered into a different one by
+        // matchmaking. This is what keeps "come back to a slept tab" from
+        // silently moving you elsewhere. Only falls through if the room is
+        // genuinely gone (disposed once empty, or merged away while we were
+        // out) or momentarily won't take us (locked mid-countdown / full).
+        if (!initialRoom && savedRoomId) {
+          try {
+            initialRoom = await client.joinById(savedRoomId, opts);
+          } catch (e) {
+            initialRoom = null;
+          }
+        }
+
+        // Tier 3: last resort - no resumable session and no reachable prior
+        // room (a genuine first visit, or the old room really is gone), so let
+        // matchmaking place us.
+        if (!initialRoom) {
+          initialRoom = await client.joinOrCreate("race_room", opts);
+        }
+
         attachRoom(initialRoom);
         setConnectionStatus("connected");
       } catch (e) {
         setConnectionStatus("failed");
         console.error(e);
+      }
+    }
+
+    // Self-heal a lost connection back into a WORKING room, instead of leaving
+    // the page dead-ended: buttons disabled and every action pointed at a room
+    // object whose socket is gone (the old behavior, which only a manual reload
+    // fixed). Two things call this:
+    //   1. onLeave, when the SDK's automatic reconnection has exhausted itself
+    //      against a session the server already cleaned up (the token is dead,
+    //      so there's nothing left to resume - a fresh join is the only way
+    //      back).
+    //   2. Refocusing a tab that dropped while backgrounded (visibilitychange
+    //      below). A frozen tab can be gone for minutes - long past any
+    //      server-side reconnect grace - so the SDK's retries are hopeless by
+    //      the time you look at it again; re-joining on focus is what actually
+    //      brings it back.
+    // connect() itself tries the reconnect token first (resuming the same seat
+    // if the blip was brief enough that the server still holds it) before
+    // falling back to a fresh join, so a quick recoverable drop still keeps
+    // your identity where possible.
+    let recovering = false;
+    async function recoverConnection() {
+      if (connected || recovering || switching) return;
+      recovering = true;
+      // Tear down the dead room first: its own SDK auto-reconnect and state
+      // listeners could otherwise resurrect alongside the new connection and
+      // render against it (the same double-room flicker the redirect path
+      // guards against). The socket's already gone, so this is just cleanup.
+      if (room) {
+        try { room.removeAllListeners(); room.leave(false); } catch (e) {}
+        room = null;
+      }
+      try {
+        await connect();
+      } finally {
+        recovering = false;
       }
     }
 
@@ -2973,6 +3050,18 @@
         token: room.reconnectionToken || "",
       });
       navigator.sendBeacon(`${ENDPOINT}/leave?${params.toString()}`);
+    });
+
+    // Recover on tab refocus. A backgrounded tab can be FROZEN by the browser
+    // (Chrome suspends idle background tabs), which stalls even its ping replies
+    // and gets it dropped server-side; the SDK's auto-reconnect is then stuck
+    // retrying a session whose grace window expired long ago, so the tab just
+    // sits on "reconnecting" forever with dead buttons until you reload. When
+    // the tab becomes visible again, if we're not connected, actively re-join
+    // instead of waiting on those doomed retries. `recoverConnection` no-ops if
+    // we're already connected (a brief hide that never dropped) or mid-switch.
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && !connected) recoverConnection();
     });
 
     // --- Render ---------------------------------------------------------------

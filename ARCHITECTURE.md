@@ -2798,3 +2798,55 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   so two racers sharing an emoji read as a single marker. Client-only,
   experimental block. The local player's caret is deliberately left as the plain
   box-shadow cursor with no emoji lollipop, so it is never part of the pile.
+- 2026-07-31 - Connection stability overhaul, from a user report of frequent
+  disconnects and a "reconnecting" state that then hangs forever with every
+  button dead until a manual reload (hit while testing on 4 tabs; another player
+  reported disconnects too). Root cause was the connection being tuned far too
+  twitchy on both ends, so an ordinary blip cascaded into an unrecoverable UI:
+  1. Server ping (app.config.ts) was `pingInterval: 1000, pingMaxRetries: 2`,
+     i.e. a client terminated after only ~2s of silence. That had been chased
+     down that low purely to clear an abruptly-closed incognito tab from the
+     roster fast, but it killed healthy connections constantly - Render proxy
+     jitter, flaky mobile, and especially a browser FREEZING a backgrounded tab
+     (which suspends even protocol-level pong replies, so 3 of 4 test tabs kept
+     getting dropped). Relaxed to `pingInterval: 5000, pingMaxRetries: 3` (~15s
+     tolerance). The only cost is a beacon-less abrupt close (crash/incognito)
+     lingering ~15s in the roster instead of ~3s; a graceful close/refresh still
+     clears fast via the existing pagehide beacon.
+  2. Server reconnect grace (RaceRoom.ts RECONNECTION_GRACE_SECONDS) for an
+     abnormal close was 2s - shorter than the client SDK's own auto-reconnect
+     backoff, so the server destroyed the session before the SDK's second retry
+     and every retry afterward hit a corpse (the SDK sitting on "reconnecting"
+     against a dead session for its full ~15 retries / ~55s was the hang). Bumped
+     to 20s so the SDK can actually land a reconnect through a real blip. Clean
+     closes still use the short UNLOAD_GRACE (1.5s), unchanged.
+  3. Client self-heal (client/index.html). Even with (1)+(2), two cases still
+     dead-ended: the SDK exhausting its retries, and a tab frozen for minutes
+     (its grace long expired before you look at it again). Added
+     `recoverConnection()`, which tears down the dead room and re-runs
+     `connect()` (which tries the reconnect token first, then falls back to a
+     fresh join). It's called from `onLeave` (SDK gave up) and from a new
+     `visibilitychange` listener (refocusing a dropped tab re-joins immediately
+     instead of waiting on doomed retries). A `recovering`/`connected`/
+     `switching` guard keeps it from firing while a connection is healthy, mid-
+     recovery, or mid-Switch-Lobby. Not yet verified live on Render; server
+     type-checks clean and the reasoning is walked through above.
+  4. Same-room reconnect (follow-up, same day). Recovering after a LONG absence
+     (a tab slept for minutes) can't resume the session - the server cleaned it
+     up when the 20s grace expired - so `connect()` used to fall straight to
+     `joinOrCreate`, i.e. matchmaking, which could drop the returning player
+     into a DIFFERENT room. Per user requirement (a reconnect must never
+     silently move you to another lobby - only an explicit Switch Lobby should),
+     `connect()` is now a 3-tier flow: (1) `client.reconnect(token)` resumes the
+     exact session when the grace still holds it; (2) else
+     `client.joinById(savedRoomId)` rejoins THE SAME room by id as a fresh
+     spectator (new `ROOM_ID_KEY` in sessionStorage, kept current by
+     attachRoom); (3) else `joinOrCreate` matchmaking, only when the old room is
+     genuinely gone (disposed once empty, or merged away while you were out) or
+     momentarily won't take you (locked mid-countdown / full). Net effect: you
+     come back to the same lobby automatically whenever it still exists, with no
+     refresh, and are only ever placed elsewhere when there's literally no room
+     left to return to. Note this restores your ROOM, not your racer SEAT after
+     a long absence: the seat/progress is only held for the 20s grace (holding a
+     racer slot for minutes would block the cap), which is moot minutes later
+     since that race is long over - you rejoin the same lobby as a spectator.

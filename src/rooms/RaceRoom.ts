@@ -260,12 +260,20 @@ const CHAT_MESSAGE_MAX_LENGTH = 200;
 //     a real close disappears from the roster quickly.
 //   - RECONNECTION_GRACE_SECONDS: an ABNORMAL close (code 1006 / a ping-timeout
 //     terminate - i.e. a genuine network blip, which never sends a clean close
-//     frame). A bit longer so a momentary connection drop doesn't cost your
-//     seat - but not much, since the ping-timeout that surfaces this (see
-//     app.config.ts's pingInterval) has ALREADY spent ~3-4s confirming the
-//     connection is dead before this grace even starts.
+//     frame). This has to be long enough for the client SDK's OWN automatic
+//     reconnection to actually LAND, or reconnecting is impossible: the SDK
+//     retries on an exponential backoff over tens of seconds
+//     (@colyseus/sdk's Room.reconnection), so a 2s window here (the old value)
+//     meant the server destroyed the session before the second retry, and
+//     every retry afterward hit a session that no longer existed - the client
+//     sat "reconnecting" against a corpse until the SDK exhausted all 15
+//     retries (~55s), buttons frozen, with a reload the only real recovery.
+//     20s comfortably covers the SDK reconnecting through a real blip. The
+//     seat is held that long for a truly-dead abnormal close too, but those
+//     are rarer than clean closes (which the beacon already clears fast), and
+//     holding a seat 20s beats making reconnection impossible.
 const UNLOAD_GRACE_SECONDS = 1.5;
-const RECONNECTION_GRACE_SECONDS = 2;
+const RECONNECTION_GRACE_SECONDS = 20;
 // How long a racer seat is held for a client another room has already
 // redirected here but who hasn't finished connecting yet (see reserveSlots).
 // It only has to cover the redirect's reconnect handshake - well under a
