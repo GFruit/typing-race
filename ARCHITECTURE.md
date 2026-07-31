@@ -2648,9 +2648,48 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     typing lands immediately - then Spectate drops the box entirely. Its
     desktop half asserts the old behaviour is intact: box `disabled` before
     the race, auto-focus when it starts, and the box still HIDDEN on results.
-  - Harness note for whoever runs these next: a second page in the same
-    headless Chrome instance loses its websocket right after connecting, so
-    the suites launch a separate browser per client rather than a second tab.
-    This reproduces on the committed build with none of the mobile changes
-    applied, so it is the test harness, not the app; two real tabs in a normal
-    browser are unaffected.
+- 2026-07-31: Mobile chat, four fixes from using it on a phone. All compact
+  layout or touch only; the desktop sidebar is untouched and asserted so.
+  1. **The log was down to about three messages** once the keyboard was up,
+     because the sheet was still spending its height on the roster and the
+     Switch Lobby row. Neither is any use while you're typing INTO the chat, so
+     both now `display: none` while the chat field has focus
+     (`.sidebar[data-composing="1"]`), handing the log the whole sheet: about
+     190px back, roughly three messages to eleven. They return on blur. The
+     blur side is deferred ~150ms, because sending a message can blur and
+     re-focus in the same breath and letting the roster spring back in between
+     was a visible lurch on every message.
+  2. **Sending dropped the keyboard**, costing a tap per message. Two causes,
+     both fixed: tapping Send moved focus to the button (its `pointerdown`
+     default is now declined, since a button doesn't need focus to be
+     activated), and submitting a form drops the soft keyboard anyway (the
+     handler now re-focuses the field SYNCHRONOUSLY, which keeps the submit's
+     own user activation - the only thing that lets a keyboard stay up).
+     Desktop is excluded: focus there is render()'s to hand back to the typing
+     box mid-race, and taking it for the chat would change how sending behaves
+     while racing.
+  3. **The log showed its top when the keyboard opened.** A scroll position
+     measured against the old, taller container leaves the newest messages off
+     the bottom once it shrinks. Rather than enumerate everything that can
+     resize it (keyboard, roster standing down, sheet opening, rotation), a
+     `ResizeObserver` on the scroll container re-pins to the newest message on
+     any size change. Compact only, and only when the reader was already near
+     the bottom, so resizing while reading back through history leaves them
+     where they were. `anchorChatToBottom()` defers a frame, since scrollHeight
+     read before the reflow lands is the old number.
+  4. **Join Race now closes the sheet** - it's covering the race the button is
+     about. Both directions: joining wants the typing box in view, backing out
+     wants the race you're now watching.
+  - Verified with a 26-check suite on a 390x844 phone with a simulated 336px
+    keyboard: composing hides both blocks and buys back real height, the log
+    stays pinned through the keyboard opening and through sends, Send and Enter
+    both send AND keep focus, the roster doesn't flicker back mid-send, Join
+    closes the sheet and drops the keyboard, and everything is restored on
+    reopen. Its desktop half asserts the roster and Switch Lobby row never
+    hide, chat still sends, and the sidebar survives Join.
+- Harness note for whoever runs the mobile suites next: a second page in the
+  same headless Chrome instance loses its websocket right after connecting, so
+  the suites launch a separate browser per client rather than a second tab.
+  This reproduces on the committed build with none of the mobile changes
+  applied, so it is the test harness, not the app; two real tabs in a normal
+  browser are unaffected.

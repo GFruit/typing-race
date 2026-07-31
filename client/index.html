@@ -1019,6 +1019,15 @@
       .spectators { max-height: 113px; }
       .panel { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
 
+      /* Composing a message: the keyboard has already taken half the screen,
+         and what's left was being shared with the roster and the Switch Lobby
+         row, leaving about three messages visible. Neither is any use while
+         you're typing into the chat, so both stand down and the log takes the
+         whole sheet; they come straight back when the field loses focus. Set
+         from chatInput's own focus/blur - see setComposing. */
+      .sidebar[data-composing="1"] .roster,
+      .sidebar[data-composing="1"] .lobby-row { display: none; }
+
       #sheetScrim {
         display: block; position: absolute; inset: 0; z-index: 30;
         background: rgba(2, 6, 16, .55);
@@ -2150,12 +2159,75 @@
         // had no height to scroll to while it was closed; re-anchor to the
         // newest message now that it does (same reason the desktop chat
         // re-anchors when its view is switched to).
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-      } else if (document.activeElement === chatInput) {
-        // Don't leave the keyboard up for a field that just slid away.
-        chatInput.blur();
+        anchorChatToBottom();
+      } else {
+        setComposing(false);
+        // Don't leave the keyboard up for a field that just slid away. Compact
+        // only: on a wide screen the chat panel isn't going anywhere, so focus
+        // stays whatever the user made it.
+        if (compactLayout.matches && document.activeElement === chatInput) {
+          chatInput.blur();
+        }
       }
     }
+
+    // Pins the log to the newest message. Deferred a frame because every caller
+    // has just changed something that resizes the scroll container - the sheet
+    // sliding in, the keyboard taking half the screen, the roster standing down
+    // - and scrollHeight read before that reflow lands is the OLD height, which
+    // is exactly how the chat ended up showing its top when the keyboard came
+    // up: the container shrank underneath a scroll position measured against
+    // the taller one.
+    function anchorChatToBottom() {
+      requestAnimationFrame(() => {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      });
+    }
+
+    // The general version of the same problem. Rather than trying to enumerate
+    // everything that can resize the log (the keyboard, the roster standing
+    // down, the sheet opening, a rotation) and hook each one, watch the box
+    // itself: any time it changes size, put it back on the newest message.
+    // Compact layout only - on desktop the panel's scroll position is the
+    // user's, and a window resize must not drag them out of the backlog.
+    if (window.ResizeObserver) {
+      // Only follows if they were already at the bottom, so resizing while
+      // reading back through history leaves them where they were.
+      let stickToBottom = true;
+      const nearBottom = () =>
+        chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight <= 24;
+      chatMessages.addEventListener("scroll", () => { stickToBottom = nearBottom(); }, { passive: true });
+      new ResizeObserver(() => {
+        if (!compactLayout.matches || !stickToBottom) return;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }).observe(chatMessages);
+    }
+
+    // "Composing" is chat-input focus, nothing more. It hides the roster and the
+    // Switch Lobby row (see the CSS) so the log gets the whole sheet while the
+    // keyboard is up.
+    let composingBlurTimer = null;
+    function setComposing(on) {
+      if (composingBlurTimer) { clearTimeout(composingBlurTimer); composingBlurTimer = null; }
+      const next = on && compactLayout.matches ? "1" : "0";
+      if (sidebarEl.dataset.composing === next) return;
+      sidebarEl.dataset.composing = next;
+      // The log just grew or shrank by the height of what was hidden or
+      // restored, so re-pin it rather than leaving it mid-scroll.
+      anchorChatToBottom();
+    }
+
+    chatInput.addEventListener("focus", () => setComposing(true));
+    chatInput.addEventListener("blur", () => {
+      // Deferred, not immediate: sending a message can blur and re-focus in the
+      // same breath (see the submit handler), and letting the roster spring
+      // back in between would be a visible lurch on every single message.
+      if (composingBlurTimer) clearTimeout(composingBlurTimer);
+      composingBlurTimer = setTimeout(() => {
+        composingBlurTimer = null;
+        setComposing(false);
+      }, 150);
+    });
 
     lobbyToggle.onclick = () => setSheetOpen(!sheetOpen);
     sheetScrim.onclick = () => setSheetOpen(false);
@@ -2196,6 +2268,10 @@
       // "resize" event doesn't fire for a visual-viewport-only change.
       if (room) renderGhostCarets(room.state);
       keepCaretVisible();
+      // The keyboard coming up or going down resizes the chat's scroll
+      // container, and a scroll position measured against the old height leaves
+      // the log parked away from the newest message.
+      if (sheetOpen) anchorChatToBottom();
     }
 
     if (window.visualViewport) {
@@ -2501,6 +2577,24 @@
       if (!text) return;
       room.send("sendChat", { text });
       chatInput.value = "";
+      // Touch only: submitting a form drops the soft keyboard, and once it's
+      // down nothing but another tap can raise it - so sending one message cost
+      // a tap before every next one. Re-focusing SYNCHRONOUSLY here keeps the
+      // submit's own user activation, which is what lets the keyboard stay up.
+      // Desktop is deliberately excluded: focus there is render()'s to give
+      // back to the typing box mid-race, and taking it for the chat instead
+      // would change how sending a message behaves while racing.
+      if (touchInput.matches) chatInput.focus();
+    });
+
+    // Tapping Send moves focus to the button, which blurs the input and drops
+    // the keyboard before submit even runs. Buttons don't need focus to be
+    // activated, so decline it and let the field keep it.
+    chatForm.addEventListener("pointerdown", (e) => {
+      if (!touchInput.matches) return;
+      if (e.target.closest(".btn-send") && document.activeElement === chatInput) {
+        e.preventDefault();
+      }
     });
 
     // --- Connect (auto, on load): "visit and spectate instantly" -------------
@@ -3761,6 +3855,10 @@
       // opted-in states, so backing out is one message regardless of which.
       const iAmIn = joinBtn.dataset.racing === "1";
       room.send("setStatus", { racing: !iAmIn });
+      // Compact layout: the sheet is covering the race this button is about, so
+      // get it out of the way. Both directions - joining wants the typing box
+      // in view, and backing out wants the race you're now watching.
+      setSheetOpen(false);
     };
 
     // Always available, regardless of phase or whether we're racing or
