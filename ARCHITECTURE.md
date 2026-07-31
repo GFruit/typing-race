@@ -2764,3 +2764,31 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   This reproduces on the committed build with none of the mobile changes
   applied, so it is the test harness, not the app; two real tabs in a normal
   browser are unaffected.
+- 2026-07-31 - Ghost lollipops were being sliced off at the start of
+  each line. Same root cause as the clipped racer avatars, one box over: the
+  quote window used `overflow: hidden`, which clips BOTH axes, and a ghost
+  caret emoji is centred on its caret - so on a line's first character, sitting
+  at x=0, 9 of its ~20px hung outside the box and vanished.
+  - Padding could not buy the room back the way it did vertically: box-sizing
+    is border-box and #quoteWrap is width:100%, so side padding would have
+    shrunk the text and reflowed it instead of growing the box.
+  - The window now clips with `clip-path: inset(0 calc(-1 * var(--quote-bleed)))`
+    and `overflow: visible`. clip-path clips without touching layout, takes a
+    per-side inset so the sides can opt out, and - unlike any overflow value -
+    cannot turn the box into a scroll container, which is the trap that caused
+    the avatar regression. The 14px bleed matches the arena's own side padding,
+    so the overhang lands in space the arena already owns and nothing gains a
+    horizontal scrollbar.
+  - The bleed is unconditional, not gated on the ghost feature: #quote is
+    pre-wrap specifically so a trailing space (and the cursor drawn on it) can
+    hang past the right edge, which the old clip had been eating too.
+  - The suite grew to 20 checks: a lollipop on the FIRST and the LAST character
+    of lines 0, 1 and 2, measured against the clip REGION rather than the box,
+    with a >=2px slack margin and a no-horizontal-scrollbar assertion each.
+    Confirmed as a real guard by reverting to `overflow: hidden` and watching
+    exactly the reported symptom come back (emoji left edge 5px, window left
+    edge 14px - 9px gone) before restoring the fix.
+  - quote-window rechecks that clipping still HAPPENS now that it is spelled
+    differently: the clip-path insets are asserted to be 0 top/bottom and
+    negative left/right, overflow is asserted `visible` on both axes, and text
+    that has slid above the window is asserted un-hit-testable.

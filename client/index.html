@@ -1019,7 +1019,26 @@
         flex: 1 1000 auto;
         min-height: calc(2 * var(--quote-line, 29px) + var(--ghost-room, 0px));
         padding-top: var(--ghost-room, 0px);
-        overflow: hidden;
+        /* The window clips VERTICALLY only. `overflow: hidden` was the obvious
+           tool and the wrong one: it clips both axes, and things here are meant
+           to hang past the text horizontally - a ghost lollipop on a line's
+           FIRST character is centred on a caret at x=0, so half of it sits left
+           of the box, and pre-wrap deliberately lets a trailing space (and the
+           cursor on it) hang past the right edge. Widening the box with padding
+           is no help: box-sizing is border-box and the width here is 100%, so
+           side padding would eat into the text and reflow it rather than grow
+           the box. clip-path clips without touching layout and takes a per-side
+           inset, so the sides simply opt out; unlike an overflow value it also
+           cannot turn the box into a scroll container, which is what clipped
+           the racer avatars. --quote-bleed is half an emoji over, and matches
+           the arena's own side padding, so the overhang lands in space the
+           arena already owns and nothing gains a horizontal scrollbar. The
+           inset is measured on the border box, so the top edge sits above the
+           reserved --ghost-room and the first line's lollipop is inside the
+           window. */
+        overflow: visible;
+        --quote-bleed: 14px;
+        clip-path: inset(0 calc(-1 * var(--quote-bleed)));
       }
       /* Ghost carets ("Show racers on text") hang a lollipop ABOVE the line
          they sit on, so the FIRST line's emoji needs room above the text - room
@@ -1028,7 +1047,8 @@
          padding-top grows the clip box upward; the negative margin puts most of
          it back so the text only drops by the few px of clearance wanted from
          the tracks. Nothing is reserved when the feature is off, which is the
-         default. */
+         default. (The horizontal half of the same problem is --quote-bleed
+         above, which is unconditional - the sides have nothing to trade.) */
       #quoteWrap:has(#quote[data-ghosts="1"]) { --ghost-room: 22px; margin-top: -6px; }
       /* The lollipop lives in the leading between lines, and the mobile quote
          is 17px where the desktop one is 20px - the same 2.0 leaves a ~15px
