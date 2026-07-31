@@ -886,6 +886,20 @@
         border-radius: 10px; pointer-events: none;
         color: #64748b; font-size: 14px; font-weight: 600; letter-spacing: .02em;
       }
+
+      /* Composing a message: an on-screen keyboard has taken half the screen,
+         and what's left was being shared with the roster and the Switch Lobby
+         row, leaving about three messages visible. Neither is any use while
+         you're typing INTO the chat, so both stand down and the log takes the
+         space; they come straight back when the field loses focus.
+         TOUCH, not width - this reclaims room from a keyboard that is covering
+         the screen, and a narrow window on a machine with a real keyboard has
+         nothing to reclaim. Keying it to the breakpoint made a PC user's
+         roster vanish the moment they clicked the chat box, for no reason at
+         all. `data-composing` is only ever set on touch (see setComposing), so
+         the JS gates it too. */
+      .sidebar[data-composing="1"] .roster,
+      .sidebar[data-composing="1"] .lobby-row { display: none; }
     }
 
     /* ==========================================================================
@@ -1019,14 +1033,6 @@
       .spectators { max-height: 113px; }
       .panel { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
 
-      /* Composing a message: the keyboard has already taken half the screen,
-         and what's left was being shared with the roster and the Switch Lobby
-         row, leaving about three messages visible. Neither is any use while
-         you're typing into the chat, so both stand down and the log takes the
-         whole sheet; they come straight back when the field loses focus. Set
-         from chatInput's own focus/blur - see setComposing. */
-      .sidebar[data-composing="1"] .roster,
-      .sidebar[data-composing="1"] .lobby-row { display: none; }
 
       #sheetScrim {
         display: block; position: absolute; inset: 0; z-index: 30;
@@ -2204,12 +2210,18 @@
     }
 
     // "Composing" is chat-input focus, nothing more. It hides the roster and the
-    // Switch Lobby row (see the CSS) so the log gets the whole sheet while the
-    // keyboard is up.
+    // Switch Lobby row (see the CSS) so the log gets that space back while an
+    // on-screen keyboard is covering the screen.
+    //
+    // Gated on TOUCH, not on the breakpoint: the point is reclaiming room from
+    // a keyboard that physically covers the screen, and a machine with a real
+    // keyboard has none to reclaim however narrow its window is. Keying this to
+    // the layout made a PC user's roster disappear the moment they clicked the
+    // chat box, which is just a loss.
     let composingBlurTimer = null;
     function setComposing(on) {
       if (composingBlurTimer) { clearTimeout(composingBlurTimer); composingBlurTimer = null; }
-      const next = on && compactLayout.matches ? "1" : "0";
+      const next = on && touchInput.matches ? "1" : "0";
       if (sidebarEl.dataset.composing === next) return;
       sidebarEl.dataset.composing = next;
       // The log just grew or shrank by the height of what was hidden or

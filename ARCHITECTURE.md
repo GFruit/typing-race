@@ -2659,6 +2659,15 @@ The scaffold may instead generate the older `@colyseus/tools` style with
      blur side is deferred ~150ms, because sending a message can blur and
      re-focus in the same breath and letting the roster spring back in between
      was a visible lurch on every message.
+     - Gated on TOUCH, in both the CSS and `setComposing`, NOT on the
+       breakpoint. Shipped keyed to the breakpoint first and the user caught
+       it: a PC user with a narrow window had their roster vanish the moment
+       they clicked the chat box. The whole point is reclaiming room from a
+       keyboard that physically covers the screen, and a machine with a real
+       keyboard has none to reclaim however narrow its window is. Same mistake
+       as the auto-focus one further up - `compactLayout` answers "how big is
+       the window", `touchInput` answers "what is typing on this", and a
+       keyboard-space concern is always the second question.
   2. **Sending dropped the keyboard**, costing a tap per message. Two causes,
      both fixed: tapping Send moved focus to the button (its `pointerdown`
      default is now declined, since a button doesn't need focus to be
@@ -2680,13 +2689,17 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   4. **Join Race now closes the sheet** - it's covering the race the button is
      about. Both directions: joining wants the typing box in view, backing out
      wants the race you're now watching.
-  - Verified with a 26-check suite on a 390x844 phone with a simulated 336px
-    keyboard: composing hides both blocks and buys back real height, the log
-    stays pinned through the keyboard opening and through sends, Send and Enter
-    both send AND keep focus, the roster doesn't flicker back mid-send, Join
-    closes the sheet and drops the keyboard, and everything is restored on
-    reopen. Its desktop half asserts the roster and Switch Lobby row never
-    hide, chat still sends, and the sidebar survives Join.
+  - Verified with a 33-check suite across three viewports. On a 390x844 phone
+    with a simulated 336px keyboard: composing hides both blocks and buys back
+    real height, the log stays pinned through the keyboard opening and through
+    sends, Send and Enter both send AND keep focus, the roster doesn't flicker
+    back mid-send, Join closes the sheet and drops the keyboard, and everything
+    is restored on reopen. On a 700x900 narrow desktop window (mouse), pinning
+    the regression above: the compact layout IS active, but focusing the chat
+    box leaves `data-composing` at 0 and both the roster and the Switch Lobby
+    row stay exactly where they were, through sending as well. And at 1440x900,
+    that neither block ever hides, chat still sends, and the sidebar survives
+    Join.
 - Harness note for whoever runs the mobile suites next: a second page in the
   same headless Chrome instance loses its websocket right after connecting, so
   the suites launch a separate browser per client rather than a second tab.
