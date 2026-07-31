@@ -2700,6 +2700,46 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     row stay exactly where they were, through sending as well. And at 1440x900,
     that neither block ever hides, chat still sends, and the sidebar survives
     Join.
+- 2026-07-31: The quote is read through a fixed WINDOW of lines on compact
+  layouts, instead of the arena scrolling to chase the caret. Reported case:
+  five racers on "All tracks", keyboard up, long quote - about 1.5 lines of text
+  were visible, and typing on scrolled the big WPM readout and the racer tracks
+  off the top of the screen. Both are exactly what you want to see mid-race.
+  - `#quoteWrap` becomes the clipping window and a new `#quoteScroll` slides
+    inside it, carrying `#quote` and `#ghostLayer` TOGETHER so the ghost carets
+    (positioned from measured character boxes) can't drift off the text.
+    `updateQuoteWindow()` translates it by whole lines so the line being typed
+    is the top one, clamped to the last full window so the final lines fill it
+    rather than leaving the current line alone at the top. Losing the lines
+    above costs nothing: the word lock means you can never go back into text
+    you've already typed.
+  - **Adaptive, not a fixed two lines.** The window is `flex: 1 1000 auto` with
+    a `min-height` of two lines, so it takes whatever is left over - keyboard
+    down, or fewer racers, simply shows more - and never drops below two. The
+    huge shrink factor is deliberate: a deficit is split between flex items in
+    proportion to (shrink x base size), and a merely larger factor still
+    nibbled ~9px off the leaderboard and clipped a racer's row. Reading two
+    lines instead of three is a better trade than losing a racer.
+  - **Desktop is untouched on purpose.** It has the height to show the whole
+    quote, and reading ahead is worth having; windowing it would be a
+    regression. Asserted: no clipping, no transform, whole quote visible.
+  - The compact spacing was re-tuned against the measured worst case (390x844,
+    five racers, keyboard up: the arena content box is 387px and every pixel is
+    spoken for), which is where the tighter track gap, label margin, status slot
+    and WPM number size come from.
+  - Known and accepted: in that single tightest configuration the leaderboard is
+    still ~3px short of its natural height, so the fifth track clips slightly
+    and the list can be nudged. Chasing that last 3px means over-fitting one
+    emulated device - real phones differ in keyboard height, safe areas and font
+    metrics - so the test asserts the contract that actually matters (no racer
+    row is LOST, clip well under a row height) rather than a pixel-perfect fit.
+  - Verified with a 27-check suite: the window clips, shows 2+ lines, starts
+    unscrolled, keeps the caret inside it the whole way through a quote, pins
+    the current line to the top row while scrolling, never runs past the last
+    full window, and - the actual bug - the arena never scrolls at all and both
+    the WPM readout and the tracks stay on screen from first keystroke to last.
+    Plus a budget check at 390x844 and 375x667 with exactly five racer rows and
+    the typing box present, and a desktop half proving none of it applies there.
 - Harness note for whoever runs the mobile suites next: a second page in the
   same headless Chrome instance loses its websocket right after connecting, so
   the suites launch a separate browser per client rather than a second tab.

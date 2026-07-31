@@ -187,6 +187,7 @@
     }
     @media (prefers-reduced-motion: reduce) {
       #settingsPanel[data-open="1"] { animation: none; }
+      #quoteScroll { transition: none; }
     }
     /* Sticky so the title and the close button stay reachable while the body
        scrolls under them. */
@@ -576,6 +577,10 @@
        this block, #ghostToggle above, the #quoteWrap/#ghostLayer wrapper in the
        markup, and the renderGhostCarets code. */
     #quoteWrap { position: relative; width: 100%; max-width: 640px; }
+    /* Sizes to the quote and is the ghost layer's containing block, so the two
+       share an origin. Untransformed unless the compact layout is windowing
+       the text (see updateQuoteWindow). */
+    #quoteScroll { position: relative; }
     #ghostLayer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
     .ghost-caret {
       position: absolute; width: 2px; border-radius: 2px; background: #7dd3fc;
@@ -956,13 +961,26 @@
          the sheet is open). */
       .layout { position: relative; }
 
-      .arena { padding: 12px 14px 0; }
+      .arena { padding: 10px 14px 0; }
       /* The status readout and the tracks both give up height here so the
-         quote and the input keep as much of a short screen as possible. */
-      #statusSlot { min-height: 58px; margin-bottom: 10px; }
-      #bigReadout .readout-number { font-size: 34px; }
-      #leaderboard { gap: 11px; margin-bottom: 14px; }
-      .racer-name { font-size: 12px; margin-bottom: 4px; }
+         quote and the input keep as much of a short screen as possible. The
+         numbers are tuned against the tightest real case - a 390x844 phone,
+         five racers on "All tracks", keyboard up, which leaves the arena about
+         400px - so that two full lines of quote still fit. */
+      #statusSlot { min-height: 52px; margin-bottom: 6px; }
+      #bigReadout .readout-number { font-size: 30px; }
+      /* Measured, not guessed: with five racers and the keyboard up the arena
+         content box is 387px and every pixel is spoken for, so the gap and the
+         label margin below are what buy the fifth track its last 9px. The
+         avatar overhangs its 11px track by 3px a side, and a 6px gap still
+         clears the row beneath it. */
+      #leaderboard { gap: 6px; margin-bottom: 8px; }
+      /* Last to give up space, and it gives up by scrolling rather than by
+         squashing the tracks: on a very short phone with five racers there is
+         genuinely not enough room for everything, and the quote window's
+         min-height must win that argument. */
+      #leaderboard[data-mode="default"] { flex-shrink: 1; min-height: 0; overflow-y: auto; }
+      .racer-name { font-size: 12px; margin-bottom: 3px; }
       .racer-track { height: 11px; }
       .racer-emoji { font-size: 17px; }
       #sharedTrack { height: 38px; }
@@ -971,6 +989,34 @@
 
       #quote { font-size: 17px; letter-spacing: 0; }
       #quote[data-placeholder="1"] { font-size: 15px; }
+
+      /* The text is read through a WINDOW of whole lines rather than in full.
+         Before this the arena itself scrolled to chase the caret, which meant
+         that on a long quote the big WPM readout and the racer tracks slid off
+         the top of the screen - the two things you most want to see while
+         racing. Now the arena never scrolls: the window takes whatever height
+         is left over (so a closed keyboard or fewer racers simply shows more
+         lines) but never less than two, and the text slides up inside it a
+         line at a time. See updateQuoteWindow for the line maths.
+         Nothing here applies on desktop, where the whole quote fits anyway and
+         being able to read ahead is worth having. */
+      /* grow 1 so spare height becomes extra readable lines; a very large
+         shrink so that when height is SHORT this is what gives it up, down to
+         its two-line floor, before the tracks give up anything. A deficit is
+         split between flex items in proportion to (shrink x base size), so a
+         merely-larger shrink still nibbled ~9px off the leaderboard and clipped
+         the fifth racer's row; the factor has to dominate outright. Once this
+         hits its min-height it freezes and the leaderboard absorbs the whole
+         remainder, which is what keeps a very short phone from overflowing the
+         arena instead. */
+      #quoteWrap {
+        flex: 1 1000 auto; min-height: calc(2 * var(--quote-line, 29px));
+        overflow: hidden;
+      }
+      /* Slides by whole lines. The transition is short and eased so a line
+         change reads as a step rather than a jump; under reduced motion it
+         simply snaps. */
+      #quoteScroll { transition: transform .18s ease-out; will-change: transform; }
 
       /* The input rides the bottom of the arena instead of scrolling away with
          the text above it, so it's reachable the whole race however long the
@@ -1281,9 +1327,16 @@
       </div>
       <!-- EXPERIMENTAL: #quote wrapped so #ghostLayer can overlay other racers'
            carets without touching the quote's own render (see renderGhostCarets) -->
+      <!-- #quoteWrap is the clipping window on compact layouts; #quoteScroll is
+           what slides inside it, carrying #quote and #ghostLayer TOGETHER so
+           the ghost carets (positioned from measured character boxes) can't
+           drift away from the text they belong to. On desktop the window has
+           no height limit and nothing ever slides, so this is inert there. -->
       <div id="quoteWrap">
-        <div id="quote"></div>
-        <div id="ghostLayer"></div>
+        <div id="quoteScroll">
+          <div id="quote"></div>
+          <div id="ghostLayer"></div>
+        </div>
       </div>
       <div id="inputWrap">
         <!-- autocorrect/autocapitalize/spellcheck are all off because a phone
@@ -2074,6 +2127,8 @@
     const trackOrderField = document.getElementById("trackOrderField");
     const trackOrderHint  = document.getElementById("trackOrderHint");
     const quoteEl     = document.getElementById("quote");
+    const quoteWrap   = document.getElementById("quoteWrap");    // the fixed window on compact layouts
+    const quoteScroll = document.getElementById("quoteScroll");  // what slides inside it
     const ghostLayer  = document.getElementById("ghostLayer");   // experimental: other racers' carets
     const ghostToggle = document.getElementById("ghostToggle");  // experimental: toggle for the above
     const soundToggle = document.getElementById("soundToggle");
@@ -2279,7 +2334,9 @@
       // have to be redrawn whenever the text reflows under them. The window
       // "resize" event doesn't fire for a visual-viewport-only change.
       if (room) renderGhostCarets(room.state);
-      keepCaretVisible();
+      // The window's own height just changed with the shell, so how many lines
+      // it can show did too.
+      updateQuoteWindow();
       // The keyboard coming up or going down resizes the chat's scroll
       // container, and a scroll position measured against the old height leaves
       // the log parked away from the newest message.
@@ -2305,23 +2362,55 @@
     // scroller, so nudge it just far enough to bring the caret back into view.
     // Compact layout only: on desktop the caret is never out of view, and this
     // must not introduce scrolling there that wasn't happening before.
-    function keepCaretVisible() {
-      if (!compactLayout.matches) return;
-      const caret = quoteEl.querySelector("span.cursor");
-      if (!caret) return;
-      const view = arenaEl.getBoundingClientRect();
-      const box = caret.getBoundingClientRect();
-      // The sticky input sits over the bottom of the arena, so "visible" stops
-      // where the input begins, not where the arena does.
-      const floor = inputWrap.dataset.visible === "1"
-        ? inputWrap.getBoundingClientRect().top
-        : view.bottom;
-      const margin = 24;
-      if (box.bottom > floor - margin) {
-        arenaEl.scrollTop += box.bottom - (floor - margin);
-      } else if (box.top < view.top + margin) {
-        arenaEl.scrollTop -= (view.top + margin) - box.top;
+    // Compact layout only. Slides the quote inside its fixed window so the line
+    // being typed is the TOP one, a line at a time.
+    //
+    // This replaces scrolling the arena to chase the caret. Chasing it worked,
+    // but on a long quote it dragged the whole arena up, taking the big WPM
+    // readout and the racer tracks off the top of the screen - the two things
+    // most worth seeing mid-race. Moving the text inside a fixed window instead
+    // means the arena never scrolls at all, so everything around the text
+    // stays put.
+    //
+    // Losing the lines above is deliberate and costs nothing: the word lock
+    // means you can never go back into text you've already typed, so there is
+    // nothing up there to return to.
+    function updateQuoteWindow() {
+      if (!compactLayout.matches) {
+        quoteScroll.style.transform = "";
+        return;
       }
+      const lineH = quoteLineHeight();
+      quoteWrap.style.setProperty("--quote-line", lineH + "px");
+      // Where the caret is, by character index. Falls back to the last span so
+      // finishing the quote doesn't snap the window back to the top.
+      const caretIdx = Math.min(committed.length + typeInput.value.length,
+                                quoteEl.children.length - 1);
+      const span = quoteEl.children[caretIdx < 0 ? 0 : caretIdx];
+      if (!span) { quoteScroll.style.transform = ""; return; }
+
+      const totalLines = Math.max(1, Math.round(quoteEl.offsetHeight / lineH));
+      const visible = Math.max(1, Math.floor(quoteWrap.clientHeight / lineH));
+      // Clamped to the last full window rather than left to run past the end,
+      // so the final lines fill the window instead of the current line sitting
+      // alone at the top with blank space under it.
+      const maxLine = Math.max(0, totalLines - visible);
+      const line = Math.max(0, Math.min(Math.round(span.offsetTop / lineH), maxLine));
+      quoteScroll.style.transform = line === 0 ? "" : `translateY(${-line * lineH}px)`;
+    }
+
+    // The rendered line box, which is what a line of text actually occupies.
+    // Read from the computed style (a numeric line-height resolves to px), with
+    // a measured fallback for engines that report "normal".
+    function quoteLineHeight() {
+      const cs = parseFloat(getComputedStyle(quoteEl).lineHeight);
+      if (Number.isFinite(cs) && cs > 0) return cs;
+      const kids = quoteEl.children;
+      for (let i = 1; i < kids.length; i++) {
+        const d = kids[i].offsetTop - kids[0].offsetTop;
+        if (d > 0) return d;
+      }
+      return parseFloat(getComputedStyle(quoteEl).fontSize) * 1.7 || 29;
     }
 
     // "Tap to type": shown while the box is waiting for the tap that opens the
@@ -2339,7 +2428,7 @@
                    document.activeElement !== typeInput;
       tapHintWrap.dataset.hint = show ? "1" : "0";
     }
-    typeInput.addEventListener("focus", () => { refreshTapHint(); keepCaretVisible(); });
+    typeInput.addEventListener("focus", () => { refreshTapHint(); updateQuoteWindow(); });
     typeInput.addEventListener("blur", refreshTapHint);
 
     // The whole race area is the tap target, not just the box: a thumb aiming
@@ -3267,6 +3356,11 @@
         }
         quoteEl.appendChild(span);
       }
+
+      // Every path that repaints the text comes through here, so this is the
+      // one place the window has to be re-aimed from - the spans it measures
+      // were just rebuilt.
+      updateQuoteWindow();
     }
 
     // The input box only ever holds the current word, so its selection range
@@ -5790,9 +5884,6 @@
       absorbCorrectWords(quote);
       enforceErrorCap(quote);
       paintQuote(quote);
-      // Follows the caret down a quote that's taller than a phone screen. No-op
-      // on desktop, where the whole quote is in view to begin with.
-      keepCaretVisible();
       room.send("typeProgress", { input: committed + typeInput.value });
     }
 
