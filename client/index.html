@@ -6167,8 +6167,9 @@
       const fontPx = parseFloat(getComputedStyle(quoteEl).fontSize) || 20;
       const glyphH = fontPx * 1.15;
 
-      // Group racers by caret index so several at the same spot stack their
-      // lollipops upward instead of overlapping.
+      // Group racers by caret index so several at the same spot land directly
+      // on top of one another (two racers with the same emoji look like one)
+      // instead of stacking into a vertical tower.
       const byIndex = new Map();
       state.players.forEach((p, sessionId) => {
         if (sessionId === room.sessionId) return; // you already have your own cursor
@@ -6187,7 +6188,7 @@
         const x = (idx < len ? r.left : r.right) - quoteRect.left;
         const caretTop = (r.top - quoteRect.top) + (r.height - glyphH) / 2;
 
-        players.forEach((p, stack) => {
+        players.forEach((p) => {
           const caret = document.createElement("div");
           caret.className = "ghost-caret";
           caret.style.left = x + "px";
@@ -6199,7 +6200,8 @@
           const emoji = document.createElement("span");
           emoji.className = "ghost-caret-emoji";
           emoji.textContent = p.emoji || "🚀";
-          if (stack > 0) emoji.style.bottom = `calc(100% + ${stack * 17}px)`;
+          // No per-racer offset: same-index emojis sit directly on top of one
+          // another, so two racers sharing an emoji read as a single marker.
           caret.appendChild(emoji);
           ghostLayer.appendChild(caret);
         });

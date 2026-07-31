@@ -2792,3 +2792,9 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     differently: the clip-path insets are asserted to be 0 top/bottom and
     negative left/right, overflow is asserted `visible` on both axes, and text
     that has slid above the window is asserted un-hit-testable.
+- 2026-07-31 - Ghost carets that land on the exact same character now sit
+  directly on top of one another instead of stacking into a vertical tower. In
+  renderGhostCarets same-index emojis are drawn at the same spot with no offset,
+  so two racers sharing an emoji read as a single marker. Client-only,
+  experimental block. The local player's caret is deliberately left as the plain
+  box-shadow cursor with no emoji lollipop, so it is never part of the pile.
