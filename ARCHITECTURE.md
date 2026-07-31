@@ -2727,12 +2727,30 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     five racers, keyboard up: the arena content box is 387px and every pixel is
     spoken for), which is where the tighter track gap, label margin, status slot
     and WPM number size come from.
-  - Known and accepted: in that single tightest configuration the leaderboard is
-    still ~3px short of its natural height, so the fifth track clips slightly
-    and the list can be nudged. Chasing that last 3px means over-fitting one
-    emulated device - real phones differ in keyboard height, safe areas and font
-    metrics - so the test asserts the contract that actually matters (no racer
-    row is LOST, clip well under a row height) rather than a pixel-perfect fit.
+  - **Regression, shipped and then fixed same day (user-reported).** The first
+    version gave `#leaderboard` `overflow-y: auto` as graceful degradation for
+    very short phones. That was wrong twice over: the racer avatar is
+    absolutely positioned and deliberately OVERHANGS both ends of its track, and
+    per the CSS overflow spec setting overflow on one axis forces the other from
+    `visible` to `auto` - so the avatar was clipped at 0% and 100% and the box
+    grew a vertical scrollbar, then a horizontal one once a racer reached the
+    end. `#leaderboard` is now `flex-shrink: 0` and never scrolls; the quote
+    window above absorbs the squeeze down to its two-line floor, and in the
+    genuinely impossible case (tiny phone, five racers, keyboard up) the arena
+    scrolls, which is survivable in a way that a clipped racer is not.
+    - The lesson worth keeping: any ancestor of `.racer-emoji`, `.shared-caret`
+      or the ghost carets must keep `overflow: visible` on BOTH axes. They are
+      all positioned to hang outside their box on purpose.
+    - Guarded by an 11-check suite (clip-check) that asserts the leaderboard's
+      computed overflow stays `visible` both ways, that the avatar measurably
+      overhangs the track at 0% AND at 100%, and that neither the arena nor the
+      page picks up a scrollbar in either state.
+  - Known and accepted: with five racers and the keyboard up the leaderboard
+    ends ~3px short of its natural height, so the fifth track clips slightly.
+    Chasing that last 3px means over-fitting one emulated device - real phones
+    differ in keyboard height, safe areas and font metrics - so the test asserts
+    the contract that actually matters (no racer row is LOST, clip well under a
+    row height) rather than a pixel-perfect fit.
   - Verified with a 27-check suite: the window clips, shows 2+ lines, starts
     unscrolled, keeps the caret inside it the whole way through a quote, pins
     the current line to the top row while scrolling, never runs past the last

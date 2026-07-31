@@ -975,11 +975,17 @@
          avatar overhangs its 11px track by 3px a side, and a 6px gap still
          clears the row beneath it. */
       #leaderboard { gap: 6px; margin-bottom: 8px; }
-      /* Last to give up space, and it gives up by scrolling rather than by
-         squashing the tracks: on a very short phone with five racers there is
-         genuinely not enough room for everything, and the quote window's
-         min-height must win that argument. */
-      #leaderboard[data-mode="default"] { flex-shrink: 1; min-height: 0; overflow-y: auto; }
+      /* Never shrinks and never scrolls. This carried `overflow-y: auto` as a
+         graceful-degradation trick for very short phones, which was a bad
+         regression: the racer avatar is absolutely positioned and deliberately
+         OVERHANGS both ends of its track, and setting overflow on one axis
+         forces the other from `visible` to `auto` (CSS overflow spec), so the
+         avatar was clipped at 0% and 100% and the box grew both scrollbars.
+         The tracks keep their natural height instead; the quote window above
+         absorbs the squeeze down to its two-line floor, and in the genuinely
+         impossible case (tiny phone, five racers, keyboard up) the arena
+         scrolls, which is survivable in a way that a clipped racer is not. */
+      #leaderboard[data-mode="default"] { flex-shrink: 0; }
       .racer-name { font-size: 12px; margin-bottom: 3px; }
       .racer-track { height: 11px; }
       .racer-emoji { font-size: 17px; }
