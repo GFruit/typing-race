@@ -2568,6 +2568,30 @@ The scaffold may instead generate the older `@colyseus/tools` style with
       compact one, so a wide touch device (a tablet in landscape) still gets
       it; its offsets come from variables the compact block overrides, since
       the wrapper is padded there and bare otherwise.
+    - **One tap per session, not per race.** No browser will open the
+      on-screen keyboard without a real gesture, and a race starts on a SERVER
+      event, so there is genuinely no way to raise it at that moment - the
+      literal "pop the keyboard up when the race starts" cannot be built. What
+      can be built is never letting it close: a blur is what dismisses the
+      keyboard, and both hiding and disabling an element blur it. So for a
+      racer on touch the box stays MOUNTED and ENABLED right through the
+      results screen and the following countdown (`keyboardParked` in
+      `render`), and the keyboard opened by the one tap after joining rides
+      the whole loop. RESULTS_SECONDS is 3 and COUNTDOWN_SECONDS is 10, so
+      that is a ~13 second gap held open, which is well worth not having to
+      re-tap. Tapping Spectate still blurs and drops it, correctly.
+    - Leaving the box enabled outside a live race means `disabled` no longer
+      answers "may I type now", so two flags written by `render` do:
+      `raceInputLive` and `raceInputArmed`. Three places read them - the
+      `beforeinput` guard (blocks EVERY input type, not just insertions,
+      because pre-typing the quote during a countdown must not carry into the
+      race), `sendProgress` (belt and braces: IME composition and some
+      paste/drop routes fire `input` without a cancellable `beforeinput`, and
+      text left in the box would otherwise be sent on the first real keystroke
+      and score most of a quote in one message), and the 150ms caret repaint
+      (so no caret blinks on the quote during a countdown or results). On
+      desktop all three are exactly equivalent to the old
+      `!typeInput.disabled`, and `disabled` there is untouched.
     - The input is `margin-top: auto` + `position: sticky; bottom: 0`, which
       between them bottom-anchor it when the quote is short and pin it when
       the quote overflows. Either way it lands directly on top of the keys.
@@ -2616,3 +2640,17 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     Finally, a targeted check that `.sidebar-scroll` is a genuine no-op on
     desktop: measured 20 elements, removed the wrapper live, re-measured, and
     all 20 boxes were identical.
+  - A fourth suite (23 checks) covers the keyboard hold specifically, driving
+    TWO consecutive races off a single tap: the box is enabled and prompting
+    before the race, the tap focuses it, pre-typing during the countdown lands
+    nothing and registers no progress, focus survives into race 1, through the
+    results screen (with no pointless prompt there), and into race 2 where
+    typing lands immediately - then Spectate drops the box entirely. Its
+    desktop half asserts the old behaviour is intact: box `disabled` before
+    the race, auto-focus when it starts, and the box still HIDDEN on results.
+  - Harness note for whoever runs these next: a second page in the same
+    headless Chrome instance loses its websocket right after connecting, so
+    the suites launch a separate browser per client rather than a second tab.
+    This reproduces on the committed build with none of the mobile changes
+    applied, so it is the test harness, not the app; two real tabs in a normal
+    browser are unaffected.

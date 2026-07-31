@@ -2108,6 +2108,15 @@
     // correctly reads as non-touch here.
     const touchInput = window.matchMedia("(hover: none) and (pointer: coarse)");
 
+    // "May I type right now" and "is the box waiting for the race to start",
+    // both written by render() from the room's actual phase. On desktop these
+    // simply track `!typeInput.disabled`, but on touch the box is deliberately
+    // left enabled outside a live race to hold the keyboard open (see
+    // keyboardParked in render), so `disabled` stops being the answer and these
+    // are what the typing guards read instead.
+    let raceInputLive = false;
+    let raceInputArmed = false;
+
     // The sidebar's contents are identical in both layouts; only where the join
     // button lives differs. Moving the element (rather than duplicating it)
     // keeps every listener and every `joinBtn`/`joinBtnLabel` reference in this
@@ -2227,14 +2236,18 @@
       }
     }
 
-    // "Tap to type": shown while the box is live but unfocused. Keyed to touch,
-    // not to width - it's the counterpart to the skipped auto-focus above, so
-    // it must appear in exactly the cases where that was skipped. A narrow
-    // desktop window auto-focuses and so never wants this.
+    // "Tap to type": shown while the box is waiting for the tap that opens the
+    // keyboard. Keyed to touch, not to width - it's the counterpart to the
+    // skipped auto-focus, so it must appear in exactly the cases where that was
+    // skipped. A narrow desktop window auto-focuses and so never wants this.
+    //
+    // `raceInputArmed`, not `!typeInput.disabled`: the box is also left enabled
+    // while parked on the results screen (see keyboardParked), and there is
+    // nothing to tap for there - the next race isn't up yet, and prompting for
+    // one would be asking the racer to do something pointless.
     function refreshTapHint() {
       const show = touchInput.matches &&
-                   inputWrap.dataset.visible === "1" &&
-                   !typeInput.disabled &&
+                   raceInputArmed &&
                    document.activeElement !== typeInput;
       tapHintWrap.dataset.hint = show ? "1" : "0";
     }
@@ -3005,16 +3018,35 @@
       // against their own live input (client-side only, purely cosmetic;
       // the server recomputes correctness itself from the raw input).
       const iCanType = iAmRacing && state.phase === "racing" && !(me && me.finished);
-      // The input box is shown (but disabled) to queued racers before the
-      // race is live too ("waiting" or "countdown"), so they can see where
-      // they'll type; it only actually accepts input once racing starts.
-      // Typing has zero effect before then: the element is `disabled`, so
-      // the browser blocks all interaction with it, and the server ignores
-      // typeProgress outside "racing" regardless.
-      const showInputBox = iAmRacing && state.phase !== "finished" && !(me && me.finished);
+      // The input box is shown (but inert) to queued racers before the race is
+      // live too ("waiting" or "countdown"), so they can see where they'll
+      // type; it only actually accepts input once racing starts. Typing has
+      // zero effect before then, and the server ignores typeProgress outside
+      // "racing" regardless.
+      const inputArmed = iAmRacing && state.phase !== "finished" && !(me && me.finished);
+      // Touch devices only. A browser will not open the on-screen keyboard
+      // without a real tap, and the race starts on a server event, so there is
+      // no gesture to open it with at that moment. What CAN be done is never
+      // let it close: a blur is what dismisses the keyboard, and both hiding
+      // and disabling the element blur it. So for a racer the box stays
+      // MOUNTED and ENABLED right through the results screen and the next
+      // countdown, which turns "tap the box before every race" into "tap it
+      // once when you join". The guards in beforeinput/sendProgress are what
+      // keep it inert while it's parked like this.
+      const keyboardParked = touchInput.matches && iAmRacing && !inputArmed;
+      const showInputBox = inputArmed || keyboardParked;
       typeInput.dataset.visible = showInputBox ? "1" : "0";
       inputWrap.dataset.visible = showInputBox ? "1" : "0";
-      typeInput.disabled = !iCanType;
+      // `disabled` is what blocks typing outside a live race on desktop, and
+      // that is left exactly as it was. It cannot be used on touch: disabling
+      // a focused element blurs it and drops the keyboard, which is the whole
+      // thing being avoided here.
+      typeInput.disabled = touchInput.matches ? !showInputBox : !iCanType;
+      // Read by the guards and by refreshTapHint, so that "may I type right
+      // now" is answered by the race's actual state rather than by the
+      // element's `disabled` flag, which no longer means that on touch.
+      raceInputLive = iCanType;
+      raceInputArmed = inputArmed;
 
       if (state.phase === "racing" || state.phase === "finished") {
         // Someone who finished (whether the race is still live or now in
@@ -5635,6 +5667,14 @@
     // from until the next incidental update.
     function sendProgress() {
       if (!room) return;
+      // Belt and braces for the enabled-but-inert box above. beforeinput can't
+      // intercept every path into an input (IME composition and some
+      // paste/drop routes fire `input` without a cancellable beforeinput), and
+      // text sitting in the box when the race went live would be sent on the
+      // first real keystroke - scoring most of a quote in one message. Clearing
+      // rather than just returning is deliberate: it must not survive to be
+      // sent later either.
+      if (!raceInputLive) { typeInput.value = ""; return; }
       lastKeystrokeAt = Date.now();
       const quote = room.state.quote;
       absorbCorrectWords(quote);
@@ -5788,6 +5828,12 @@
     // through untouched: they're the way back out of the block.
     typeInput.addEventListener("beforeinput", (e) => {
       if (!room || typeInput.disabled) return;
+      // The box is left enabled outside a live race on touch (see
+      // keyboardParked) purely so the keyboard stays up. This is what makes it
+      // inert. It blocks EVERY input type, not just insertions: with nothing
+      // able to go in there is nothing to delete either, and pre-typing the
+      // quote during the countdown must not be able to carry into the race.
+      if (!raceInputLive) { e.preventDefault(); return; }
       if (!e.inputType || !e.inputType.startsWith("insert")) return;
 
       const value = typeInput.value;
@@ -5810,7 +5856,11 @@
     // promptly, right around CURSOR_IDLE_BEFORE_BLINK_MS after you stop
     // typing, instead of waiting on the next incidental state update.
     setInterval(() => {
-      if (room && !typeInput.disabled && typeInput.dataset.visible === "1") {
+      // raceInputLive, not !typeInput.disabled: identical on desktop, but on
+      // touch the box is enabled outside a live race to hold the keyboard, and
+      // a caret must not start blinking on the quote during the countdown or
+      // the results screen.
+      if (room && raceInputLive && typeInput.dataset.visible === "1") {
         paintQuote(room.state.quote);
       }
     }, 150);
