@@ -2850,3 +2850,21 @@ The scaffold may instead generate the older `@colyseus/tools` style with
      a long absence: the seat/progress is only held for the 20s grace (holding a
      racer slot for minutes would block the cap), which is moot minutes later
      since that race is long over - you rejoin the same lobby as a spectator.
+- 2026-07-31: Fixed the "Join Race button dead until reload" bug (reported
+  after opening the site in several tabs; hit ~2 of 4). Root cause was
+  identity collision across DUPLICATED tabs: `myClientId`, the reconnect
+  token, and roomId all live in sessionStorage, which is per-tab for a
+  genuinely new tab but COPIED into a tab opened by duplicating another
+  (Chrome "Duplicate tab", middle/Ctrl-clicking a link to the page,
+  window.open). A duplicated tab thus inherited the original's clientId,
+  joined the same room, and tripped RaceRoom.onJoin's clientId dedup, which
+  CONSENTED-kicked the ORIGINAL session -> its onLeave disabled the Join
+  button and recoverConnection rejoined with the same id, ping-ponging the
+  kick between the two tabs until a reload made one the clear winner. Fix is
+  client-only: `claimTabIdentity()` (runs before connect()) takes an exclusive
+  Web Lock on the clientId; a duplicated tab can't get it (the original holds
+  it for its lifetime), so it mints a fresh clientId and drops the inherited
+  reconnect token (the original tab's session secret) before connecting -
+  roomId is kept so the duplicate still lands in the same lobby. No server or
+  schema change. Verified the client script still parses; the lock logic was
+  reasoned through (no browser automation in this environment).

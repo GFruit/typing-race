@@ -1532,6 +1532,9 @@
     // for. sessionStorage (not localStorage): matches the reconnection
     // token's own per-tab scoping, survives a refresh (still the same
     // ongoing visit) but a genuinely new tab gets its own fresh identity.
+    // Caveat: a DUPLICATED tab copies sessionStorage, so it would inherit this
+    // id; claimTabIdentity() (near connect() at the bottom) detects that via a
+    // Web Lock and mints a fresh one, so duplicated tabs never collide here.
     const CLIENT_ID_KEY = "typingRace.clientId";
     let myClientId = sessionStorage.getItem(CLIENT_ID_KEY);
     if (!myClientId) {
@@ -6305,7 +6308,47 @@
     // every binding it touches exists. See updateKeyboardInset.
     updateKeyboardInset();
 
-    connect();
+    // Each browser TAB must have its own clientId. It lives in sessionStorage,
+    // which is per-tab for a genuinely new tab, but is COPIED into a tab opened
+    // by DUPLICATING another (Chrome's "Duplicate tab", middle/Ctrl-clicking a
+    // link to this page, window.open from here). A duplicated tab therefore
+    // inherits the original's clientId (and reconnect token / roomId), and when
+    // it joins the same room the server's clientId dedup (RaceRoom.onJoin) kicks
+    // the ORIGINAL tab as a stale duplicate - which left a Join button dead on
+    // one of two tabs until a reload reshuffled who won.
+    //
+    // Web Locks give each live tab an exclusive, self-releasing claim on its
+    // clientId. If we can't get the lock immediately, another live tab already
+    // owns this identity (we're the copy), so mint a fresh clientId and drop the
+    // inherited reconnect token: that token is the ORIGINAL tab's session
+    // secret, and resuming it would steal their seat. (roomId is kept - it's
+    // just a lobby pointer, so a duplicated tab still lands alongside the
+    // original, which is what you want when opening tabs to test.)
+    async function claimTabIdentity() {
+      if (!navigator.locks) return; // very old browser: accept the small risk
+      const held = (name) => new Promise((resolve) => {
+        // ifAvailable resolves the callback with null at once when the lock is
+        // already taken; otherwise we take it and never release (the callback's
+        // promise never settles), so the lock lasts until this tab is closed.
+        navigator.locks.request(name, { mode: "exclusive", ifAvailable: true }, (lock) => {
+          if (!lock) { resolve(false); return; }
+          resolve(true);
+          return new Promise(() => {}); // hold the lock for the tab's lifetime
+        }).catch(() => resolve(false));
+      });
+      // Loop in case a freshly minted id also collides (3+ duplicated tabs).
+      while (!(await held(`tab-id:${myClientId}`))) {
+        myClientId = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+        sessionStorage.setItem(CLIENT_ID_KEY, myClientId);
+        sessionStorage.removeItem(RECONNECT_TOKEN_KEY);
+      }
+      // myKnownClientIds was seeded with the old id at load; keep it in sync so
+      // I still never see my own join announced (see myKnownClientIds).
+      myKnownClientIds.clear();
+      myKnownClientIds.add(myClientId);
+    }
+
+    claimTabIdentity().then(connect);
   </script>
 </body>
 </html>
