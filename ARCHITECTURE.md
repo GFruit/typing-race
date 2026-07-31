@@ -192,6 +192,9 @@ The scaffold may instead generate the older `@colyseus/tools` style with
         chat history through a merge needed no new work, already unbroken).
         A quote-update toast was tried and then deliberately dropped per
         user feedback - see Status log.
+- [x] **Step 6: Mobile.** A compact layout for phones (client-only, no server
+      or schema changes). The wide layout is deliberately untouched - see the
+      Status log entry for the breakpoint and what it rearranges.
 
 ## Status log
 - 2026-07-21: Project bootstrapped. Chose Colyseus 0.17 + plain HTML/JS client.
@@ -2424,3 +2427,192 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   carrying the "this is clickable" signal, the same way the header's own emoji
   button reads. Centering is unaffected (re-measured: 2.64px left/right,
   6px top/bottom).
+- 2026-07-30: Live track ordering (track-ordering.md), client-only. The tracks
+  could previously only be sorted into placings once a race was over; there are
+  now two optional ways to show live rank DURING one. New setting
+  `trackOrder: "static" | "slide" | "swap"`, default `"static"` (exactly
+  today's behaviour), persisted in `localStorage` as `typingRace.trackOrder`.
+  Purely a display preference: no schema fields, no room messages, nothing the
+  server hears about.
+  - **One setting, not two toggles.** Slide and swap are two answers to the same
+    question ("how do we show live rank?"), so "both on" has no meaning; a
+    single three-way choice removes that state entirely.
+  - **The ordering engine** (`orderByLivePosition`) is the part neither mode
+    works without, not polish. It keeps one `displayOrder` array of sessionIds
+    that persists across frames and moves SLOWLY: a racer must be more than
+    `STICKY_CHARS` (5) ahead to take a place, and no swap happens within
+    `SWAP_COOLDOWN_MS` (600) of the last one. Because the threshold is a
+    strict margin, the reverse swap needs the same margin back the other way,
+    and that dead zone is what stops two racers one character apart from
+    trading places many times a second. Only ADJACENT entries ever swap and
+    only one per update, so a racer climbing three places does it as three
+    one-step moves - which is what keeps the movement readable.
+    - The sticky distance is converted to progress units as
+      `STICKY_CHARS / quote.length`, deliberately: short quotes have tighter
+      finishes and need a proportionally wider quiet zone.
+    - Finishers are pinned to the top in `place` order and never move again -
+      a finished racer must never appear to be overtaken. A racer who leaves
+      drops out and everything below shifts up; a racer who goes idle needs no
+      handling at all, they simply stop progressing and drift down, which is
+      correct.
+    - Rebuilt from scratch per race, keyed on `roomId + quoteId` (a room switch
+      starts its own quoteId sequence that could coincidentally match). The
+      rebuild sorts by the real standings rather than blindly by join order:
+      at a race start everyone is at 0 so the two are identical, but switching
+      the setting ON mid-race then seeds correctly instead of making the viewer
+      sit through a dozen catch-up swaps.
+  - **Mode "slide":** the tracks move. Rows keep a fixed place in the DOM (join
+    order) and are positioned by their rank with a `transform: translateY`,
+    260ms ease - nothing is ever reparented out from under its own animation.
+    The row pitch is measured from two rows' `offsetTop` rather than assumed,
+    since both the row height and #leaderboard's gap come from CSS. Under
+    `prefers-reduced-motion` this falls back to `static` outright.
+  - **Mode "swap":** the tracks stand still and the racers move between them.
+    This is the one structural change to `fillLeaderboard`: rows are normally
+    keyed by sessionId (the row IS the racer), but in swap mode they're keyed
+    by SLOT INDEX (the row is a position, and its occupant changes). Switching
+    keying tears the rows down and rebuilds them (`useLeaderboardKeying`).
+    Painting a row is split into `paintRowLabel` (name + avatar: cross-fades
+    over 150ms when a slot changes hands, because a name that teleports reads
+    as a glitch rather than an overtake) and `paintRowStats` (bar, wpm,
+    classes: always instant - thanks to the sticky gap two racers only trade
+    places about five characters apart, so the bar barely moves). The pending
+    occupant is re-read when the fade completes, so a fade started 150ms ago
+    lands on whoever holds the slot NOW. Reduced motion keeps the mode and
+    drops the fade.
+  - Applies **only** to the "All tracks" display and **only** while
+    `phase === "racing"`: before that the join order stands, and the existing
+    end-of-race `place` sort is untouched.
+  - **Settings UI:** a "Live positions" segmented picker (Off / Slide / Swap)
+    with its own SVG diagrams, nested under Track display using the same
+    indent + left-rail idiom Volume already uses under Sound cues, since it
+    depends on it the same way. The other two track displays DIM it rather
+    than hiding it (a control that vanishes when you touch the one above it is
+    harder to find again than one that is visibly unavailable) and the hint
+    swaps to say why. The hint also says so when reduced motion is what's
+    holding slide back, rather than silently doing nothing.
+  - Verified with three suites, all driving the real code sliced out of
+    index.html: 27 checks on the engine under a fake clock (the gap, the
+    hysteresis both ways, the cooldown boundary at 599/600ms, one-swap-only,
+    a three-place climb taking three cooldowns, quote length scaling the gap,
+    finishers pinned by place, departures, idlers, per-race reset); 28 on the
+    DOM wiring under a DOM shim (static vs slide DOM order, transform maths,
+    slot re-keying, the cross-fade's timing and its re-read of the current
+    occupant, reduced motion, slot count, and the results screen still
+    rendering "#1 … (DNF)"); and 27 in two real browser tabs racing against
+    the live server (four consecutive clean runs, zero console errors) -
+    sliding one row at a time, holding still while neck and neck, swapping
+    labels without moving rows, a finisher pinned at 100%, a closed tab
+    closing the gap, and the settings group dimming/re-enabling.
+- 2026-07-31: Step 6, mobile. Entirely client-side: no schema fields, no room
+  messages, no server changes at all. The constraint driving every decision was
+  that the DESKTOP layout must not move a pixel, so the whole thing hangs off
+  one media query and a matching `matchMedia` in JS.
+  - **The breakpoint** is `(max-width: 820px), (max-height: 520px) and
+    (pointer: coarse)`. The second clause is for a phone held sideways: it's
+    ~844px wide, so width alone would put it on the desktop layout with 390px
+    of height to fit a two-column design into. `pointer: coarse` is what keeps
+    a merely SHORT desktop window out of it - a mouse is never coarse. The
+    identical string lives in both the stylesheet and `compactLayout`, and
+    they have to stay in step because the JS half decides where the join
+    button lives.
+  - **The shape:** header / arena / a bottom action bar, with the 320px
+    sidebar demoted to a sheet that slides up over the arena. The sheet is
+    positioned inside `.layout` rather than against the viewport, so it can
+    never cover the header (Settings and the avatar picker stay reachable
+    while it's open), and it's translated rather than `display:none`d, so the
+    chat's scroll position survives a close/open. `visibility` flips on a
+    delay matched to the slide, so the panel is properly inert once off
+    screen without the animation being cut short.
+  - **#joinBtn is MOVED, not duplicated.** Join/Spectate is the one action
+    that must never be a sheet away, so `syncCompactLayout()` relocates the
+    element between the sidebar and the bottom bar. Moving the node keeps
+    every listener and every `joinBtn`/`joinBtnLabel` reference in the file
+    valid, so no other code knows the layout changed. The only structural
+    markup change this needed was wrapping the sidebar's remaining contents
+    in `.sidebar-scroll`; on desktop that wrapper just inherits the sidebar's
+    own flex column and is a pass-through (verified by measurement - see
+    below).
+  - **The on-screen keyboard** is the real problem on a phone: it covers the
+    bottom of the VISUAL viewport without shrinking the layout viewport, so a
+    full-height shell ends up with its typing box behind the keys.
+    `updateKeyboardInset()` reads the covered strip off `visualViewport` and
+    publishes it as `--kb-inset`; the shell is sized
+    `100dvh - var(--kb-inset)`, so the whole app reflows into the space that
+    is actually visible. A browser that resizes the layout viewport instead
+    reports ~0 and needs nothing (dvh already shrank), and a 120px floor keeps
+    a URL bar sliding in and out from being mistaken for a keyboard. The body
+    is `position: fixed` on top of that, so iOS can't scroll the page out from
+    under the keyboard - the arena is the only thing that scrolls.
+  - **Two separate questions, deliberately not conflated.** `compactLayout`
+    asks "how big is the window"; `touchInput`
+    (`(hover: none) and (pointer: coarse)`) asks "what is typing on this".
+    Everything about LAYOUT keys off the first, everything about FOCUS off the
+    second. Conflating them was a real bug, caught by the user after the first
+    pass: the auto-focus skip was keyed to the breakpoint, so a PC user who
+    narrowed their window lost auto-focus and had to click into the box by hand
+    every time it reappeared after a countdown, which makes the game
+    unplayable. A narrow desktop window has a real keyboard and must behave
+    exactly as it does at full width; only a device where focusing cannot raise
+    a keyboard takes the hands-off path. Four things hang off `touchInput`: the
+    auto-focus skip, the "Tap to type" hint, tap-the-arena-to-focus, and the
+    emoji search's auto-focus. A touchscreen laptop reports its mouse as the
+    primary pointer and so correctly reads as non-touch.
+  - **Typing on a touchscreen:**
+    - No auto-focus. A phone only raises its keyboard for a real tap, so
+      `render()`'s focus rule would produce a focused box with no keyboard
+      behind it - and would suppress the "Tap to type" hint that is the only
+      thing explaining that. The whole arena is the tap target, not just the
+      43px box; a drag doesn't fire `click`, so this can't fight scrolling.
+      `#tapHint` lives in its own `touchInput` media block rather than in the
+      compact one, so a wide touch device (a tablet in landscape) still gets
+      it; its offsets come from variables the compact block overrides, since
+      the wrapper is padded there and bare otherwise.
+    - The input is `margin-top: auto` + `position: sticky; bottom: 0`, which
+      between them bottom-anchor it when the quote is short and pin it when
+      the quote overflows. Either way it lands directly on top of the keys.
+    - `keepCaretVisible()` scrolls the arena to follow the caret down a quote
+      that's several screens tall on a phone. Gated to the compact layout: on
+      desktop the caret is never out of view, and this must not introduce
+      scrolling there.
+    - `autocorrect`/`autocapitalize`/`spellcheck` are all off on the typing
+      box: predictive text rewrites whole words behind the racer's back, which
+      the per-character scoring reads as a burst of mistakes.
+  - **iOS focus zoom**: Safari zooms the page in whenever a focused input is
+    under 16px. Every focusable input (`#typeInput`, `#chatInput`,
+    `#settingsUsername`, `#emojiSearch`) is held at 16px on compact layouts.
+  - Smaller pieces: chat behind a closed sheet raises an unread dot on the
+    toggle (a dot, not a count - which messages you missed is what opening it
+    is for); the popovers become full-width fixed panels, and the emoji picker
+    gains a close button since a screen-spanning popover leaves almost no
+    "outside" to tap and a phone has no Escape key; the emoji search box no
+    longer steals focus on open (the keyboard would cover the grid); the two
+    outside-click handlers moved from `mousedown` to `pointerdown` (same
+    moment for a mouse, native for a touchscreen); `overscroll-behavior` stops
+    pull-to-refresh from reloading mid-race; and hover transforms are switched
+    off under `(hover: none)`, where they stick after a tap and read as the
+    element having jammed.
+  - Verified in real mobile-emulated Chrome against the live server, 70 checks
+    across three suites, zero console errors. 61 on layout and interaction (a
+    390x844 phone, an 844x390 landscape phone, a 700x900 narrow DESKTOP window
+    with a mouse, and a 1440x900 desktop, all in the same run): the shell's
+    height, the relocated join button, the sheet
+    opening/closing by toggle, scrim and Escape, no horizontal overflow at
+    either phone orientation, the 16px input floor, both popovers fitting on
+    screen, the tap hint appearing exactly when typing opens and clearing on
+    focus, the caret staying in view through 90 characters, and the unread dot
+    appearing and clearing - plus the desktop half asserting the mobile
+    elements are all `display:none`, the sidebar is still a 320px column on
+    the right edge, the quote is back at 20px, the input isn't sticky, and
+    desktop auto-focus still works. The narrow-window case specifically pins
+    the regression above: it confirms the compact layout IS active and the
+    join button HAS moved, while auto-focus still fires, no tap hint appears,
+    typing lands without clicking the box first, and focus is taken back on
+    the next state patch exactly as it is at 1440px. 9 more on the keyboard:
+    with `--kb-inset`
+    driven to 336px the shell, action bar, typing box and chat input all sit
+    above it and restore afterwards, and a phone tab racing against a desktop
+    spectator typed a full quote to a server-computed 100% and ranked #1.
+    Finally, a targeted check that `.sidebar-scroll` is a genuine no-op on
+    desktop: measured 20 elements, removed the wrapper live, re-measured, and
+    all 20 boxes were identical.

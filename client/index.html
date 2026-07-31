@@ -19,10 +19,20 @@
   <script src="https://unpkg.com/@colyseus/sdk@^0.17.0/dist/colyseus.js"></script>
 
   <style>
-    :root { color-scheme: dark; }
+    :root {
+      color-scheme: dark;
+      /* How many pixels of the viewport the on-screen keyboard is covering
+         right now. Written by updateKeyboardInset() while the compact layout
+         is active; stays 0px everywhere else, so a desktop browser only ever
+         sees the plain full-height shell below. */
+      --kb-inset: 0px;
+    }
     * { box-sizing: border-box; }
     body {
-      margin: 0; height: 100vh; background: #0b1120; color: #e2e8f0;
+      /* dvh (with the vh fallback for old engines) so the shell tracks a
+         mobile browser's collapsing URL bar instead of running off the bottom
+         of the screen. On desktop dvh and vh are the same number. */
+      margin: 0; height: 100vh; height: 100dvh; background: #0b1120; color: #e2e8f0;
       font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
       display: flex; flex-direction: column;
     }
@@ -79,6 +89,9 @@
       box-shadow: 0 12px 32px rgba(2, 6, 16, .6);
     }
     #emojiPicker[data-open="1"] { display: flex; }
+    /* Compact layout only - see the media block near the bottom of this
+       stylesheet, which is what makes it visible. */
+    #emojiClose { display: none; }
 
     /* Tab shortcuts: a row of emoji icons that jump to (scroll to) each
        group. The active one is whichever group is currently at the top of
@@ -298,6 +311,22 @@
     /* "Hide tracks": an empty dashed slot, i.e. visibly nothing there. */
     .seg-glyph-hidden i { height: 10px; width: 100%; background: transparent; border: 1px dashed #475569; border-radius: 3px; }
     .segmented-btn[data-active="1"] .seg-glyph-hidden i { background: transparent; border-color: #22c55e; }
+    /* "Live positions" draws its diagrams as SVG rather than stacked <i> bars -
+       they need arrows and a crossover mark, not just rectangles. Everything in
+       them is fill-based (no strokes) so this one rule recolors the whole glyph
+       on selection, exactly like the bar version above. */
+    .seg-glyph svg { width: 26px; height: 14px; fill: #475569; transition: fill .15s ease-out; }
+    .segmented-btn[data-active="1"] .seg-glyph svg { fill: #22c55e; }
+
+    /* "Live positions" is nested under the Track display it depends on, using
+       the same indent + left rail as Volume under Sound cues: it only means
+       anything for the "All tracks" view, so the other two modes dim it out
+       rather than hiding it (a control that vanishes when you touch the one
+       above it is harder to find again than one that's visibly unavailable). */
+    #trackOrderField { transition: opacity .15s ease-out; }
+    #trackOrderField[data-enabled="0"] { opacity: .4; }
+    #trackOrderField[data-enabled="0"] .segmented-btn { cursor: not-allowed; }
+    #trackOrderField[data-enabled="0"] .segmented-btn:hover { background: transparent; color: #94a3b8; }
 
     /* Volume, nested under the Sound cues toggle it depends on: the left rail
        and indent show the dependency, and the row dims and stops accepting
@@ -432,6 +461,25 @@
     #leaderboard[data-mode="hidden"] { display: none; }
     #leaderboard[data-mode="shared"] > .racer-row { display: none; }
 
+    /* Live position ordering (Settings > Live positions), mode "slide": the
+       rows keep a fixed place in the DOM and are moved into rank order with a
+       transform instead, so nothing is ever reparented mid-animation. The
+       ordering engine (see updateDisplayOrder) only ever swaps ADJACENT
+       entries, so every one of these is a single row-height move - nothing
+       flies across the arena. Slide falls back to "static" entirely under
+       reduced motion, so no media query is needed here. */
+    #leaderboard[data-order="slide"] > .racer-row { transition: transform .26s ease; }
+
+    /* Mode "swap": the rows stand still and the racers move between them, so a
+       row's name/avatar cross-fades when its occupant changes rather than
+       hard-cutting (a name that teleports reads as a glitch, not an overtake).
+       The progress bar deliberately does NOT fade: the sticky gap means two
+       racers only trade places about five characters apart, so the bar barely
+       moves. Under reduced motion the class is simply never applied and the
+       label changes instantly (see fillLeaderboard). */
+    .racer-row[data-label-fade="out"] .racer-name,
+    .racer-row[data-label-fade="out"] .racer-emoji { opacity: 0; }
+
     /* One big track. It's colored per-viewer, not per-racer: the fill is
        always MY OWN progress (my screen colors mine, yours colors yours -
        see fillSharedTrack) - there's no single fill that could show every
@@ -477,7 +525,10 @@
       margin-bottom: 3px; font-size: 26px; line-height: 1;
       filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5));
     }
-    .racer-name { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+    /* The opacity transition is only ever exercised by mode "swap"'s label
+       cross-fade (see #leaderboard[data-order="slide"] above); it costs
+       nothing in the other modes, which never touch opacity. */
+    .racer-name { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; transition: opacity .15s ease; }
     .racer-wpm { color: #94a3b8; }
     /* Wrapper so the avatar can ride ON the bar (and overhang it a little)
        without being clipped by the track's own overflow:hidden - that clip
@@ -504,7 +555,8 @@
          baseline metrics), so a plain -50% leaves them sitting low on the
          track; the extra -2px nudges the glyph back to the true center. */
       transform: translate(-50%, calc(-50% - 2px));
-      transition: left .25s ease-out;
+      /* opacity: see .racer-name - only mode "swap"'s label cross-fade uses it. */
+      transition: left .25s ease-out, opacity .15s ease;
       pointer-events: none; user-select: none;
       filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5));
     }
@@ -789,18 +841,274 @@
     /* Custom scrollbar: thin, flat (no rounding, matching the rest of the
        sidebar), and transparent-tracked so it doesn't add its own visible
        gutter next to the screen edge. */
-    .arena, #chatMessages, #emojiScroll, .spectators, #settingsPanel { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
-    .arena::-webkit-scrollbar, #chatMessages::-webkit-scrollbar, #emojiScroll::-webkit-scrollbar, .spectators::-webkit-scrollbar, #settingsPanel::-webkit-scrollbar { width: 8px; }
-    .arena::-webkit-scrollbar-track, #chatMessages::-webkit-scrollbar-track, #emojiScroll::-webkit-scrollbar-track, .spectators::-webkit-scrollbar-track, #settingsPanel::-webkit-scrollbar-track { background: transparent; }
-    .arena::-webkit-scrollbar-thumb, #chatMessages::-webkit-scrollbar-thumb, #emojiScroll::-webkit-scrollbar-thumb, .spectators::-webkit-scrollbar-thumb, #settingsPanel::-webkit-scrollbar-thumb {
+    .arena, #chatMessages, #emojiScroll, .spectators, #settingsPanel, .roster { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    .arena::-webkit-scrollbar, #chatMessages::-webkit-scrollbar, #emojiScroll::-webkit-scrollbar, .spectators::-webkit-scrollbar, #settingsPanel::-webkit-scrollbar, .roster::-webkit-scrollbar { width: 8px; }
+    .arena::-webkit-scrollbar-track, #chatMessages::-webkit-scrollbar-track, #emojiScroll::-webkit-scrollbar-track, .spectators::-webkit-scrollbar-track, #settingsPanel::-webkit-scrollbar-track, .roster::-webkit-scrollbar-track { background: transparent; }
+    .arena::-webkit-scrollbar-thumb, #chatMessages::-webkit-scrollbar-thumb, #emojiScroll::-webkit-scrollbar-thumb, .spectators::-webkit-scrollbar-thumb, #settingsPanel::-webkit-scrollbar-thumb, .roster::-webkit-scrollbar-thumb {
       background: #334155; border-radius: 0;
     }
-    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover, #emojiScroll::-webkit-scrollbar-thumb:hover, .spectators::-webkit-scrollbar-thumb:hover, #settingsPanel::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover, #emojiScroll::-webkit-scrollbar-thumb:hover, .spectators::-webkit-scrollbar-thumb:hover, #settingsPanel::-webkit-scrollbar-thumb:hover, .roster::-webkit-scrollbar-thumb:hover { background: #475569; }
     .btn-send {
       padding: 8px 14px; border-radius: 8px; border: 0;
       background: #22c55e; color: #052e16; font-size: 13px; font-weight: 650; cursor: pointer;
     }
     .btn-send:hover { opacity: .9; }
+
+    /* On desktop this is a plain pass-through: the sidebar's flex column moves
+       onto the wrapper and nothing about the layout changes. The wrapper only
+       earns its keep on compact layouts, where #joinBtn leaves the sidebar and
+       this becomes the whole sheet. */
+    .sidebar-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+    /* Hidden by default; the blocks below turn them on. Declared here so the
+       elements are inert unless a block that wants them actually applies. */
+    #mobileBar, #sheetScrim, #tapHint { display: none; }
+
+    /* Where #tapHint sits. It has to cover the typing box exactly, and the
+       wrapper's own padding differs between the two layouts (none here, some
+       in the compact block), so the offsets are variables rather than magic
+       numbers repeated in two places. */
+    #inputWrap { --hint-x: 0px; --hint-top: 0px; --hint-bottom: 0px; }
+
+    /* "Tap to type", the counterpart to the auto-focus that render() skips on
+       a touchscreen. Keyed to TOUCH, not to window width: a narrow desktop
+       window auto-focuses as it always did and must never show this. Wider
+       touch devices (a tablet in landscape, say) are past the compact
+       breakpoint but still need it, which is why it lives in its own block.
+       pointer-events:none so the tap it's asking for goes straight through to
+       the input underneath. */
+    @media (hover: none) and (pointer: coarse) {
+      #inputWrap[data-hint="1"] #tapHint {
+        display: flex; align-items: center; justify-content: center;
+        position: absolute;
+        left: var(--hint-x); right: var(--hint-x);
+        top: var(--hint-top); bottom: var(--hint-bottom);
+        border-radius: 10px; pointer-events: none;
+        color: #64748b; font-size: 14px; font-weight: 600; letter-spacing: .02em;
+      }
+    }
+
+    /* ==========================================================================
+       COMPACT LAYOUT (phones and small tablets)
+       ==========================================================================
+       Two conditions, and a desktop browser matches neither, so the wide
+       layout is untouched:
+         - narrower than 820px, i.e. a portrait phone or a small tablet; or
+         - shorter than 520px AND driven by a coarse pointer, i.e. a phone
+           held sideways, which is wide enough to pass the first test but has
+           nowhere near the height for the two-column layout. The pointer
+           clause is what keeps a short desktop WINDOW out of this: a mouse is
+           never coarse.
+       The identical query string lives in JS as `compactLayout` - the two must
+       stay in step, since the JS half decides where #joinBtn lives.
+
+       The shape it produces:
+         header          fixed height, same content, tightened up
+         .layout         the arena, filling everything left over
+         #mobileBar      Join/Spectate + the sheet toggle
+       with the sidebar demoted from a permanent column to a bottom sheet that
+       slides up over the arena, because 320px of chrome next to a 390px-wide
+       phone screen would leave nothing to race in.
+
+       The whole shell is sized `100dvh - var(--kb-inset)`, so when the
+       on-screen keyboard comes up the app shrinks to the space above it rather
+       than being half-covered by it. See updateKeyboardInset(). */
+    @media (max-width: 820px), (max-height: 520px) and (pointer: coarse) {
+      /* position:fixed pins the shell to the viewport so iOS can't scroll the
+         page itself out from under the keyboard - the only thing that scrolls
+         is the arena (and the sheet), both of which manage it themselves. */
+      body {
+        position: fixed; top: 0; left: 0; right: 0; bottom: auto;
+        height: calc(100dvh - var(--kb-inset));
+        overflow: hidden; overscroll-behavior: none;
+      }
+      /* Scrolling past the end of the quote must not chain out to the page and
+         trigger pull-to-refresh: reloading mid-race would cost the racer the
+         seconds it takes to reconnect. */
+      .arena { overscroll-behavior: contain; }
+
+      /* Every tap target opts out of the double-tap-to-zoom delay. */
+      button, .btn, li, #usernameDisplay { touch-action: manipulation; }
+
+      header { padding: 9px 12px; gap: 6px; }
+      h1 { font-size: 21px; }
+      #usernameDisplay { max-width: 92px; font-size: 12px; padding: 4px 6px; }
+      #emojiBtn { font-size: 22px; padding: 5px 6px; }
+      #settingsBtn { font-size: 19px; padding: 5px 6px; }
+
+      /* .layout anchors the sheet and its scrim, which are positioned against
+         the race area rather than the viewport so neither ever covers the
+         header (Settings and the avatar picker have to stay reachable while
+         the sheet is open). */
+      .layout { position: relative; }
+
+      .arena { padding: 12px 14px 0; }
+      /* The status readout and the tracks both give up height here so the
+         quote and the input keep as much of a short screen as possible. */
+      #statusSlot { min-height: 58px; margin-bottom: 10px; }
+      #bigReadout .readout-number { font-size: 34px; }
+      #leaderboard { gap: 11px; margin-bottom: 14px; }
+      .racer-name { font-size: 12px; margin-bottom: 4px; }
+      .racer-track { height: 11px; }
+      .racer-emoji { font-size: 17px; }
+      #sharedTrack { height: 38px; }
+      .shared-caret-emoji { font-size: 22px; }
+      #raceTimer { top: 10px; right: 12px; font-size: 11px; }
+
+      #quote { font-size: 17px; letter-spacing: 0; }
+      #quote[data-placeholder="1"] { font-size: 15px; }
+
+      /* The input rides the bottom of the arena instead of scrolling away with
+         the text above it, so it's reachable the whole race however long the
+         quote is - and, once the keyboard is up, it sits directly on top of
+         the keys. Two rules do it between them:
+           margin-top: auto  - pushes it to the bottom of the flex column when
+                               the quote is short enough to leave slack (it
+                               resolves to 0 when there is none, so a long
+                               quote just runs into it);
+           sticky bottom: 0  - pins it there once the quote DOES overflow and
+                               the arena starts scrolling.
+         The background is what keeps the text from showing through as it
+         scrolls underneath, and the negative side margins let that background
+         reach the arena's padding edge instead of stopping short of it. */
+      #inputWrap {
+        position: sticky; bottom: 0; z-index: 3;
+        margin: auto -14px 0; padding: 12px 14px calc(10px + env(safe-area-inset-bottom));
+        width: calc(100% + 28px); max-width: none;
+        background: #0b1120;
+        /* Keeps #tapHint aligned to the box now that the wrapper is padded. */
+        --hint-x: 14px; --hint-top: 12px;
+        --hint-bottom: calc(10px + env(safe-area-inset-bottom));
+      }
+      /* 16px is the floor below which iOS Safari zooms the page in on focus.
+         Every input the compact layout can focus is held at or above it. */
+      #typeInput { font-size: 16px; padding: 11px 12px; }
+      #chatInput, #settingsUsername, #emojiSearch { font-size: 16px; }
+
+      /* --- The sidebar as a bottom sheet ---------------------------------- */
+      .sidebar {
+        position: absolute; left: 0; right: 0; bottom: 0; top: 30px;
+        width: auto; z-index: 40;
+        border-left: 0; border-top: 1px solid #1e293b;
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -12px 32px rgba(2, 6, 16, .55);
+        /* Closed by default, and translated rather than display:none'd so the
+           chat's scroll position and the roster's DOM survive a close/open.
+           visibility flips (never animates) but is DELAYED until the slide-out
+           finishes, so the panel is properly inert - unfocusable, untappable -
+           the moment it's off screen, without cutting the animation short. */
+        transform: translateY(101%);
+        transition: transform .22s ease-out, visibility 0s linear .22s;
+        visibility: hidden;
+      }
+      .sidebar[data-open="1"] {
+        transform: none; visibility: visible;
+        transition: transform .22s ease-out, visibility 0s linear 0s;
+      }
+      /* Grab handle, so the panel reads as a sheet you can dismiss rather than
+         a screen you're stuck on. */
+      .sidebar::before {
+        content: ""; flex-shrink: 0; align-self: center;
+        width: 38px; height: 4px; margin: 8px 0 2px;
+        border-radius: 999px; background: #334155;
+      }
+      .sidebar-scroll { overflow: hidden; }
+      /* The roster no longer has a full column to itself, so it's capped and
+         scrolls rather than pushing the chat off the bottom of the sheet. */
+      .roster { max-height: 42%; overflow-y: auto; }
+      .spectators { max-height: 113px; }
+      .panel { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+
+      #sheetScrim {
+        display: block; position: absolute; inset: 0; z-index: 30;
+        background: rgba(2, 6, 16, .55);
+        opacity: 0; pointer-events: none; transition: opacity .22s ease-out;
+      }
+      #sheetScrim[data-open="1"] { opacity: 1; pointer-events: auto; }
+
+      /* --- The bottom action bar ------------------------------------------ */
+      #mobileBar {
+        display: flex; flex-shrink: 0; align-items: stretch; gap: 8px;
+        /* Centered rather than stretched: on a phone held sideways the row is
+           800px wide and a button that filled it would read as a banner. */
+        justify-content: center;
+        padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+        border-top: 1px solid #1e293b; background: #0d1524;
+        /* Above the sheet: Join/Spectate and the toggle stay usable while the
+           sheet is open, which is the whole reason the button was moved out
+           of the sidebar in the first place. */
+        position: relative; z-index: 50;
+      }
+      /* The join button loses the sidebar's edge-to-edge, square-cornered
+         treatment and becomes an ordinary primary button in a row. */
+      #mobileBar .btn { flex: 1; width: auto; max-width: 460px; padding: 13px; border-radius: 11px; }
+      #mobileBar #joinBtnBadge { right: 12px; }
+      #lobbyToggle {
+        position: relative; flex-shrink: 0; width: 52px;
+        display: grid; place-items: center;
+        background: #1e293b; color: #cbd5e1;
+        border: 1px solid #334155; border-radius: 11px; cursor: pointer;
+      }
+      #lobbyToggle[aria-expanded="true"] { background: #334155; color: #e2e8f0; }
+      #lobbyToggle:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
+      /* Unread chat, while the sheet is closed - a dot, not a count: the exact
+         number of messages you missed isn't worth a second thing to read. */
+      #lobbyUnread {
+        position: absolute; top: 9px; right: 12px;
+        width: 8px; height: 8px; border-radius: 50%;
+        background: #22c55e; border: 2px solid #0d1524;
+      }
+      #lobbyUnread[hidden] { display: none; }
+
+      /* --- Popovers ------------------------------------------------------- */
+      /* Both anchor to their header button on desktop, which on a phone leaves
+         them pinned in the top-right corner with barely any width. Fixed to
+         the viewport instead, spanning it, so they get the full screen to lay
+         out in. */
+      /* The 132px is the 54px of header above plus enough clearance to stop
+         short of the action bar, so a tall panel scrolls internally instead of
+         running over Join/Spectate. */
+      #emojiPicker, #settingsPanel {
+        position: fixed; top: 54px; left: 10px; right: 10px;
+        width: auto; max-height: calc(100dvh - var(--kb-inset) - 132px);
+      }
+      #emojiScroll { max-height: min(46dvh, 340px); }
+      .emoji-cell { font-size: 22px; padding: 8px 0; }
+      /* Room on the tab row for the close button overlaid on its right end. */
+      #emojiTabs { padding-right: 38px; }
+      .emoji-tab { font-size: 19px; padding: 9px 0; }
+      #emojiClose {
+        display: grid; place-items: center;
+        position: absolute; top: 8px; right: 8px; z-index: 2;
+        width: 30px; height: 30px; padding: 0; line-height: 1;
+        background: transparent; border: 0; border-radius: 8px;
+        color: #64748b; font-size: 14px; cursor: pointer;
+      }
+      #emojiClose:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+      /* A finger has no hover, so the scale-up just fights the tap; the
+         selection ring is what has to carry the state here. */
+      .emoji-cell:hover { transform: none; }
+    }
+
+    /* Landscape phones specifically: ~390px of height total, most of it eaten
+       by the keyboard the moment you type. The status readout is the one big
+       block that can shrink without costing information (the countdown is in
+       the banner too, and WPM is in the roster). */
+    @media (max-height: 520px) and (pointer: coarse) {
+      header { padding: 6px 12px; }
+      h1 { font-size: 18px; }
+      #statusSlot { min-height: 0; margin-bottom: 8px; }
+      #bigReadout .readout-number { font-size: 26px; }
+      .arena { padding-top: 8px; }
+      #leaderboard { margin-bottom: 10px; }
+    }
+
+    /* Touch devices at any width: hover transforms stick after a tap and read
+       as the element having jammed. Nothing here fires on a mouse. */
+    @media (hover: none) {
+      #settingsBtn:hover, #emojiBtn:hover, #settingsAvatar:hover { transform: none; }
+      .settings-row-toggle:hover { background: transparent; }
+    }
   </style>
 </head>
 <body>
@@ -856,6 +1164,42 @@
                   <button type="button" class="segmented-btn" data-mode="hidden" role="radio" aria-checked="false">
                     <span class="seg-glyph seg-glyph-hidden"><i></i></span>
                     <span>Hidden</span>
+                  </button>
+                </div>
+              </div>
+              <!-- Nested under Track display because it only means anything for
+                   "All tracks" - same indent + rail idiom as Volume under Sound
+                   cues. Slide and swap are two answers to the same question
+                   ("how do we show live rank?"), so they're one 3-way choice
+                   rather than two toggles that could both be on. -->
+              <div class="settings-field settings-subrow" id="trackOrderField">
+                <div class="settings-label">Live positions</div>
+                <div class="settings-hint" id="trackOrderHint"></div>
+                <div id="trackOrderGroup" class="segmented" role="radiogroup" aria-label="Live positions">
+                  <button type="button" class="segmented-btn" data-order="static" role="radio" aria-checked="false">
+                    <span class="seg-glyph"><svg viewBox="0 0 26 14" aria-hidden="true">
+                      <rect x="0" y="2.5" width="26" height="3.5" rx="1.75"/>
+                      <rect x="0" y="8" width="16" height="3.5" rx="1.75"/>
+                    </svg></span>
+                    <span>Off</span>
+                  </button>
+                  <button type="button" class="segmented-btn" data-order="slide" role="radio" aria-checked="false">
+                    <span class="seg-glyph"><svg viewBox="0 0 26 14" aria-hidden="true">
+                      <rect x="8" y="2.5" width="18" height="3.5" rx="1.75"/>
+                      <rect x="8" y="8" width="11" height="3.5" rx="1.75"/>
+                      <path d="M3 0.4 5.6 4.3 0.4 4.3Z"/>
+                      <path d="M3 13.6 0.4 9.7 5.6 9.7Z"/>
+                    </svg></span>
+                    <span>Slide</span>
+                  </button>
+                  <button type="button" class="segmented-btn" data-order="swap" role="radio" aria-checked="false">
+                    <span class="seg-glyph"><svg viewBox="0 0 26 14" aria-hidden="true">
+                      <rect x="9" y="2.5" width="17" height="3.5" rx="1.75"/>
+                      <rect x="9" y="8" width="17" height="3.5" rx="1.75"/>
+                      <rect x="2.4" y="1.2" width="1.7" height="11.6" rx=".85" transform="rotate(34 3.25 7)"/>
+                      <rect x="2.4" y="1.2" width="1.7" height="11.6" rx=".85" transform="rotate(-34 3.25 7)"/>
+                    </svg></span>
+                    <span>Swap</span>
                   </button>
                 </div>
               </div>
@@ -927,7 +1271,18 @@
         <div id="ghostLayer"></div>
       </div>
       <div id="inputWrap">
-        <input id="typeInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <!-- autocorrect/autocapitalize/spellcheck are all off because a phone
+             keyboard's predictive text rewrites whole words behind the racer's
+             back, which the per-character scoring reads as a burst of
+             mistakes. enterkeyhint keeps the return key from reading as
+             "Search" or "Go". -->
+        <input id="typeInput" type="text" autocomplete="off" autocorrect="off"
+               autocapitalize="none" spellcheck="false" enterkeyhint="done" />
+        <!-- Compact layout only: a phone can't auto-focus the box (focusing
+             without a tap doesn't raise the keyboard), so the box would just
+             sit there looking inert. This says what to do about it, and
+             disappears the moment the box has focus. -->
+        <div id="tapHint" aria-hidden="true">Tap to type</div>
         <div id="errorNotice">Fix errors to continue</div>
       </div>
     </section>
@@ -941,6 +1296,12 @@
            line; it's absolutely positioned so the label stays optically
            centered in every state, badge or no badge. -->
       <button id="joinBtn" class="btn" disabled><span id="joinBtnLabel">Join Race</span><span id="joinBtnBadge"></span></button>
+      <!-- Everything below the join button. The wrapper exists purely so the
+           compact layout can lift #joinBtn out into the bottom bar (see
+           syncCompactLayout) and leave the rest of the sidebar behind as one
+           self-contained sheet. On desktop it reproduces the sidebar's own
+           flex column exactly, so the layout is unchanged. -->
+      <div class="sidebar-scroll">
       <div class="lobby-row">
         <button id="switchLobbyBtn" class="switch-lobby-btn" type="button">Switch Lobby</button>
       </div>
@@ -984,7 +1345,29 @@
           <button type="submit" class="btn-send">Send</button>
         </form>
       </div>
+      </div><!-- /.sidebar-scroll -->
     </div>
+
+    <!-- Compact layout only: dims the arena behind the sidebar sheet and
+         closes it on tap. Inside .layout (not the body) so it covers the
+         race area without ever reaching over the header. -->
+    <div id="sheetScrim"></div>
+  </div>
+
+  <!-- Compact layout only (display:none until the media query says otherwise).
+       Holds the one action that must never be a sheet away - #joinBtn is moved
+       in here by syncCompactLayout() - plus the toggle that opens the sidebar
+       sheet. Sits in the body's normal flex flow rather than being
+       position:fixed, so it rides above the on-screen keyboard along with the
+       rest of the shell (see --kb-inset) instead of hiding under it. -->
+  <div id="mobileBar">
+    <!-- #joinBtn is relocated here on compact layouts. -->
+    <button id="lobbyToggle" type="button" aria-label="Open lobby and chat" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z"/>
+      </svg>
+      <span id="lobbyUnread" hidden></span>
+    </button>
   </div>
 
   <script>
@@ -1672,6 +2055,9 @@
     const sharedTrack = document.getElementById("sharedTrack");
     const sharedTrackFill = document.getElementById("sharedTrackFill");
     const trackModeGroup = document.getElementById("trackModeGroup");
+    const trackOrderGroup = document.getElementById("trackOrderGroup");
+    const trackOrderField = document.getElementById("trackOrderField");
+    const trackOrderHint  = document.getElementById("trackOrderHint");
     const quoteEl     = document.getElementById("quote");
     const ghostLayer  = document.getElementById("ghostLayer");   // experimental: other racers' carets
     const ghostToggle = document.getElementById("ghostToggle");  // experimental: toggle for the above
@@ -1696,6 +2082,176 @@
     const chatMessagesInner = document.getElementById("chatMessagesInner"); // the rows themselves
     const chatForm   = document.getElementById("chatForm");
     const chatInput  = document.getElementById("chatInput");
+    const sidebarEl  = document.querySelector(".sidebar");
+    const mobileBar  = document.getElementById("mobileBar");
+    const lobbyToggle = document.getElementById("lobbyToggle");
+    const lobbyUnread = document.getElementById("lobbyUnread");
+    const sheetScrim = document.getElementById("sheetScrim");
+    const tapHintWrap = inputWrap; // #tapHint's visibility is driven off the wrapper
+    const arenaEl    = document.querySelector(".arena");
+
+    // --- Compact (mobile) layout ----------------------------------------------
+    // One media query is the single source of truth for "is the compact layout
+    // active", matching the CSS breakpoint exactly, so the two can't disagree
+    // about which shape the page is currently in. Everything in this section is
+    // a no-op while it doesn't match: a desktop browser runs the same code and
+    // sees the same page it always did.
+    const compactLayout = window.matchMedia("(max-width: 820px), (max-height: 520px) and (pointer: coarse)");
+
+    // A SECOND, independent question: not "how big is the window" but "what is
+    // typing on this thing". The two must not be conflated. Narrowing a desktop
+    // window switches the LAYOUT, but the machine still has a real keyboard, so
+    // everything about focus must keep behaving exactly as it does at full
+    // width. Only an actual touch device - where focusing an input does not
+    // raise a keyboard, because only a tap can - takes the hands-off path.
+    // A touchscreen laptop reports its mouse as the primary pointer and so
+    // correctly reads as non-touch here.
+    const touchInput = window.matchMedia("(hover: none) and (pointer: coarse)");
+
+    // The sidebar's contents are identical in both layouts; only where the join
+    // button lives differs. Moving the element (rather than duplicating it)
+    // keeps every listener and every `joinBtn`/`joinBtnLabel` reference in this
+    // file valid, so nothing else in the client has to know the layout changed.
+    function syncCompactLayout() {
+      if (compactLayout.matches) {
+        if (joinBtn.parentElement !== mobileBar) mobileBar.prepend(joinBtn);
+      } else {
+        if (joinBtn.parentElement !== sidebarEl) sidebarEl.prepend(joinBtn);
+      }
+      // Always resolved explicitly rather than left to the CSS default, so the
+      // sheet is in a known state on the first frame and after any crossing of
+      // the breakpoint (rotating a phone is one - it can cross 820px both
+      // ways, and a sheet left open through that would be stuck open).
+      setSheetOpen(false);
+      refreshTapHint();
+    }
+
+    // The sidebar sheet. Closed is the resting state on a phone: the race is
+    // what the screen is for, and the roster/chat are a tap away.
+    let sheetOpen = false;
+    function setSheetOpen(open) {
+      sheetOpen = open && compactLayout.matches;
+      sidebarEl.dataset.open = sheetOpen ? "1" : "0";
+      sheetScrim.dataset.open = sheetOpen ? "1" : "0";
+      lobbyToggle.setAttribute("aria-expanded", sheetOpen ? "true" : "false");
+      lobbyToggle.setAttribute("aria-label", sheetOpen ? "Close lobby and chat" : "Open lobby and chat");
+      if (sheetOpen) {
+        clearChatUnread();
+        // The panel starts life translated off-screen, so its scroll container
+        // had no height to scroll to while it was closed; re-anchor to the
+        // newest message now that it does (same reason the desktop chat
+        // re-anchors when its view is switched to).
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      } else if (document.activeElement === chatInput) {
+        // Don't leave the keyboard up for a field that just slid away.
+        chatInput.blur();
+      }
+    }
+
+    lobbyToggle.onclick = () => setSheetOpen(!sheetOpen);
+    sheetScrim.onclick = () => setSheetOpen(false);
+
+    // A green dot on the toggle while chat moves behind a closed sheet. Only a
+    // dot: which messages you missed is what opening it is for.
+    let chatUnread = false;
+    function noteChatUnread() {
+      if (!compactLayout.matches || sheetOpen || chatUnread) return;
+      chatUnread = true;
+      lobbyUnread.hidden = false;
+    }
+    function clearChatUnread() {
+      chatUnread = false;
+      lobbyUnread.hidden = true;
+    }
+
+    // --- On-screen keyboard ----------------------------------------------------
+    // A phone keyboard covers the bottom of the *visual* viewport without
+    // shrinking the layout viewport, so a full-height shell ends up with its
+    // input box behind the keyboard. visualViewport reports the covered strip;
+    // publishing it as --kb-inset lets the CSS size the shell to the space
+    // that's actually visible, which puts the typing box right above the keys.
+    function updateKeyboardInset() {
+      const vv = window.visualViewport;
+      let inset = 0;
+      if (vv && compactLayout.matches) {
+        const covered = window.innerHeight - vv.height - vv.offsetTop;
+        // A browser that resizes the layout viewport for its keyboard reports
+        // ~0 here and needs nothing from us (100dvh already shrank). The floor
+        // also keeps a URL bar sliding in and out from reading as a keyboard.
+        if (covered > 120) inset = Math.round(covered);
+      }
+      document.documentElement.style.setProperty("--kb-inset", inset + "px");
+      document.documentElement.dataset.kb = inset > 0 ? "1" : "0";
+      // The ghost carets are positioned from measured character boxes, so they
+      // have to be redrawn whenever the text reflows under them. The window
+      // "resize" event doesn't fire for a visual-viewport-only change.
+      if (room) renderGhostCarets(room.state);
+      keepCaretVisible();
+    }
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", updateKeyboardInset);
+      window.visualViewport.addEventListener("scroll", updateKeyboardInset);
+    }
+    compactLayout.addEventListener("change", () => {
+      syncCompactLayout();
+      updateKeyboardInset();
+    });
+    // Runs now, before anything paints, so the join button is already in the
+    // right place on the first frame. The keyboard inset can't be read yet
+    // (it touches `room`), so it's primed at the end of this script instead.
+    syncCompactLayout();
+
+    // --- Keeping the typing position on screen ---------------------------------
+    // A quote that fits comfortably on a monitor can be several screens tall on
+    // a phone, and the caret walks off the bottom of it. The arena is the
+    // scroller, so nudge it just far enough to bring the caret back into view.
+    // Compact layout only: on desktop the caret is never out of view, and this
+    // must not introduce scrolling there that wasn't happening before.
+    function keepCaretVisible() {
+      if (!compactLayout.matches) return;
+      const caret = quoteEl.querySelector("span.cursor");
+      if (!caret) return;
+      const view = arenaEl.getBoundingClientRect();
+      const box = caret.getBoundingClientRect();
+      // The sticky input sits over the bottom of the arena, so "visible" stops
+      // where the input begins, not where the arena does.
+      const floor = inputWrap.dataset.visible === "1"
+        ? inputWrap.getBoundingClientRect().top
+        : view.bottom;
+      const margin = 24;
+      if (box.bottom > floor - margin) {
+        arenaEl.scrollTop += box.bottom - (floor - margin);
+      } else if (box.top < view.top + margin) {
+        arenaEl.scrollTop -= (view.top + margin) - box.top;
+      }
+    }
+
+    // "Tap to type": shown while the box is live but unfocused. Keyed to touch,
+    // not to width - it's the counterpart to the skipped auto-focus above, so
+    // it must appear in exactly the cases where that was skipped. A narrow
+    // desktop window auto-focuses and so never wants this.
+    function refreshTapHint() {
+      const show = touchInput.matches &&
+                   inputWrap.dataset.visible === "1" &&
+                   !typeInput.disabled &&
+                   document.activeElement !== typeInput;
+      tapHintWrap.dataset.hint = show ? "1" : "0";
+    }
+    typeInput.addEventListener("focus", () => { refreshTapHint(); keepCaretVisible(); });
+    typeInput.addEventListener("blur", refreshTapHint);
+
+    // The whole race area is the tap target, not just the box: a thumb aiming
+    // at a 43px strip at the bottom of the screen is a worse deal than aiming
+    // at the screen. A drag doesn't fire "click", so this can't fight scrolling
+    // the quote. Touch only, for the same reason as the two rules above:
+    // anything with a keyboard has already been auto-focused, and a click there
+    // is as likely to be someone selecting the text to read it.
+    arenaEl.addEventListener("click", (e) => {
+      if (!touchInput.matches || typeInput.disabled) return;
+      if (e.target === typeInput) return; // the box handles its own
+      typeInput.focus();
+    });
 
     const client = new Colyseus.Client(ENDPOINT);
     let room = null;
@@ -1855,6 +2411,11 @@
       if (toAdd.length > 0) {
         myVisibleChat.push(...toAdd);
         while (myVisibleChat.length > CHAT_HISTORY_LIMIT_CLIENT) myVisibleChat.shift();
+        // Compact layout: chat is behind a closed sheet, so something has to
+        // say it moved. Joins and departures count - on a phone the roster is
+        // out of sight too, and they're the same kind of "the lobby changed"
+        // news. My own messages don't: the sheet was open when I sent them.
+        if (toAdd.some((m) => m.system || !m.me)) noteChatUnread();
       }
 
       renderChatDom();
@@ -2246,7 +2807,19 @@
       spectatorCountEl.textContent = spectators.length;
       const trackEntries = resultsMode ? racing : leaderboardEntries;
       if (trackMode === "shared") fillSharedTrack(trackEntries);
-      else if (trackMode === "default") fillLeaderboard(leaderboard, trackEntries, resultsMode);
+      else if (trackMode === "default") {
+        // Live position ordering (Settings > Live positions) applies only
+        // while a race is actually running: before it the join order stands,
+        // and once it ends the results sort above takes over untouched.
+        const orderMode = state.phase === "racing" && !resultsMode ? effectiveTrackOrder() : "static";
+        leaderboard.dataset.order = orderMode;
+        const ranked = orderMode === "static"
+          ? trackEntries
+          // Keyed by room as well as quote: a room switch starts a fresh
+          // quoteId sequence that could coincidentally match the last one.
+          : orderByLivePosition(trackEntries, state.quote.length, `${room.roomId}:${state.quoteId}`);
+        fillLeaderboard(leaderboard, ranked, resultsMode, orderMode, trackEntries);
+      }
 
       // Sync the button + status line to MY current status. Recomputed on
       // every state change (not just once at connect) so it never goes stale.
@@ -2469,9 +3042,17 @@
       // so without these guards a text field inside a popover would lose focus
       // mid-keystroke and be unusable.
       const inPopover = settingsPanel.dataset.open === "1" || emojiPicker.dataset.open === "1";
-      if (iCanType && !inPopover && document.activeElement !== typeInput) {
+      // Skipped on TOUCH DEVICES ONLY, never merely because the window is
+      // narrow. A phone only raises its keyboard for a real tap, so focusing
+      // from here would produce a focused box with no keyboard behind it - and,
+      // worse, would suppress the "Tap to type" hint that's the only thing
+      // telling the racer what to do about that. A narrow desktop window has a
+      // real keyboard and must still auto-focus: having to click into the box
+      // every time the countdown ends makes the race unplayable.
+      if (iCanType && !inPopover && !touchInput.matches && document.activeElement !== typeInput) {
         typeInput.focus();
       }
+      refreshTapHint();
 
       // Nothing about the room's state disables this any more: if the race
       // being set up can't take you, the next one can, and if every slot is
@@ -2767,63 +3348,270 @@
       return `hsl(${hue}, 82%, 46%)`;
     }
 
+    // --- Live position ordering ------------------------------------------------
+    // Both live-position modes ("slide" and "swap", see the Live positions
+    // setting) need the same thing underneath: an ordered list of racers that
+    // reflects position but changes SLOWLY. Without it, two racers a single
+    // character apart trade places many times a second and the display
+    // strobes - neither mode is usable without this, it isn't polish.
+    //
+    // Two things buy the calm: a sticky gap (you must be clearly ahead to take
+    // a place, so the reverse swap needs the same margin back the other way -
+    // that dead zone in the middle is what kills the flicker) and a cooldown
+    // (a quiet period after any swap). Only ADJACENT entries ever swap, so a
+    // racer climbing three places does it as three one-step moves over three
+    // cooldowns, which is what keeps the movement readable.
+    const STICKY_CHARS = 5;        // how far ahead you must be to take a place
+    const SWAP_COOLDOWN_MS = 600;  // quiet period after any swap
+
+    // Read live (not snapshotted) so the setting can be changed in the OS
+    // without a reload; the listener below re-renders when it flips.
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    let displayOrder = [];            // sessionIds, top to bottom. Persists across frames.
+    let displayOrderRaceKey = null;   // roomId + quoteId this order was built for
+    let lastDisplaySwapAt = 0;
+
+    // Returns `entries` (the natural join-order list) reordered by the live
+    // standings, advancing the order by at most one swap per call.
+    function orderByLivePosition(entries, quoteLength, raceKey) {
+      const byId = new Map(entries.map((e) => [e.sessionId, e]));
+
+      if (raceKey !== displayOrderRaceKey) {
+        // A new race: rebuild from scratch. At the start of one everyone is at
+        // 0 and this is exactly the join order (the sort is stable), which is
+        // the order the tracks are in today. It only differs when the setting
+        // is switched ON mid-race, where seeding from the real standings beats
+        // making the viewer sit through a dozen catch-up swaps.
+        displayOrderRaceKey = raceKey;
+        lastDisplaySwapAt = 0;
+        displayOrder = entries
+          .map((e, i) => ({ e, i }))
+          .sort((a, b) => {
+            const pa = a.e.finished ? (a.e.place || 1) : Infinity;
+            const pb = b.e.finished ? (b.e.place || 1) : Infinity;
+            if (pa !== pb) return pa - pb;
+            if (a.e.progress !== b.e.progress) return b.e.progress - a.e.progress;
+            return a.i - b.i;
+          })
+          .map((x) => x.e.sessionId);
+      } else {
+        // Someone leaving mid-race just drops out and everything below shifts
+        // up one; nothing else moves. (Going idle needs no handling at all -
+        // an AFK racer stops making progress and drifts down naturally, which
+        // is exactly right.)
+        displayOrder = displayOrder.filter((id) => byId.has(id));
+        const known = new Set(displayOrder);
+        for (const e of entries) if (!known.has(e.sessionId)) displayOrder.push(e.sessionId);
+      }
+
+      // Finishers are locked to the top in finishing order and never move
+      // again: a finished racer must never appear to be overtaken. Everyone
+      // still typing sorts below all of them.
+      const done = [], running = [];
+      for (const id of displayOrder) (byId.get(id).finished ? done : running).push(id);
+      done.sort((a, b) => (byId.get(a).place || 1) - (byId.get(b).place || 1));
+      displayOrder = done.concat(running);
+
+      const now = Date.now();
+      if (now - lastDisplaySwapAt >= SWAP_COOLDOWN_MS) {
+        // In the same units as progress. Deriving it from quote length is
+        // deliberate: short quotes have tighter finishes, so they need a
+        // proportionally wider quiet zone.
+        const stickyGap = STICKY_CHARS / Math.max(quoteLength || 0, 1);
+        for (let i = done.length; i < displayOrder.length - 1; i++) {
+          const upper = byId.get(displayOrder[i]);
+          const lower = byId.get(displayOrder[i + 1]);
+          if (lower.progress - upper.progress > stickyGap) {
+            displayOrder[i] = lower.sessionId;
+            displayOrder[i + 1] = upper.sessionId;
+            lastDisplaySwapAt = now;
+            break; // at most one swap per update
+          }
+        }
+      }
+
+      return displayOrder.map((id) => byId.get(id));
+    }
+
     // Progress bars + live wpm, rendered above the quote in the arena.
-    // Rows are kept per sessionId across renders (not wiped/rebuilt each
-    // time) so the CSS width transition on .racer-fill has a persisting
-    // element to animate from. Otherwise every render creates a brand new
-    // bar already at its final width, and there's nothing to animate.
-    const leaderboardRows = new Map(); // sessionId -> { el, nameSpan, wpmSpan, fill }
+    // Rows are kept across renders (not wiped/rebuilt each time) so the CSS
+    // width transition on .racer-fill has a persisting element to animate
+    // from. Otherwise every render creates a brand new bar already at its
+    // final width, and there's nothing to animate.
+    //
+    // WHAT a row is keyed by depends on the live-position mode, and this is
+    // the whole difference between the two:
+    //   "session" (modes static/slide) - one row per racer. The row IS the
+    //             racer and carries their name wherever it goes.
+    //   "slot"    (mode swap)          - one row per POSITION. The row stays
+    //             put and racers move through it, so its occupant changes.
+    // Switching between the two schemes invalidates every row, so the map is
+    // torn down and rebuilt (see useLeaderboardKeying).
+    const leaderboardRows = new Map(); // sessionId | slot index -> row
+    let leaderboardKeying = "session";
+    const LABEL_FADE_MS = 150;
     // Same idea, one caret per racer in #sharedTrack (see fillSharedTrack).
     const sharedTrackCarets = new Map(); // sessionId -> { el, emoji }
 
-    function fillLeaderboard(container, racers, resultsMode) {
+    function useLeaderboardKeying(keying) {
+      if (keying === leaderboardKeying) return;
+      for (const row of leaderboardRows.values()) {
+        clearTimeout(row.fadeTimer);
+        row.el.remove();
+      }
+      leaderboardRows.clear();
+      leaderboardKeying = keying;
+    }
+
+    function newLeaderboardRow() {
+      const row = buildLeaderboardRow();
+      row.labelShown = null; // sessionId whose name/avatar are currently painted
+      row.fadeTimer = null;
+      row.pending = null;
+      return row;
+    }
+
+    // The identity half of a row: who this is. Split out from the numbers
+    // below because mode "swap" cross-fades it while the bar keeps updating.
+    function paintRowLabel(row, person, index, resultsMode) {
+      const label = person.name + (person.me ? " (you)" : "");
+      if (resultsMode) {
+        const rank = person.place || (index + 1);
+        const tag = person.finished ? "" : " (DNF)";
+        row.nameSpan.textContent = `#${rank} ${label}${tag}`;
+      } else {
+        row.nameSpan.textContent = label + (person.finished ? " ✓" : "");
+      }
+      row.nameSpan.className = person.me ? "me" : "";
+      row.emoji.textContent = person.emoji || "🚀";
+    }
+
+    // Everything that isn't the name/avatar: always painted immediately, in
+    // every mode. Mode "swap" deliberately lets the bar change instantly while
+    // the label fades - thanks to the sticky gap two racers only trade places
+    // about five characters apart, so the bar barely moves anyway.
+    function paintRowStats(row, person) {
+      // AFK (kicked for going idle) shows in place of wpm; the row dims
+      // instead of disappearing, so nobody else's row shifts position. The
+      // tag describes what happened to them in THIS race, so it sticks for
+      // the rest of it - queueing for the next race doesn't change the fact
+      // that they idled out of this one.
+      row.wpmSpan.textContent = person.afk ? "AFK" : `${person.wpm} wpm`;
+      row.el.className = "racer-row" + (person.afk ? " afk" : "");
+      row.fill.className = "racer-fill" + (person.finished ? " finished" : "") + (person.afk ? " afk" : "");
+      row.fill.style.width = `${Math.round(person.progress * 100)}%`;
+      // Tint the track with a soft version of the racer's emoji palette, so
+      // it reads as "their" color. AFK clears the inline color so the gray
+      // .afk class shows through; otherwise fall back to the default fill
+      // (green) if the emoji couldn't be sampled.
+      row.fill.style.background = person.afk ? "" : (getEmojiColor(person.emoji) || "");
+
+      // Sit the avatar exactly at the fill's leading edge, so the colored
+      // trail connects straight into it (the CSS translate(-50%,-50%)
+      // centers the glyph on this point). At 0%/100% the glyph naturally
+      // straddles the start/finish edge, which reads fine as a racer at the
+      // line rather than a gap.
+      row.emoji.style.left = `${person.progress * 100}%`;
+    }
+
+    // `racers` is always the order the rows should READ, top to bottom.
+    // `orderMode` is the live-position mode in force for this render, and
+    // `baseOrder` the stable join-order list that mode "slide" keeps its DOM
+    // in. Modes "static" (and every results screen) use neither.
+    function fillLeaderboard(container, racers, resultsMode, orderMode, baseOrder) {
+      if (orderMode === "swap") { fillLeaderboardSlots(container, racers, resultsMode); return; }
+      useLeaderboardKeying("session");
+
+      const sliding = orderMode === "slide";
+      // Mode "slide" never reorders DOM nodes - it keeps them in join order
+      // and animates a transform instead, so a row is never reparented out
+      // from under its own animation.
+      const domOrder = sliding ? baseOrder : racers;
+      const rankById = new Map(racers.map((p, i) => [p.sessionId, i]));
+
+      const laidOut = [];
       const seen = new Set();
-      racers.forEach((person, index) => {
+      domOrder.forEach((person) => {
         seen.add(person.sessionId);
         let row = leaderboardRows.get(person.sessionId);
         if (!row) {
-          row = buildLeaderboardRow();
+          row = newLeaderboardRow();
           leaderboardRows.set(person.sessionId, row);
         }
         // Re-append in order so results are visually ranked top to bottom.
         container.appendChild(row.el);
-
-        const label = person.name + (person.me ? " (you)" : "");
-        if (resultsMode) {
-          const rank = person.place || (index + 1);
-          const tag = person.finished ? "" : " (DNF)";
-          row.nameSpan.textContent = `#${rank} ${label}${tag}`;
-        } else {
-          row.nameSpan.textContent = label + (person.finished ? " ✓" : "");
-        }
-        row.nameSpan.className = person.me ? "me" : "";
-        // AFK (kicked for going idle) shows in place of wpm; the row dims
-        // instead of disappearing, so nobody else's row shifts position. The
-        // tag describes what happened to them in THIS race, so it sticks for
-        // the rest of it - queueing for the next race doesn't change the fact
-        // that they idled out of this one.
-        row.wpmSpan.textContent = person.afk ? "AFK" : `${person.wpm} wpm`;
-        row.el.className = "racer-row" + (person.afk ? " afk" : "");
-        row.fill.className = "racer-fill" + (person.finished ? " finished" : "") + (person.afk ? " afk" : "");
-        row.fill.style.width = `${Math.round(person.progress * 100)}%`;
-        // Tint the track with a soft version of the racer's emoji palette, so
-        // it reads as "their" color. AFK clears the inline color so the gray
-        // .afk class shows through; otherwise fall back to the default fill
-        // (green) if the emoji couldn't be sampled.
-        row.fill.style.background = person.afk ? "" : (getEmojiColor(person.emoji) || "");
-
-        // Sit the avatar exactly at the fill's leading edge, so the colored
-        // trail connects straight into it (the CSS translate(-50%,-50%)
-        // centers the glyph on this point). At 0%/100% the glyph naturally
-        // straddles the start/finish edge, which reads fine as a racer at the
-        // line rather than a gap.
-        row.emoji.textContent = person.emoji || "🚀";
-        row.emoji.style.left = `${person.progress * 100}%`;
+        const rank = rankById.has(person.sessionId) ? rankById.get(person.sessionId) : laidOut.length;
+        paintRowLabel(row, person, rank, resultsMode);
+        row.labelShown = person.sessionId;
+        paintRowStats(row, person);
+        laidOut.push({ row, rank });
       });
       for (const [sessionId, row] of leaderboardRows) {
         if (!seen.has(sessionId)) {
           row.el.remove();
           leaderboardRows.delete(sessionId);
+        }
+      }
+
+      // Row pitch is measured rather than assumed: it's the row height plus
+      // #leaderboard's gap, and both come from CSS. offsetTop is unaffected by
+      // the transforms already applied, so this stays correct frame to frame.
+      // With fewer than two rows there is nothing to reorder anyway.
+      let pitch = 0;
+      if (sliding && laidOut.length > 1) {
+        pitch = laidOut[1].row.el.offsetTop - laidOut[0].row.el.offsetTop;
+      }
+      laidOut.forEach((item, domIndex) => {
+        item.row.el.style.transform = pitch ? `translateY(${(item.rank - domIndex) * pitch}px)` : "";
+      });
+    }
+
+    // Mode "swap": row N is a SLOT that stays exactly where it is and displays
+    // whichever racer is at index N in the display order. When a slot's
+    // occupant changes, its name and avatar cross-fade out, get replaced, and
+    // fade back in - never a hard cut, because a name that teleports reads as
+    // a glitch rather than an overtake.
+    function fillLeaderboardSlots(container, racers, resultsMode) {
+      useLeaderboardKeying("slot");
+      const instant = reducedMotion.matches; // reduced motion: keep the mode, drop the fade
+
+      racers.forEach((person, index) => {
+        let row = leaderboardRows.get(index);
+        if (!row) {
+          row = newLeaderboardRow();
+          leaderboardRows.set(index, row);
+          container.appendChild(row.el);
+        }
+        // The numbers follow the new occupant right away; only the identity
+        // waits for the fade.
+        paintRowStats(row, person);
+        // Always current, so a fade that started 150ms ago lands on whoever
+        // the slot holds NOW, not on whoever triggered it.
+        row.pending = { person, index, resultsMode };
+
+        if (row.labelShown === person.sessionId) return;
+        if (instant || row.labelShown === null) {
+          paintRowLabel(row, person, index, resultsMode);
+          row.labelShown = person.sessionId;
+          return;
+        }
+        if (row.fadeTimer) return; // a fade is already running; it'll pick this up
+        row.el.dataset.labelFade = "out";
+        row.fadeTimer = setTimeout(() => {
+          row.fadeTimer = null;
+          const p = row.pending;
+          paintRowLabel(row, p.person, p.index, p.resultsMode);
+          row.labelShown = p.person.sessionId;
+          row.el.dataset.labelFade = "in";
+        }, LABEL_FADE_MS);
+      });
+
+      for (const [slot, row] of leaderboardRows) {
+        if (slot >= racers.length) {
+          clearTimeout(row.fadeTimer);
+          row.el.remove();
+          leaderboardRows.delete(slot);
         }
       }
     }
@@ -4314,6 +5102,18 @@
     emojiSearchWrap.appendChild(emojiSearchClear);
     const emojiScroll = document.createElement("div");
     emojiScroll.id = "emojiScroll";
+    // Explicit close, for the compact layout only (CSS hides it elsewhere).
+    // On a wide screen the picker is a small popover with the whole page
+    // around it to click away into; on a phone it spans the screen, leaving
+    // barely any "outside" to tap and no Escape key to fall back on.
+    const emojiClose = document.createElement("button");
+    emojiClose.id = "emojiClose";
+    emojiClose.type = "button";
+    emojiClose.textContent = "✕";
+    emojiClose.title = "Close";
+    emojiClose.setAttribute("aria-label", "Close avatar picker");
+    emojiClose.onclick = closeEmojiPicker;
+    emojiPicker.appendChild(emojiClose);
     emojiPicker.appendChild(emojiTabs);
     emojiPicker.appendChild(emojiSearchWrap);
     emojiPicker.appendChild(emojiScroll);
@@ -4481,8 +5281,13 @@
       updateActiveTab();
       // Typing is the fastest way through 1000+ emoji, so start there. Safe to
       // take focus even mid-race: render()'s "put the cursor back in the typing
-      // box" rule stands down while this picker is open.
-      emojiSearch.focus();
+      // box" rule stands down while this picker is open. Not on a touchscreen
+      // though - the keyboard it raises would cover the grid you came here to
+      // look at, and scrolling to an emoji is the faster route there anyway.
+      // The search box is still right there to tap. Narrowing a desktop window
+      // changes nothing about this: it still has a keyboard, so typing is still
+      // the fastest way in.
+      if (!touchInput.matches) emojiSearch.focus();
     }
 
     function closeEmojiPicker() {
@@ -4504,8 +5309,11 @@
       if (emojiPicker.dataset.open === "1") closeEmojiPicker();
       else openEmojiPicker();
     };
-    // Click anywhere outside the open picker closes it.
-    document.addEventListener("mousedown", (e) => {
+    // Click or tap anywhere outside the open picker closes it. pointerdown
+    // rather than mousedown so a touchscreen fires it natively instead of
+    // relying on the browser to synthesize a mouse event; it fires at the same
+    // moment as mousedown for a mouse, so nothing changes with one.
+    document.addEventListener("pointerdown", (e) => {
       if (emojiPicker.dataset.open !== "1") return;
       if (e.target === emojiBtn || emojiPicker.contains(e.target)) return;
       closeEmojiPicker();
@@ -4624,13 +5432,17 @@
     // Click anywhere outside the open panel closes it (and commits the name).
     // The gear and the header name are exempt - they toggle it themselves, so
     // letting this also fire would close-then-reopen (a flicker).
-    document.addEventListener("mousedown", (e) => {
+    document.addEventListener("pointerdown", (e) => {
       if (settingsPanel.dataset.open !== "1") return;
       if (e.target === settingsBtn || e.target === usernameDisplay || settingsPanel.contains(e.target)) return;
       closeSettings();
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") closeSettings();
+      // Escape backs out of the compact layout's sheet too, for anyone on a
+      // small window with a real keyboard. Last in the chain of Escape
+      // handlers, and harmless when the sheet isn't open.
+      if (e.key === "Escape" && sheetOpen) setSheetOpen(false);
     });
 
     // Large WPM display toggle (Settings). Replaces the old "Race in progress"
@@ -4671,8 +5483,8 @@
         btn.setAttribute("aria-checked", active ? "true" : "false");
       });
       leaderboard.dataset.mode = trackMode;
+      applyTrackOrderUi();
     }
-    applyTrackModeUi();
 
     trackModeBtns.forEach((btn) => {
       btn.onclick = () => {
@@ -4683,6 +5495,68 @@
         if (room) render(room.state); // reflect immediately
       };
     });
+
+    // Live positions (Settings): how live rank is shown DURING a race, on top
+    // of the per-racer tracks. "static" leaves the tracks in join order until
+    // the race ends (the original behaviour, and still the default), "slide"
+    // moves the tracks into rank order, "swap" holds the tracks still and
+    // moves the racers' labels between them. Slide and swap are two answers to
+    // the same question, so this is one three-way setting rather than two
+    // toggles - "both on" would have no meaning. Purely a display preference:
+    // no schema fields, no room messages, nothing the server ever hears about.
+    const TRACK_ORDER_KEY = "typingRace.trackOrder";
+    let trackOrder = localStorage.getItem(TRACK_ORDER_KEY) || "static";
+    if (!["static", "slide", "swap"].includes(trackOrder)) trackOrder = "static";
+    const trackOrderBtns = Array.from(trackOrderGroup.querySelectorAll(".segmented-btn"));
+
+    // Slide is pure motion, so a system-level reduced-motion request drops it
+    // to static outright. Swap survives it - the mode still works, it just
+    // changes labels instantly instead of cross-fading (see
+    // fillLeaderboardSlots), and the tracks never move in the first place.
+    function effectiveTrackOrder() {
+      if (trackMode !== "default") return "static";
+      if (trackOrder === "slide" && reducedMotion.matches) return "static";
+      return trackOrder;
+    }
+
+    function applyTrackOrderUi() {
+      // Only the multiple-tracks view has an order to change, so the other two
+      // dim this whole group out and say why, rather than leaving a control
+      // that silently does nothing.
+      const usable = trackMode === "default";
+      trackOrderField.dataset.enabled = usable ? "1" : "0";
+      trackOrderGroup.setAttribute("aria-disabled", usable ? "false" : "true");
+      trackOrderBtns.forEach((btn) => {
+        const active = btn.dataset.order === trackOrder;
+        btn.dataset.active = active ? "1" : "0";
+        btn.setAttribute("aria-checked", active ? "true" : "false");
+        btn.disabled = !usable;
+      });
+      trackOrderHint.textContent =
+        !usable ? "Only applies to the All tracks display."
+        : trackOrder === "slide" && reducedMotion.matches
+          ? "Off while your system asks for reduced motion."
+          : "Reorder the tracks mid-race as racers overtake each other.";
+    }
+
+    trackOrderBtns.forEach((btn) => {
+      btn.onclick = () => {
+        if (btn.dataset.order === trackOrder) return;
+        trackOrder = btn.dataset.order;
+        localStorage.setItem(TRACK_ORDER_KEY, trackOrder);
+        applyTrackOrderUi();
+        if (room) render(room.state); // reflect immediately
+      };
+    });
+
+    // Flipping the OS setting mid-session shouldn't need a reload: the hint
+    // and (for slide) the actual behaviour both follow it live.
+    reducedMotion.addEventListener("change", () => {
+      applyTrackOrderUi();
+      if (room) render(room.state);
+    });
+
+    applyTrackModeUi(); // also paints the Live positions group (see above)
 
     // Sound cue toggle (Settings). On by default; persisted per browser.
     function applySoundToggleUi() {
@@ -4766,6 +5640,9 @@
       absorbCorrectWords(quote);
       enforceErrorCap(quote);
       paintQuote(quote);
+      // Follows the caret down a quote that's taller than a phone screen. No-op
+      // on desktop, where the whole quote is in view to begin with.
+      keepCaretVisible();
       room.send("typeProgress", { input: committed + typeInput.value });
     }
 
@@ -5032,6 +5909,10 @@
     // Text layout (and thus caret positions) can shift on resize; recompute.
     window.addEventListener("resize", () => { if (room) renderGhostCarets(room.state); });
     // --- end experimental block ------------------------------------------------
+
+    // Primes --kb-inset (and the ghost-caret redraw that hangs off it) now that
+    // every binding it touches exists. See updateKeyboardInset.
+    updateKeyboardInset();
 
     connect();
   </script>
