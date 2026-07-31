@@ -1016,9 +1016,25 @@
          remainder, which is what keeps a very short phone from overflowing the
          arena instead. */
       #quoteWrap {
-        flex: 1 1000 auto; min-height: calc(2 * var(--quote-line, 29px));
+        flex: 1 1000 auto;
+        min-height: calc(2 * var(--quote-line, 29px) + var(--ghost-room, 0px));
+        padding-top: var(--ghost-room, 0px);
         overflow: hidden;
       }
+      /* Ghost carets ("Show racers on text") hang a lollipop ABOVE the line
+         they sit on, so the FIRST line's emoji needs room above the text - room
+         the window's own clip box was cutting off, and which the tightened
+         track gap above was letting it collide with.
+         padding-top grows the clip box upward; the negative margin puts most of
+         it back so the text only drops by the few px of clearance wanted from
+         the tracks. Nothing is reserved when the feature is off, which is the
+         default. */
+      #quoteWrap:has(#quote[data-ghosts="1"]) { --ghost-room: 22px; margin-top: -6px; }
+      /* The lollipop lives in the leading between lines, and the mobile quote
+         is 17px where the desktop one is 20px - the same 2.0 leaves a ~15px
+         emoji only about a pixel of clearance, which is what "touching the line
+         above" was. More leading here, mobile only. */
+      #quote[data-ghosts="1"] { line-height: 2.3; }
       /* Slides by whole lines. The transition is short and eased so a line
          change reads as a step rather than a jump; under reduced motion it
          simply snaps. */
@@ -2396,7 +2412,14 @@
       if (!span) { quoteScroll.style.transform = ""; return; }
 
       const totalLines = Math.max(1, Math.round(quoteEl.offsetHeight / lineH));
-      const visible = Math.max(1, Math.floor(quoteWrap.clientHeight / lineH));
+      // clientHeight includes the padding that reserves room for a first-line
+      // ghost lollipop, and that padding holds no text - counting it would
+      // overstate how many lines are on screen and stop the window advancing
+      // when it should.
+      const wcs = getComputedStyle(quoteWrap);
+      const innerH = quoteWrap.clientHeight
+        - parseFloat(wcs.paddingTop || 0) - parseFloat(wcs.paddingBottom || 0);
+      const visible = Math.max(1, Math.floor(innerH / lineH));
       // Clamped to the last full window rather than left to run past the end,
       // so the final lines fill the window instead of the current line sitting
       // alone at the top with blank space under it.
