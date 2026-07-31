@@ -2868,3 +2868,20 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   roomId is kept so the duplicate still lands in the same lobby. No server or
   schema change. Verified the client script still parses; the lock logic was
   reasoned through (no browser automation in this environment).
+- 2026-07-31: Fixed the Join button loading into the WRONG layout container
+  (reported separately from, and after, the duplicated-tab clientId fix
+  above): sometimes it sat in the desktop sidebar while the phone/compact
+  layout was active (so it was hidden off-screen in the sidebar sheet), or in
+  the hidden bottom bar while the desktop layout was active (so it was
+  invisible). The button is a single element moved between #mobileBar
+  (compact) and .sidebar (desktop) by syncCompactLayout(), driven by the
+  `compactLayout` media query. Root cause: syncCompactLayout()'s one-time
+  init read of `matchMedia().matches` can be stale (the first synchronous
+  read can predate the browser's final viewport and then self-correct WITHOUT
+  firing a `change` event), so the button was placed once against a wrong
+  value and never reconciled until an actual breakpoint crossing. Fix
+  (client-only): extracted the reparenting into a small idempotent,
+  side-effect-free `placeJoinButton()` (no sheet reset, unlike
+  syncCompactLayout) and now re-run it on `resize`, `orientationchange`,
+  `pageshow`, and a post-load `requestAnimationFrame`, so a stale initial
+  read self-heals the instant any of those fires. No server or schema change.

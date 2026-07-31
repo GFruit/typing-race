@@ -2236,12 +2236,25 @@
     // button lives differs. Moving the element (rather than duplicating it)
     // keeps every listener and every `joinBtn`/`joinBtnLabel` reference in this
     // file valid, so nothing else in the client has to know the layout changed.
+    // The join button is a SINGLE element moved between the sidebar (desktop)
+    // and the bottom bar (compact) rather than duplicated, so all its listeners
+    // and references stay valid. Which container it lives in is driven solely by
+    // the media query, so it always matches the CSS that shows/hides those
+    // containers. Kept as its own tiny, idempotent, side-effect-FREE function
+    // (no sheet reset, unlike syncCompactLayout) so it can be re-run from many
+    // events - resize, orientationchange, pageshow, a post-load frame - to
+    // reconcile placement. A stale initial matchMedia read (seen on some loads:
+    // the first synchronous read can predate the browser's final viewport and
+    // then self-correct WITHOUT firing a `change` event, leaving the button
+    // stuck in the sidebar on a phone or hidden in the bottom bar on desktop)
+    // therefore self-heals the instant any of those events fires.
+    function placeJoinButton() {
+      const target = compactLayout.matches ? mobileBar : sidebarEl;
+      if (joinBtn.parentElement !== target) target.prepend(joinBtn);
+    }
+
     function syncCompactLayout() {
-      if (compactLayout.matches) {
-        if (joinBtn.parentElement !== mobileBar) mobileBar.prepend(joinBtn);
-      } else {
-        if (joinBtn.parentElement !== sidebarEl) sidebarEl.prepend(joinBtn);
-      }
+      placeJoinButton();
       // Always resolved explicitly rather than left to the CSS default, so the
       // sheet is in a known state on the first frame and after any crossing of
       // the breakpoint (rotating a phone is one - it can cross 820px both
@@ -2400,6 +2413,24 @@
     // right place on the first frame. The keyboard inset can't be read yet
     // (it touches `room`), so it's primed at the end of this script instead.
     syncCompactLayout();
+
+    // Reconcile the button's container whenever the layout can change or a stale
+    // initial read can settle. placeJoinButton() is idempotent and has no sheet
+    // side effects, so running it on every resize is cheap and safe: it moves
+    // the button only when it's actually in the wrong container. This is what
+    // stops the button from loading into the wrong place - visible on desktop
+    // but sitting in the hidden bottom bar, or missing on a phone because it's
+    // stuck in the desktop sidebar. (The breakpoint-cross itself is still
+    // handled by the media query's `change` listener above, which also resets
+    // the sheet; these extra hooks only ever fix placement.)
+    window.addEventListener("resize", placeJoinButton);
+    window.addEventListener("orientationchange", placeJoinButton);
+    // pageshow fires on load and on bfcache restore, where a restored context
+    // can hand back a stale matchMedia value until the first real read.
+    window.addEventListener("pageshow", placeJoinButton);
+    // A first read at parse time can predate the browser's final viewport;
+    // re-check once layout has settled a frame later.
+    requestAnimationFrame(placeJoinButton);
 
     // --- Keeping the typing position on screen ---------------------------------
     // A quote that fits comfortably on a monitor can be several screens tall on
