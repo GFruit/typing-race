@@ -2008,7 +2008,7 @@
              without a tap doesn't raise the keyboard), so the box would just
              sit there looking inert. This says what to do about it, and
              disappears the moment the box has focus. -->
-        <div id="tapHint" aria-hidden="true">Tap to type</div>
+        <div id="tapHint" aria-hidden="true">Tap anywhere to type</div>
         <div id="errorNotice">Fix errors to continue</div>
         <!-- Centered prompt shown in the empty box: a "get ready" line before
              the race, then a flashing nudge if the racer sits idle once it's
@@ -3225,6 +3225,11 @@
     // for why that's both necessary and safe).
     const shortLayout = window.matchMedia("(max-height: 560px)");
     let raceInputShowing = false; // set by render(): is the racer's input box up?
+    // set by render(): would tapping Join seat me in the race being set up RIGHT
+    // now (label "Join Race"), rather than reserve me the next one or a queue
+    // place? The click handler reads it to decide whether raising the keyboard in
+    // the tap is worthwhile - see there.
+    let joinSeatsNow = false;
     function placeInputBar() {
       // Touch devices ALWAYS merge, whatever the current layout height. A phone
       // starts a race with plenty of height, but opening the on-screen keyboard
@@ -4348,6 +4353,10 @@
       // in the race (mirrors RaceRoom's setStatus). Exempts me when I already
       // hold a slot - a full room isn't "full" from the inside.
       const slotsFull = !iHoldSlot && state.racerCount >= MAX_RACERS;
+      // "Join Race" (seated immediately) vs "Join Next Race"/"Join Race Queue"
+      // (a wait first). Only the immediate case is worth raising the keyboard for
+      // in the click handler - see joinBtn.onclick.
+      joinSeatsNow = canJoinNow && !slotsFull;
 
       // Capture/refresh my avatar from synced state: this is how a first-visit
       // player learns the random emoji the server assigned them, and how the
@@ -5382,16 +5391,22 @@
       // get it out of the way. Both directions - joining wants the typing box
       // in view, and backing out wants the race you're now watching.
       setSheetOpen(false);
-      // Touch, and we're joining (not backing out): raise the on-screen keyboard
-      // NOW, inside this tap. Joining only asks the server to enroll us; the race
-      // then begins on a server event that carries no user gesture, and a phone
-      // won't open its keyboard without one - so this tap is the only moment it
-      // can be raised. Show and enable the box and focus it here; once our
-      // "racing" status lands, render() keeps it up (see keyboardParked), and if
-      // the join can't seat us it drops it again. This runs AFTER setSheetOpen,
-      // whose modal-close hands focus back to the opener button - focusing here
-      // last is what wins and keeps the keyboard tied to the input.
-      if (touchInput.matches && !iAmIn) {
+      // Touch, joining (not backing out), AND this tap seats us in the race being
+      // set up right now: raise the on-screen keyboard NOW, inside this tap. The
+      // race then begins on a server event that carries no user gesture, and a
+      // phone won't open its keyboard without one - so for an imminent race this
+      // tap is the only moment it can be raised, and keyboardParked keeps it up
+      // from here through the countdown. But when the join only RESERVES us a
+      // later race ("Join Next Race") or a queue place ("Join Race Queue"), the
+      // wait is long and spent watching the current race - a keyboard raised now
+      // just covers that race until the racer dismisses it, then can't return
+      // without a gesture. So we skip it and let "Tap anywhere to type" pick up
+      // the fresh tap once the next race actually goes live. Show and enable the
+      // box and focus it here; once our "racing" status lands, render() keeps it
+      // up, and if the join can't seat us it drops it again. This runs AFTER
+      // setSheetOpen, whose modal-close hands focus back to the opener button -
+      // focusing here last is what wins and keeps the keyboard tied to the input.
+      if (touchInput.matches && !iAmIn && joinSeatsNow) {
         raceInputShowing = true;
         inputWrap.dataset.visible = "1";
         typeInput.dataset.visible = "1";
