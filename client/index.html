@@ -1057,8 +1057,14 @@
          (the lollipop layer sits above the mask). Nothing is reserved when the
          feature is off, which is the default. The horizontal overhang is handled
          separately by overflow-x: visible above - the sides have nothing to
-         trade, so they simply never clip. */
-      #quoteWrap:has(#quote[data-ghosts="1"]) { --ghost-room: 22px; margin-top: -6px; }
+         trade, so they simply never clip.
+         Sized to the emoji's ACTUAL overhang, not guessed: a 15px lollipop
+         protrudes only ~7px above its line box (measured), so 12px is enough to
+         hold it fully with a couple px to spare for phones that render emoji a
+         touch larger. It used to be 22px, which just wasted ~10px of precious
+         vertical space on a band that (now that it's masked) shows no text - that
+         reclaim is the whole point of this size. */
+      #quoteWrap:has(#quote[data-ghosts="1"]) { --ghost-room: 12px; margin-top: -6px; }
       /* The lollipop lives in the leading between lines, and the mobile quote
          is 17px where the desktop one is 20px - the same 2.0 leaves a ~15px
          emoji only about a pixel of clearance, which is what "touching the line

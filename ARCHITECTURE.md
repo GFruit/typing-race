@@ -2936,3 +2936,16 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   unchanged. Client-only. (Deferred, per user: making the 2nd line always FULLY
   visible / an adaptive 2-or-3 line window - would need reclaiming the ~22px
   lollipop band or trading track/WPM space; not done yet.)
+- 2026-08-01: Right-sized the ghost-lollipop band (--ghost-room) from 22px to
+  12px, reclaiming ~10px of vertical reading space on mobile when live carets
+  are on. The band reserves room above the top visible line for that line's
+  caret-lollipop; once #quoteTopMask started covering it (see the earlier
+  entry), any excess band height was just dead space. Measured the actual need:
+  a 15px lollipop protrudes only ~7px above its line box, so 12px holds it fully
+  with a couple px of slack for phones that render emoji a touch larger than
+  desktop Chrome (where the 7px was measured). Verified by screenshot: with a
+  second racer whose ghost caret lands on the TOP visible line, the lollipop is
+  fully visible, clear of the tracks above, and covers no text; the tight
+  two-line view is correspondingly more compact. This is the "reclaim the band"
+  half of the deferred item above; a fully adaptive 2-or-3-line window is still
+  open. Client-only.
