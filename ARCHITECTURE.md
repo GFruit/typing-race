@@ -3093,3 +3093,161 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   (`#1e293b`/`#64748b`/`#94a3b8`/`#e2e8f0`/`#334155`), after which global
   hex swaps on the dark base were collision-free. Verified: no stale old hexes
   remain and the key surfaces resolve to the new palette.
+
+- 2026-08-01: Compact bottom sheet gained a HEIGHT-gated two-view split.
+  Reported bug: at high browser zoom (~200%+) the layout crosses the 820px
+  width breakpoint into the compact sheet, which stacks the roster (capped 42%)
+  above the chat and splits the sheet's height between them - and on a sheet
+  only a couple hundred px tall that left the chat log with barely a line, so
+  chat looked empty. Key correction over the first pass: the stacked sheet is
+  RIGHT whenever it has the height (a portrait phone, or a narrow desktop window
+  zoomed *out* to 67% - compact on width but tall), so the split must be gated
+  on the sheet being genuinely SHORT, not on being compact. New
+  `twoViewSheet` media query `(max-width:820px) and (max-height:560px),
+  (max-height:520px) and (pointer:coarse)` - duplicated verbatim in CSS and JS -
+  drives it. When it matches, the sheet becomes two full-height views tracked by
+  `data-sheet-view` on `.sidebar`: **chat** (default) shows only the log;
+  **players** shows the roster scrolling as one list with the Watching group
+  collapsed to just its header count. **Switch Lobby now lives in an
+  always-visible top row** (`.lobby-row`) above BOTH views, no longer buried in
+  the players view. The toggle `#sheetViewToggle` is an **icon-only** button
+  (labels dropped) pinned to the right of that row, anchored by
+  `.lobby-row{position:relative}`; its icon names the destination (people icon
+  while chat shows, chat bubble while roster shows). Below 560px sits under
+  common portrait-phone heights (iPhone SE 667), so phones keep the stacked
+  sheet - the split is reached in practice only via zoom or a landscape phone.
+  Desktop and the tall/stacked compact sheet are untouched: the toggle is
+  `display:none` outside the short-sheet query and the split rules live inside
+  it. `syncSidebarDensity` short-circuits to the roomiest tier only when
+  `twoViewSheet` matches (roster owns its view); the tier search still runs on
+  desktop AND on the stacked compact sheet. Each fresh sheet-open, and any cross
+  of the short threshold, resets to chat. Unread chat dots the toggle when the
+  open short sheet is parked on players. Verified: both embedded scripts pass
+  `node --check`.
+
+- 2026-08-01: Full-screen overlay for extreme zoom (~300%+), plus a11y. At that
+  zoom even the two-view sheet (which starts 30px below the header and stops
+  above the bottom bar) left the chat with no room. New `fullSheet` tier
+  `(max-width:820px) and (max-height:430px), (max-height:430px) and
+  (pointer:coarse)` (mirrored CSS "TINY SHEET" block + JS) lifts the OPEN sheet
+  to `position:fixed; top:0; bottom:var(--kb-inset,0)` at `z-index:70`, so it
+  covers the header and the bottom bar and hands the whole viewport (bar the
+  on-screen keyboard) to the chat/roster. Because that hides every existing
+  dismiss control (bottom-bar toggle, scrim), the overlay becomes a real modal
+  **dialog**: an in-sheet Close button `#sheetClose` (X, pinned opposite the
+  view toggle on the always-visible top row) appears, and `syncSheetModality()`
+  sets `role=dialog`/`aria-modal`/`aria-label` on `.sidebar`, moves focus in on
+  open, restores it to the opener (fallback: bottom-bar toggle) on close, and a
+  document-level Tab handler traps focus inside while modal. Escape already
+  closed the sheet and still does. The dialog treatment is applied ONLY at the
+  full-screen tier (elsewhere the sheet deliberately isn't modal - the bottom
+  bar's Join/toggle stay usable), and is toggled live when zoom crosses the
+  threshold with the sheet open (the `fullSheet` change listener). Grab handle
+  and scrim are dropped at this tier. All new controls are `display:none`
+  outside their tiers, so desktop and the taller sheets are untouched. Verified
+  with headless-Chrome screenshots (full-screen chat + players, and a desktop
+  no-regression pass) and `node --check`.
+
+- 2026-08-01: Full-screen tier tightened for very narrow, heavily-zoomed
+  screens. Two fixes, both scoped to the "TINY SHEET" query: (1) the centered
+  "Switch Lobby" text button grew wide enough to run under the Close and
+  view-toggle buttons pinned at the row's edges, so at this tier it collapses to
+  the same 34px icon button (a swap/arrows glyph) - the text label lives in a
+  `.switch-lobby-text` span that's hidden here, with `aria-label="Switch Lobby"`
+  on the button keeping its accessible name stable. (2) The chat Send button is
+  dropped (`#chatForm .btn-send{display:none}`) so the input spans full width;
+  Enter still submits, and `enterkeyhint="send"` makes the on-screen keyboard's
+  action key read "Send". Everything reverts above the tier (text label back,
+  Send button back). Verified with headless screenshots at ~300px width (three
+  evenly-spaced top-row icons, full-width input) and `node --check`.
+
+- 2026-08-01: Race bottom bar reworked to REUSE the mobile bar for exact
+  geometry. Feedback: the merged input should sit in the Join button's exact
+  slot (it was a bit narrower and vertically shifted), the chat toggle should
+  stay OUTSIDE next to it (only Leave inside), and the start-hint wasn't
+  shrinking. Change of approach: instead of hiding #mobileBar and restyling the
+  arena's #inputWrap as the bar, `placeInputBar()` now MOVES #inputWrap into
+  #mobileBar (before #lobbyToggle) and hides #joinBtn, so the input literally
+  takes the button's flex slot (`flex:1; max-width:460`) with the chat toggle
+  beside it - identical width and position. Only #raceLeaveBtn stays inside the
+  input (right-aligned, 8px in from the border); chat is the existing
+  #lobbyToggle again (so its unread dot needs no mirroring - that code was
+  removed, as was #raceChatBtn). Because a DOM move blurs a focused input, the
+  trigger switched from the keyboard-aware visual height to a LAYOUT media query
+  `shortLayout = (max-height:560px)`: it doesn't flip when the on-screen keyboard
+  opens (only the visual viewport shrinks then), so the move only happens on a
+  real layout change or when the racer joins - both keyboard-down. On desktop
+  (no keyboard) behaviour is unchanged. The narrow tier now drops #lobbyToggle
+  (chat) rather than a second in-input icon. Start-hint: dropped the width
+  media-query guess for a real overflow MEASUREMENT - `setStartHint` writes the
+  full line, and if `scrollWidth > clientWidth` swaps to a short one marked
+  `data-fit="short"` (which left-aligns); re-measured on render and resize.
+  Verified: getBoundingClientRect (input in the bar at the button's slot, Leave
+  8px inside its right border, chat toggle outside), a headless test that
+  `scrollWidth>clientWidth` detects overflow for centred nowrap text, and `node
+  --check`. NOTE (unchanged): the on-device keyboard-focus-across-move can't be
+  headless-tested - but the move is now keyboard-down by construction.
+
+- 2026-08-01: "All tracks" auto-falls-back to the shared track on a short arena.
+  The per-racer "All tracks" view needs a row of height per racer; at extreme
+  zoom, or with a phone keyboard covering the arena, they don't fit and get
+  squeezed off - so "All tracks doesn't make sense if you can't see the tracks
+  anyway" (user). Added a SPACE OVERRIDE: `effectiveTrackMode()` returns the
+  user's `trackMode` normally but downgrades `"default"` -> `"shared"` while
+  `lowTrackHeight` is set (`"shared"`/`"hidden"` are already compact and are
+  left alone). It is display-only - `trackMode`/localStorage are never written,
+  the Settings picker still shows the real choice, and full tracks return the
+  instant there's room. `tracksTooTall(count)` decides by MEASURING the live
+  layout: arena `clientHeight` vs `count * perTrack + statusSlot + inputWrap +
+  two quote lines`, where `perTrack` is learned from a real leaderboard render
+  (`scrollHeight/count`, falling back to a per-layout constant, reset on a
+  compact<->desktop cross). render() recomputes it each frame and reads the
+  effective mode for the arena display AND for whether wpm/rank stats move to
+  the sidebar (they do when the arena shows the shared bar); a resize/zoom/
+  keyboard change with no state of its own calls `refreshTrackFit()`, which
+  re-renders only if the override flipped. `applyTrackModeUi` sets
+  `leaderboard.dataset.mode` from the effective mode but keeps the picker's
+  active button on the raw `trackMode`. Verified by measuring the real arena at
+  several heights (tall -> 5 tracks/default; short & tiny -> shared) plus
+  screenshots and `node --check`.
+
+- 2026-08-01: The typing input becomes the compact bottom bar when space is
+  tight ("race bottom bar"). Before, a racer on a short/keyboard-up phone had
+  TWO stacked bottom rows: the typing input (sticky at the arena bottom) AND the
+  mobile action bar (Join/Spectate + chat toggle) below it. Now, when the
+  racer's input is showing AND vertical space is tight, the input row IS the
+  bottom bar: `#mobileBar` stands down and its jobs move into the input row as
+  small icons pinned right - a chat toggle and a leave/spectate (eye) button.
+  CRUCIAL constraint: the `#typeInput` element is NEVER reparented (moving a
+  focused input blurs it and drops the on-screen keyboard - the whole thing the
+  keyboardParked logic protects); only CSS + a `<html data-race-bar>` flag
+  change, so merging/un-merging mid-race is safe. `applyBottomBar()` sets the
+  flag when `compactLayout && raceInputShowing && availH <= 560`, where availH is
+  the KEYBOARD-AWARE `visualViewport.height` (tight space usually IS the keyboard
+  covering half the screen); it's recomputed in render() and on every viewport/
+  resize/keyboard event. Icons: `#raceLeaveBtn` sends `setStatus{racing:false}`
+  (same as the Join/Spectate button's back-out); `#raceChatBtn` opens the sheet
+  and mirrors the unread dot (`#raceChatUnread`). A further `@media (max-width:
+  380px)` tier drops the chat icon so leave/spectate alone takes the row's end -
+  the one control that must survive. The input's right padding and the
+  error/start notices re-inset by `--bar-actions-w` so nothing paints over the
+  icons. All new bits are `display:none` off-tier, so desktop and the normal
+  (untight) compact bottom bar are unchanged. Verified with screenshots (merged
+  two-icon, merged narrow one-icon, and the unchanged two-row state) + `node
+  --check`. NOTE: on-device keyboard behavior (the input keeping focus across a
+  merge) can't be exercised headlessly - worth a real-device check.
+
+- 2026-08-01: Race-bottom-bar polish. (1) The merged input no longer spans full
+  width on wide compact screens: it's capped `max-width:460px` and centred, so
+  it matches the Join button it replaces (that button was `flex:1` capped 460) -
+  the wrapper bg is the arena's own `#16130d`, so only the bordered input shows.
+  (2) Icon order flipped to Leave-then-Chat (Leave is the one kept when the
+  narrow tier drops Chat), and the cluster is inset from the input's right border
+  (`right:22px`) for padding inside the box. (3) The leave glyph is now a
+  log-out/exit arrow, not an eye (which didn't read as "stop racing"); aria-label
+  "Leave race". (4) The start-hint prompt overflowed a narrow box: `startHintText`
+  now returns a short wording ("Get ready to type…" / "Start typing!") under a
+  `(max-width:480px)` matchMedia (re-applied on its `change` since the mode is
+  unchanged), and the CSS left-aligns it there instead of centring a clipped
+  line. Verified with screenshots (wide centred bar + full hint; narrow one-icon
+  bar + short left-aligned hint) and `node --check`.

@@ -677,6 +677,21 @@
     }
     #typeInput:focus { border-color: #5ec9c2; }
 
+    /* The Leave control that sits inside the typing input on the compact "race
+       bar" (keyed off <html data-race-bar>); hidden otherwise. Matches the
+       sheet's other icon buttons. */
+    #raceBarActions { display: none; }
+    .race-bar-btn {
+      position: relative; flex-shrink: 0;
+      width: 32px; height: 32px; padding: 0;
+      display: grid; place-items: center;
+      background: #33291d; color: #d8cdb8;
+      border: 1px solid #4a3b29; border-radius: 9px; cursor: pointer;
+    }
+    .race-bar-btn:hover { background: #4a3b29; color: #ece4d6; }
+    .race-bar-btn:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 2px; }
+    .race-bar-btn svg { display: block; }
+
     /* Shown while typing is blocked because too many characters have piled up
        past an uncorrected mistake (see ERROR_TAIL_CAP). Inset by 1px so it
        covers the input's padding box but not its border; the gradient lets any
@@ -712,6 +727,11 @@
     #startHint[data-mode="go"] {
       display: flex; color: #fbbf24; animation: notice-blink 1.1s ease-in-out 3;
     }
+    /* When the box is too narrow, JS swaps in the short wording and marks it
+       data-fit="short" (see setStartHint); a short prompt left-aligns rather
+       than centering - a centered long line reads as clipped, a left-aligned
+       short one as an ordinary placeholder. */
+    #startHint[data-fit="short"] { justify-content: flex-start; text-align: left; }
 
     /* Full-height, own background + a divider (border-left) against the
        arena, so it reads as an actual sidebar rather than a component
@@ -743,6 +763,7 @@
        lobby-level action like the button above it, not part of the roster
        below, so it gets the separating space rather than a header to sit in. */
     .lobby-row {
+      position: relative; /* anchors #sheetViewToggle on the short-sheet layout */
       flex-shrink: 0; display: flex; justify-content: center;
       padding: 10px 16px; border-bottom: 1px solid #33291d;
     }
@@ -753,6 +774,9 @@
       letter-spacing: .02em; cursor: pointer;
     }
     .switch-lobby-btn:hover { background: #4a3b29; color: #ece4d6; }
+    /* The swap icon only stands in for the text at the full-screen tier; the
+       text label carries it everywhere else. */
+    .switch-lobby-icon { display: none; }
 
     /* Roster block: "Racers" (in join order, matching the race tracks) then
        "Watching". Sized by its contents - it never steals height from the
@@ -921,8 +945,10 @@
     .sidebar-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
     /* Hidden by default; the blocks below turn them on. Declared here so the
-       elements are inert unless a block that wants them actually applies. */
-    #mobileBar, #sheetScrim, #tapHint { display: none; }
+       elements are inert unless a block that wants them actually applies.
+       #sheetViewToggle only exists on the compact bottom sheet - desktop shows
+       the roster and chat at once, so there's nothing to toggle between. */
+    #mobileBar, #sheetScrim, #tapHint, #sheetViewToggle, #sheetClose { display: none; }
 
     /* Where #tapHint sits. It has to cover the typing box exactly, and the
        wrapper's own padding differs between the two layouts (none here, some
@@ -1176,6 +1202,41 @@
         bottom: calc(11px + env(safe-area-inset-bottom));
       }
 
+      /* --- The race bottom bar --------------------------------------------
+         On a short layout (JS sets <html data-race-bar="1"> and moves #inputWrap
+         into #mobileBar - see placeInputBar), the input takes the Join button's
+         exact slot: #joinBtn hides and #inputWrap becomes that flex child, so it
+         has the button's width AND position, with the chat toggle (#lobbyToggle)
+         still beside it - pressing Join turns the button into the input. Only the
+         Leave control lives inside the input, right-aligned with padding; chat
+         stays outside. With no wrapper padding here (the input's own border is
+         the box), the notices/hints re-inset to the input box (1px) and clear
+         the Leave strip (--bar-actions-w). */
+      html[data-race-bar="1"] #joinBtn { display: none; }
+      html[data-race-bar="1"] #inputWrap {
+        position: relative;
+        flex: 1 1 auto; min-width: 0; max-width: 460px;
+        width: auto; margin: 0; padding: 0;
+        background: transparent;
+        --bar-actions-w: 52px;
+        --hint-x: 1px; --hint-top: 1px; --hint-bottom: 1px;
+      }
+      html[data-race-bar="1"] #typeInput { padding-right: var(--bar-actions-w); }
+      /* Leave: inside the input's box, right-aligned, a little in from the
+         border (right: 8px), vertically centred across the input height. */
+      html[data-race-bar="1"] #raceBarActions {
+        display: flex; align-items: center;
+        position: absolute; top: 0; bottom: 0; right: 8px; z-index: 4;
+      }
+      html[data-race-bar="1"] #errorNotice { top: 1px; bottom: 1px; right: var(--bar-actions-w); }
+      html[data-race-bar="1"] #startHint { top: 1px; bottom: 1px; left: 1px; right: var(--bar-actions-w); }
+      html[data-race-bar="1"] #inputWrap[data-hint="1"] #tapHint { right: var(--bar-actions-w); }
+      /* Narrow too (horizontal space scarce): drop the outside chat toggle so
+         the input keeps its width. Leave (inside the input) always survives. */
+      @media (max-width: 380px) {
+        html[data-race-bar="1"] #lobbyToggle { display: none; }
+      }
+
       /* --- The sidebar as a bottom sheet ---------------------------------- */
       .sidebar {
         position: absolute; left: 0; right: 0; bottom: 0; top: 30px;
@@ -1285,6 +1346,133 @@
          selection ring is what has to carry the state here. */
       .emoji-cell:hover { transform: none; }
     }
+
+    /* ==========================================================================
+       SHORT COMPACT SHEET - the two-view split
+       ==========================================================================
+       The compact sheet above STACKS the roster over the chat and shares the
+       height between them, which is right whenever the sheet is tall: a portrait
+       phone, or a narrow desktop window zoomed OUT (67%, say) where the compact
+       breakpoint is crossed on width but there's still plenty of height. It only
+       fails when the sheet is genuinely SHORT - high browser zoom crushes the
+       viewport, and the stacked chat gets squeezed to a line or two.
+
+       So the split is gated on HEIGHT, not just on being compact:
+         - narrow AND short  -> the zoom case, and
+         - short AND coarse  -> a landscape phone,
+       either of which turns the sheet into two full-height views toggled by
+       #sheetViewToggle. The 560px cap sits comfortably below common portrait
+       phone heights (iPhone SE is 667), so phones keep the stacked sheet; it's
+       reached in practice only when the viewport is shrunk by zoom. The query
+       string is duplicated verbatim in JS as `twoViewSheet` - the two must stay
+       in step, since the JS half drives the density short-circuit and the
+       unread dot. */
+    @media (max-width: 820px) and (max-height: 560px),
+           (max-height: 520px) and (pointer: coarse) {
+      /* The view toggle, pinned to the right of the always-visible Switch Lobby
+         row (which anchors it - see .lobby-row position:relative). Icon only:
+         the aria-label carries the meaning, the picture carries the rest. */
+      #sheetViewToggle {
+        display: grid; place-items: center;
+        position: absolute; top: 50%; right: 12px; transform: translateY(-50%);
+        width: 34px; height: 30px; padding: 0;
+        background: #33291d; color: #d8cdb8;
+        border: 1px solid #4a3b29; border-radius: 9px; cursor: pointer;
+      }
+      #sheetViewToggle:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 2px; }
+      #sheetViewToggle svg { display: block; }
+      /* The icon names the DESTINATION: the people icon while chat is showing,
+         the chat bubble while the roster is showing. */
+      .sidebar[data-sheet-view="chat"] #sheetViewToggle .sv-chat,
+      .sidebar[data-sheet-view="players"] #sheetViewToggle .sv-players { display: none; }
+      /* Unread chat while you're on the players view - a dot on the toggle,
+         matching the closed-sheet dot on the bottom-bar toggle. */
+      #sheetViewUnread {
+        position: absolute; top: -3px; right: -3px;
+        width: 8px; height: 8px; border-radius: 50%;
+        background: #e2603f; border: 2px solid #1c1710;
+      }
+      #sheetViewUnread[hidden] { display: none; }
+
+      /* Chat view (the default): the log fills the sheet below the Switch Lobby
+         row; the roster stands down. Switch Lobby itself stays put. */
+      .sidebar[data-sheet-view="chat"] .roster { display: none; }
+      /* Players view: the roster fills the sheet and scrolls as one list; the
+         chat panel stands down. The Watching group drops to just its header
+         count (spectator list hidden) - the number is all this view wants. */
+      .sidebar[data-sheet-view="players"] .panel { display: none; }
+      .sidebar[data-sheet-view="players"] .roster {
+        flex: 1; min-height: 0; max-height: none;
+      }
+      .sidebar[data-sheet-view="players"] .spectators { display: none; }
+    }
+
+    /* ==========================================================================
+       TINY SHEET - the full-screen overlay
+       ==========================================================================
+       Extreme browser zoom (~300%+) shrinks the viewport so far that even the
+       two-view sheet - which starts 30px below a header and stops above the
+       bottom bar - has almost no height left for the chat. Past this point the
+       OPEN sheet stops being a bottom sheet and becomes a full-screen overlay:
+       it's lifted to `position:fixed` and pulled up over the header and down
+       over the bottom bar, so the whole viewport (bar the on-screen keyboard,
+       which `bottom:var(--kb-inset)` leaves clear) belongs to the sheet.
+
+       Because it now covers the header AND the bottom-bar toggle - every other
+       way to dismiss it - it becomes a real modal dialog: an in-sheet Close
+       button appears (#sheetClose), and the JS marks it role=dialog/aria-modal,
+       moves focus in on open, traps Tab inside, and restores focus on close
+       (see setSheetOpen / the focus-trap handler). The query is mirrored in JS
+       as `fullSheet`. */
+    @media (max-width: 820px) and (max-height: 430px),
+           (max-height: 430px) and (pointer: coarse) {
+      .sidebar {
+        /* Fixed to the viewport, not absolute within the arena, so it can reach
+           up over the header. Sits above the bottom bar (z-index 50) and the
+           static header. bottom clears the on-screen keyboard when one is up. */
+        position: fixed; top: 0; left: 0; right: 0;
+        bottom: var(--kb-inset, 0px);
+        border-top: 0; border-radius: 0; z-index: 70;
+        box-shadow: none;
+      }
+      /* The grab handle reads as "drag me down to dismiss", but there's no drag
+         here and Close does the job now - drop it to reclaim its band. */
+      .sidebar::before { display: none; }
+      /* Nothing behind the sheet to dim anymore - it covers everything. */
+      #sheetScrim { display: none !important; }
+      /* The Close affordance, mirrored opposite the view toggle on the always-
+         visible top row. Only exists at this size, where it's the sole way out
+         of the overlay besides Escape. */
+      #sheetClose {
+        display: grid; place-items: center;
+        position: absolute; top: 50%; left: 12px; transform: translateY(-50%);
+        width: 34px; height: 30px; padding: 0;
+        background: #33291d; color: #d8cdb8;
+        border: 1px solid #4a3b29; border-radius: 9px; cursor: pointer;
+      }
+      #sheetClose:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 2px; }
+      #sheetClose svg { display: block; }
+
+      /* On a very narrow, heavily-zoomed screen the full "Switch Lobby" text
+         button (centered in the row) grew wide enough to run under the Close
+         and view-toggle buttons pinned at the row's edges. Here it collapses to
+         the same 34px icon button as those two, so all three sit clear of each
+         other. */
+      #switchLobbyBtn {
+        display: grid; place-items: center;
+        width: 34px; height: 30px; padding: 0; border-radius: 9px;
+      }
+      .switch-lobby-text { display: none; }
+      .switch-lobby-icon { display: block; }
+
+      /* The Send button is dead weight here: Enter (the keyboard's "Send" key,
+         see enterkeyhint) already submits, and dropping it lets the input span
+         the full width - the point of the whole tier being to spend space on
+         content, not chrome. */
+      #chatForm .btn-send { display: none; }
+      #chatForm { gap: 0; }
+    }
+    html[data-theme="light"] #sheetClose { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft); }
 
     /* Landscape phones specifically: ~390px of height total, most of it eaten
        by the keyboard the moment you type. The status readout is the one big
@@ -1529,6 +1717,10 @@
     html[data-theme="light"] #lobbyToggle { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft); }
     html[data-theme="light"] #lobbyToggle[aria-expanded="true"] { background: var(--l-line); color: var(--l-ink); }
     html[data-theme="light"] #lobbyUnread { border-color: var(--l-card); }
+    html[data-theme="light"] #sheetViewToggle { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft); }
+    html[data-theme="light"] #sheetViewUnread { border-color: var(--l-card); }
+    html[data-theme="light"] .race-bar-btn { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft); }
+    html[data-theme="light"] .race-bar-btn:hover { background: var(--l-line); color: var(--l-ink); }
 
     /* --- Focus rings + scrollbars ------------------------------------------ */
     html[data-theme="light"] :focus-visible { outline-color: var(--l-cyan); }
@@ -1813,14 +2005,35 @@
              the race, then a flashing nudge if the racer sits idle once it's
              live. Text is set from setStartHint. -->
         <div id="startHint" aria-hidden="true"></div>
+        <!-- Compact "race bottom bar" only: when the layout is short the typing
+             input is relocated into the mobile action bar, taking the exact slot
+             (and size) the Join button had, with the chat toggle still beside it
+             - so pressing Join reads as the button turning into the input. Only
+             the LEAVE control lives inside the input (a clear exit glyph, right-
+             aligned with padding); chat stays outside. Hidden at every other
+             size. See placeInputBar(). -->
+        <div id="raceBarActions">
+          <button id="raceLeaveBtn" class="race-bar-btn" type="button" aria-label="Leave race">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </section>
 
-    <!-- Right: sidebar. Top-down: the join/spectate control, Switch Lobby,
-         the roster (racers in join order, then spectators), and chat filling
-         whatever height is left. One column, no view toggle - the roster and
-         the chat are both always visible now. -->
-    <div class="sidebar">
+    <!-- Right: sidebar. On desktop it's one column, top-down: the join/spectate
+         control, Switch Lobby, the roster (racers then spectators), and chat
+         filling whatever height is left - both roster and chat always visible.
+         The compact bottom sheet keeps that stacked shape while it has the
+         height for it. Only when the sheet is genuinely SHORT (high browser
+         zoom, or a landscape phone) does it split into two full-height views -
+         chat, or the roster - toggled by #sheetViewToggle, tracked by
+         data-sheet-view. Switch Lobby stays pinned at the top in every case.
+         Chat is the default view. -->
+    <div class="sidebar" data-sheet-view="chat">
       <!-- The badge carries the race-queue position ("#2") when you're in
            line; it's absolutely positioned so the label stays optically
            centered in every state, badge or no badge. -->
@@ -1832,7 +2045,44 @@
            flex column exactly, so the layout is unchanged. -->
       <div class="sidebar-scroll">
       <div class="lobby-row">
-        <button id="switchLobbyBtn" class="switch-lobby-btn" type="button">Switch Lobby</button>
+        <!-- Tiny-sheet (full-screen overlay) only: closes the sheet. It's the
+             sole dismiss control at that size, since the overlay covers both
+             the header and the bottom-bar toggle. Pinned opposite the view
+             toggle; hidden (display:none) at every other size, where the bottom
+             bar and the scrim still handle dismissal. -->
+        <button id="sheetClose" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+        <!-- aria-label keeps the accessible name "Switch Lobby" even at the
+             full-screen tier, where the text label is hidden and only the
+             swap icon shows (so the three top-row buttons fit a very narrow,
+             heavily-zoomed screen without overlapping). -->
+        <button id="switchLobbyBtn" class="switch-lobby-btn" type="button" aria-label="Switch Lobby">
+          <svg class="switch-lobby-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>
+          </svg>
+          <span class="switch-lobby-text">Switch Lobby</span>
+        </button>
+        <!-- Short-sheet only: an icon button pinned to the right of this
+             always-visible top row that flips the sheet between its chat view
+             and its players view. Icon shows the DESTINATION - a people icon
+             while chat is up, a chat bubble while the roster is up. Hidden
+             (display:none) whenever the sheet is tall enough to stack both, and
+             on desktop. -->
+        <button id="sheetViewToggle" type="button" aria-label="Show players">
+          <svg class="sv-players" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          <svg class="sv-chat" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z"/>
+          </svg>
+          <span id="sheetViewUnread" hidden></span>
+        </button>
       </div>
 
       <div class="roster">
@@ -1875,7 +2125,7 @@
              rows, so it can be pushed to the bottom (see #chatMessagesInner). -->
         <div id="chatMessages"><div id="chatMessagesInner"></div></div>
         <form id="chatForm">
-          <input id="chatInput" type="text" maxlength="200" autocomplete="off" placeholder="Send a message" />
+          <input id="chatInput" type="text" maxlength="200" autocomplete="off" enterkeyhint="send" placeholder="Send a message" />
           <button type="submit" class="btn-send">Send</button>
         </form>
       </div>
@@ -2588,6 +2838,7 @@
     const readoutBottom = document.getElementById("readoutBottom");
     const wpmToggle   = document.getElementById("wpmToggle");
     const raceTimer   = document.getElementById("raceTimer");
+    const statusSlot  = document.getElementById("statusSlot");
     const leaderboard = document.getElementById("leaderboard");
     const sharedTrack = document.getElementById("sharedTrack");
     const sharedTrackFill = document.getElementById("sharedTrackFill");
@@ -2629,6 +2880,10 @@
     const lobbyToggle = document.getElementById("lobbyToggle");
     const lobbyUnread = document.getElementById("lobbyUnread");
     const sheetScrim = document.getElementById("sheetScrim");
+    const sheetViewToggle = document.getElementById("sheetViewToggle");
+    const sheetViewUnread = document.getElementById("sheetViewUnread");
+    const sheetClose = document.getElementById("sheetClose");
+    const raceLeaveBtn = document.getElementById("raceLeaveBtn");
     const tapHintWrap = inputWrap; // #tapHint's visibility is driven off the wrapper
     const arenaEl    = document.querySelector(".arena");
 
@@ -2639,6 +2894,22 @@
     // a no-op while it doesn't match: a desktop browser runs the same code and
     // sees the same page it always did.
     const compactLayout = window.matchMedia("(max-width: 820px), (max-height: 520px) and (pointer: coarse)");
+
+    // A SUBSET of the compact layout: the sheet is not just compact but SHORT,
+    // so it can't stack the roster and the chat and instead splits into the two
+    // toggled views (see the "SHORT COMPACT SHEET" CSS block, whose query this
+    // must match verbatim). True at high browser zoom (a crushed viewport) and
+    // on landscape phones; false on portrait phones and on a merely-narrow
+    // desktop window, both of which have the height to stack.
+    const twoViewSheet = window.matchMedia("(max-width: 820px) and (max-height: 560px), (max-height: 520px) and (pointer: coarse)");
+
+    // A FURTHER subset: the sheet is so short (extreme browser zoom, or a very
+    // short landscape phone) that even the two-view chat has no room, so the
+    // open sheet becomes a full-screen modal overlay covering the header and
+    // the bottom bar. Must match the "TINY SHEET" CSS block verbatim. When this
+    // is active and the sheet is open, the sheet is a real dialog - see
+    // syncSheetModality and the focus trap.
+    const fullSheet = window.matchMedia("(max-width: 820px) and (max-height: 430px), (max-height: 430px) and (pointer: coarse)");
 
     // A SECOND, independent question: not "how big is the window" but "what is
     // typing on this thing". The two must not be conflated. Narrowing a desktop
@@ -2707,6 +2978,10 @@
       lobbyToggle.setAttribute("aria-expanded", sheetOpen ? "true" : "false");
       lobbyToggle.setAttribute("aria-label", sheetOpen ? "Close lobby and chat" : "Open lobby and chat");
       if (sheetOpen) {
+        // Every fresh open lands on the chat view - that's the default, and
+        // it's what an open sheet is usually for. (A close preserves the view;
+        // the reset is only on re-opening.)
+        setSheetView("chat");
         clearChatUnread();
         // The panel starts life translated off-screen, so its scroll container
         // had no height to scroll to while it was closed; re-anchor to the
@@ -2722,7 +2997,76 @@
           chatInput.blur();
         }
       }
+      // Apply or tear down the modal-dialog treatment (only when the sheet is a
+      // full-screen overlay). Ordered AFTER the open/close bookkeeping above so
+      // focus moves into a sheet that's already marked open, or is restored
+      // after it's marked closed.
+      syncSheetModality();
     }
+
+    // The full-screen overlay (see the "TINY SHEET" CSS) covers the header and
+    // the bottom-bar toggle, so it has to carry its own accessibility: it's a
+    // modal dialog. This turns that treatment on when (and only when) the sheet
+    // is open AND full-screen, and cleanly off otherwise - including when zoom
+    // crosses the threshold with the sheet already open (the fullSheet listener
+    // re-runs it). Idempotent: it no-ops if the state it wants is already set.
+    let sheetReturnFocus = null;
+    function syncSheetModality() {
+      const modal = sheetOpen && fullSheet.matches;
+      const isModal = sidebarEl.getAttribute("role") === "dialog";
+      if (modal === isModal) return;
+      if (modal) {
+        // Remember who to hand focus back to (the toggle that opened it), then
+        // present the sheet as a dialog and move focus inside.
+        sheetReturnFocus = document.activeElement;
+        sidebarEl.setAttribute("role", "dialog");
+        sidebarEl.setAttribute("aria-modal", "true");
+        sidebarEl.setAttribute("aria-label", "Lobby and chat");
+        sidebarEl.tabIndex = -1;
+        // Deferred so the sheet has finished sliding on-screen (an off-screen
+        // or visibility:hidden element can't take focus).
+        requestAnimationFrame(() => {
+          if (sheetOpen && fullSheet.matches) {
+            try { sidebarEl.focus({ preventScroll: true }); } catch (e) {}
+          }
+        });
+      } else {
+        sidebarEl.removeAttribute("role");
+        sidebarEl.removeAttribute("aria-modal");
+        sidebarEl.removeAttribute("aria-label");
+        sidebarEl.removeAttribute("tabindex");
+        const rf = sheetReturnFocus;
+        sheetReturnFocus = null;
+        // Restore focus to the opener, but fall back to the bottom-bar toggle
+        // when that opener is gone, hidden, or itself inside the sheet we're
+        // dismissing (which happens when zoom, not a click, entered the modal).
+        const target = (rf && rf.isConnected && rf.offsetParent !== null && !sidebarEl.contains(rf))
+          ? rf : lobbyToggle;
+        if (target && target.offsetParent !== null) {
+          try { target.focus({ preventScroll: true }); } catch (e) {}
+        }
+      }
+    }
+
+    // Keep Tab within the dialog while the sheet is a full-screen modal. A
+    // no-op at every other size, where the sheet isn't modal and the rest of
+    // the page is legitimately reachable behind it.
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Tab" || !(sheetOpen && fullSheet.matches)) return;
+      const nodes = sidebarEl.querySelectorAll(
+        'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])');
+      const list = Array.prototype.filter.call(nodes,
+        (el) => el === document.activeElement || el.offsetWidth > 0 || el.offsetHeight > 0);
+      if (!list.length) { e.preventDefault(); try { sidebarEl.focus(); } catch (x) {} return; }
+      const first = list[0], last = list[list.length - 1], active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === first || active === sidebarEl || !sidebarEl.contains(active)) {
+          e.preventDefault(); last.focus();
+        }
+      } else if (active === last || !sidebarEl.contains(active)) {
+        e.preventDefault(); first.focus();
+      }
+    });
 
     // Pins the log to the newest message. Deferred a frame because every caller
     // has just changed something that resizes the scroll container - the sheet
@@ -2796,19 +3140,91 @@
 
     lobbyToggle.onclick = () => setSheetOpen(!sheetOpen);
     sheetScrim.onclick = () => setSheetOpen(false);
+    // The in-sheet Close, present only on the full-screen overlay (its only
+    // other exits - the bottom-bar toggle and the scrim - are covered there).
+    sheetClose.onclick = () => setSheetOpen(false);
 
-    // A green dot on the toggle while chat moves behind a closed sheet. Only a
-    // dot: which messages you missed is what opening it is for.
+    // Which pane the compact sheet is showing: "chat" (the resting default -
+    // the log is what an open sheet is usually for) or "players" (the roster
+    // plus the Watching count). Only meaningful on the compact sheet; desktop
+    // shows both panes at once and ignores it. The CSS keys off data-sheet-view.
+    let sheetView = "chat";
+    function setSheetView(view) {
+      sheetView = view === "players" ? "players" : "chat";
+      sidebarEl.dataset.sheetView = sheetView;
+      sheetViewToggle.setAttribute(
+        "aria-label", sheetView === "chat" ? "Show players" : "Show chat");
+      if (sheetView === "chat") {
+        // Coming back to the log: clear its unread dot and re-pin to the newest
+        // message (the panel had no height to scroll while it was hidden, same
+        // as when the whole sheet was closed).
+        clearSheetChatUnread();
+        anchorChatToBottom();
+      }
+    }
+    sheetViewToggle.onclick = () =>
+      setSheetView(sheetView === "chat" ? "players" : "chat");
+
+    // A dot on the toggle while chat moves behind a closed sheet (lobbyUnread,
+    // in the bottom bar) or, when the sheet is open but showing the players
+    // view, on #sheetViewToggle. Only a dot either way: which messages you
+    // missed is what opening/switching is for.
     let chatUnread = false;
     function noteChatUnread() {
-      if (!compactLayout.matches || sheetOpen || chatUnread) return;
-      chatUnread = true;
-      lobbyUnread.hidden = false;
+      if (!compactLayout.matches) return;
+      if (!sheetOpen) {
+        if (chatUnread) return;
+        chatUnread = true;
+        lobbyUnread.hidden = false;
+      } else if (twoViewSheet.matches && sheetView === "players") {
+        // Sheet open but parked on the players view (only possible on the
+        // short two-view sheet) - dot the toggle so a message isn't missed.
+        sheetViewUnread.hidden = false;
+      }
     }
     function clearChatUnread() {
       chatUnread = false;
       lobbyUnread.hidden = true;
+      clearSheetChatUnread();
     }
+    function clearSheetChatUnread() {
+      sheetViewUnread.hidden = true;
+    }
+
+    // --- The race bottom bar --------------------------------------------------
+    // When a racer's typing input is showing on a SHORT layout, the input is
+    // relocated into the mobile action bar - into the exact flex slot the Join
+    // button occupied - with the chat toggle still beside it, so the Join button
+    // visibly turns into the input (see the "race bottom bar" CSS, which hides
+    // #joinBtn and restyles #inputWrap as that slot). Only the LEAVE control
+    // lives inside the input; chat stays outside as #lobbyToggle.
+    //
+    // The trigger is the LAYOUT height (a media query), not the keyboard-aware
+    // visual height, ON PURPOSE: the input element is MOVED in the DOM here, and
+    // a move blurs it (dropping the keyboard). A layout media query doesn't flip
+    // when the on-screen keyboard opens (that only shrinks the visual viewport),
+    // so the move happens on a real layout change or when the racer joins - both
+    // with the keyboard down - never mid-typing. On desktop (no keyboard) this is
+    // identical to the old visual-height check.
+    const shortLayout = window.matchMedia("(max-height: 560px)");
+    let raceInputShowing = false; // set by render(): is the racer's input box up?
+    function placeInputBar() {
+      const merged = compactLayout.matches && raceInputShowing && shortLayout.matches;
+      document.documentElement.dataset.raceBar = merged ? "1" : "0";
+      if (merged) {
+        // Into the Join button's slot (before the chat toggle). Idempotent.
+        if (inputWrap.parentElement !== mobileBar) mobileBar.insertBefore(inputWrap, lobbyToggle);
+      } else if (inputWrap.parentElement !== arenaEl) {
+        // Back to the bottom of the arena (its markup home).
+        arenaEl.appendChild(inputWrap);
+      }
+    }
+    // Re-place on a layout-height cross even with no state change of its own.
+    shortLayout.addEventListener("change", placeInputBar);
+
+    // Leave the race (become a spectator). Same intent as the Join/Spectate
+    // button's "back out" path; the button is hidden while this icon stands in.
+    raceLeaveBtn.onclick = () => { if (room) room.send("setStatus", { racing: false }); };
 
     // --- On-screen keyboard ----------------------------------------------------
     // A phone keyboard covers the bottom of the *visual* viewport without
@@ -2839,6 +3255,13 @@
       // container, and a scroll position measured against the old height leaves
       // the log parked away from the newest message.
       if (sheetOpen) anchorChatToBottom();
+      // The keyboard eating half the arena is exactly the "can't see the tracks
+      // anyway" case, so re-check the All-tracks fit against the shrunk arena.
+      refreshTrackFit();
+      // Re-place the input bar too. (The keyboard doesn't change the layout
+      // height this keys off, so this is usually a no-op - but a zoom that fires
+      // here as a visual-viewport change and not a resize would be caught.)
+      placeInputBar();
     }
 
     if (window.visualViewport) {
@@ -2847,11 +3270,34 @@
     }
     compactLayout.addEventListener("change", () => {
       syncCompactLayout();
+      // The per-track row height differs between the compact and desktop track
+      // styles, so drop the learned value; the fit check falls back to the
+      // right constant until the next render re-measures it. (updateKeyboardInset
+      // below re-checks the fit.)
+      measuredPerTrack = 0;
       updateKeyboardInset();
       // Crossing the breakpoint swaps between the scrolling sheet and the
       // fixed desktop column, so the roster's density has to be re-fit (or
       // reset to tier 0 on the sheet). See syncSidebarDensity.
       syncSidebarDensity();
+    });
+    // Crossing the SHORT threshold without crossing the compact one (e.g.
+    // zooming 150% -> 200% on a narrow window - still compact throughout, but
+    // the sheet goes from stacked to two-view). Land on the chat view, re-fit
+    // the roster density for the mode we're now in, and re-anchor the log,
+    // which was just resized by the roster appearing or standing down.
+    twoViewSheet.addEventListener("change", () => {
+      setSheetView("chat");
+      syncSidebarDensity();
+      if (sheetOpen) anchorChatToBottom();
+    });
+    // Crossing the full-screen threshold with the sheet already open (zooming
+    // past ~300%, say): promote the open sheet to a modal dialog, or demote it
+    // back, and re-anchor the log now that its height jumped by the header and
+    // bottom bar it just covered or uncovered.
+    fullSheet.addEventListener("change", () => {
+      syncSheetModality();
+      if (sheetOpen) anchorChatToBottom();
     });
     // Runs now, before anything paints, so the join button is already in the
     // right place on the first frame. The keyboard inset can't be read yet
@@ -2876,7 +3322,20 @@
     let densityRaf = 0;
     window.addEventListener("resize", () => {
       if (densityRaf) return;
-      densityRaf = requestAnimationFrame(() => { densityRaf = 0; syncSidebarDensity(); });
+      densityRaf = requestAnimationFrame(() => {
+        densityRaf = 0;
+        syncSidebarDensity();
+        // The same shrink that squeezes the chat can squeeze the race tracks
+        // off the arena; re-check whether "All tracks" still fits (see
+        // refreshTrackFit / the All-tracks space override).
+        refreshTrackFit();
+        // ...and whether the input should move into the bottom bar.
+        placeInputBar();
+        // A width change can make the start prompt start/stop fitting its box;
+        // re-measure it (only meaningful while one is up).
+        const shMode = startHint.dataset.mode;
+        if (shMode === "ready" || shMode === "go") setStartHint(shMode);
+      });
     });
     // pageshow fires on load and on bfcache restore, where a restored context
     // can hand back a stale matchMedia value until the first real read.
@@ -3000,13 +3459,29 @@
       setStartHint(mode);
     }
 
+    // Each prompt has a long and a short wording. Which one shows isn't guessed
+    // from a width breakpoint (the box width depends on the layout AND the Leave
+    // icon inside it): the full line is written, and if it actually OVERFLOWS
+    // the box it's swapped for the short one, which then also left-aligns
+    // (data-fit="short") - a centred clipped line reads as broken, a short
+    // left-aligned one as an ordinary placeholder.
+    const START_HINT_TEXT = {
+      ready: ["Type the text above as soon as the race starts!", "Get ready to type!"],
+      go:    ["Start typing the text above!", "Start typing!"],
+    };
     function setStartHint(mode) {
-      // Only touch the attribute on a real change, so the blink replays once
-      // when "go" engages instead of restarting on every render tick.
-      if (startHint.dataset.mode === mode) return;
-      if (mode === "ready") startHint.textContent = "Type the text above as soon as the race starts!";
-      else if (mode === "go") startHint.textContent = "Start typing the text above!";
-      startHint.dataset.mode = mode;
+      // Touch data-mode only on a real change, so the "go" blink replays once
+      // when it engages instead of restarting on every render tick.
+      if (startHint.dataset.mode !== mode) startHint.dataset.mode = mode;
+      const words = START_HINT_TEXT[mode];
+      if (!words) { startHint.textContent = ""; startHint.dataset.fit = "full"; return; }
+      // Try the full line; measure; fall back to short if it doesn't fit.
+      startHint.dataset.fit = "full";
+      startHint.textContent = words[0];
+      if (startHint.scrollWidth > startHint.clientWidth + 1) {
+        startHint.dataset.fit = "short";
+        startHint.textContent = words[1];
+      }
     }
 
     // The whole race area is the tap target, not just the box: a thumb aiming
@@ -3737,26 +4212,37 @@
       // RaceRoom actually ranked, not mid-race AFK dropouts (which have
       // no place), so this uses `racing` rather than `leaderboardEntries`.
       const resultsMode = state.phase === "finished";
+      const trackEntries = resultsMode ? racing : leaderboardEntries;
+
+      // Resolve the effective track view for this render: the user's choice,
+      // downgraded to the shared track when the arena is too short to show a
+      // row per racer (see effectiveTrackMode/tracksTooTall). Measured here, on
+      // the live layout, and cached so a later resize can re-check cheaply.
+      lastTrackCount = trackEntries.length;
+      lowTrackHeight = trackMode === "default" && tracksTooTall(lastTrackCount);
+      const em = effectiveTrackMode();
+      leaderboard.dataset.mode = em;
+
       if (resultsMode) {
         racing.sort((a, b) => (a.place || Infinity) - (b.place || Infinity));
         // Track modes that move the numbers into the sidebar (see below) read
         // as a results list once they do, so it should rank-sort top to
         // bottom just like the arena's own rows do above.
-        if (trackMode !== "default") rosterRacers.sort((a, b) => (a.place || Infinity) - (b.place || Infinity));
+        if (em !== "default") rosterRacers.sort((a, b) => (a.place || Infinity) - (b.place || Infinity));
       }
 
       fillNames(racersList, rosterRacers, "No racers yet");
       // wpm/AFK/rank only goes in the sidebar when the arena isn't already
-      // showing it inline (mode "default") - never both, so it's never shown
-      // twice. See applyTrackModeUi/augmentRacerRowsWithStats.
-      if (trackMode !== "default") augmentRacerRowsWithStats(racersList, rosterRacers, resultsMode);
+      // showing it inline (the "default" per-racer tracks) - never both, so
+      // it's never shown twice. The space override counts: when it demotes the
+      // arena to the shared track, the stats belong in the sidebar again.
+      if (em !== "default") augmentRacerRowsWithStats(racersList, rosterRacers, resultsMode);
       fillWaitlist(waitlist);
       fillNames(spectatorsList, spectators, "No one watching");
       racerCountEl.textContent = `${state.racerCount} / ${MAX_RACERS}`;
       spectatorCountEl.textContent = spectators.length;
-      const trackEntries = resultsMode ? racing : leaderboardEntries;
-      if (trackMode === "shared") fillSharedTrack(trackEntries);
-      else if (trackMode === "default") {
+      if (em === "shared") fillSharedTrack(trackEntries);
+      else if (em === "default") {
         // Live position ordering (Settings > Live positions) applies only
         // while a race is actually running: before it the join order stands,
         // and once it ends the results sort above takes over untouched.
@@ -3768,6 +4254,12 @@
           // quoteId sequence that could coincidentally match the last one.
           : orderByLivePosition(trackEntries, state.quote.length, `${room.roomId}:${state.quoteId}`);
         fillLeaderboard(leaderboard, ranked, resultsMode, orderMode, trackEntries);
+        // Learn the real per-track row height (rows + gaps; the shared track is
+        // display:none here) so the next fit check measures against the truth
+        // rather than the constant fallback.
+        if (lastTrackCount > 0 && leaderboard.scrollHeight > 0) {
+          measuredPerTrack = leaderboard.scrollHeight / lastTrackCount;
+        }
       }
 
       // Sync the button + status line to MY current status. Recomputed on
@@ -3973,6 +4465,13 @@
       const showInputBox = inputArmed || keyboardParked;
       typeInput.dataset.visible = showInputBox ? "1" : "0";
       inputWrap.dataset.visible = showInputBox ? "1" : "0";
+      // Whether the input relocates into the bottom bar depends on it being
+      // shown at all; publish that and (re)place it, since a state change - e.g.
+      // us joining or dropping to spectate - flips it with no viewport event of
+      // its own. (This runs while the keyboard is DOWN - joining is a tap on the
+      // Join button, not the input - so the DOM move here never drops it.)
+      raceInputShowing = showInputBox;
+      placeInputBar();
       // `disabled` is what blocks typing outside a live race on desktop, and
       // that is left exactly as it was. It cannot be used on touch: disabling
       // a focused element blurs it and drops the keyboard, which is the whole
@@ -4326,6 +4825,14 @@
 
     function syncSidebarDensity() {
       if (!rosterEl || !chatPanelEl) return;
+      // Short-sheet two-view: the roster owns its whole view and scrolls as one
+      // list (the Watching list is collapsed to a count by the players-view
+      // CSS regardless), so there's nothing to trade for chat height and no
+      // reason to tighten - always the roomiest tier, showing the full queue
+      // front. The tier search still earns its keep everywhere else: the
+      // desktop column AND the stacked compact sheet, where a fixed roster and
+      // the chat below it really do share height (densityFits branches on which).
+      if (twoViewSheet.matches) { applyDensityTier(0); return; }
       for (let i = 0; i < DENSITY_TIERS.length; i++) {
         applyDensityTier(i);
         // Reading a layout metric forces the reflow this tier just caused, so
@@ -6552,13 +7059,57 @@
     let trackMode = localStorage.getItem(TRACK_MODE_KEY) || "default";
     const trackModeBtns = Array.from(trackModeGroup.querySelectorAll(".segmented-btn"));
 
+    // --- "All tracks" space override ------------------------------------------
+    // The per-racer "All tracks" view needs a row of vertical space per racer.
+    // On a short screen - extreme browser zoom, or a phone with the on-screen
+    // keyboard covering the arena - there's no room for them and they'd be
+    // squeezed off, so the DISPLAY transparently falls back to the single shared
+    // track. This is a space override ONLY: the stored setting is never touched,
+    // the Settings picker keeps showing the user's real choice, and "All tracks"
+    // returns the instant there's room again. "shared"/"hidden" are already
+    // compact and are left alone. `effectiveTrackMode()` is what the render and
+    // the leaderboard's data-mode read; `trackMode` stays the user's raw choice.
+    let lowTrackHeight = false;   // is the arena currently too short for the tracks?
+    let lastTrackCount = 0;       // racers in the last render, for resize re-checks
+    let measuredPerTrack = 0;     // learned from a real render; 0 => use a constant
+
+    function effectiveTrackMode() {
+      return (trackMode === "default" && lowTrackHeight) ? "shared" : trackMode;
+    }
+
+    // Would `count` per-racer tracks fit in the arena alongside the pieces that
+    // must always show - the status readout, a two-line quote floor, and the
+    // input? Measured off the live layout (arena height, the real heights of
+    // those pieces, and a per-track height learned from an actual render) so it
+    // holds at any zoom on either platform, rather than hard-coding a breakpoint.
+    function tracksTooTall(count) {
+      const arena = arenaEl ? arenaEl.clientHeight : 0;
+      if (!arena || !count) return false;
+      const line = parseFloat(getComputedStyle(quoteWrap).getPropertyValue("--quote-line")) || 29;
+      const perTrack = measuredPerTrack || (compactLayout.matches ? 34 : 46);
+      const need = count * perTrack + statusSlot.offsetHeight + inputWrap.offsetHeight + line * 2;
+      return need > arena + 4; // a few px of slack so it doesn't flip over nothing
+    }
+
+    // A viewport change (zoom, window resize, keyboard) carries no room state of
+    // its own, so re-measure the fit and re-render only if the override flipped.
+    function refreshTrackFit() {
+      if (!room) return;
+      const low = trackMode === "default" && tracksTooTall(lastTrackCount);
+      if (low === lowTrackHeight) return;
+      lowTrackHeight = low;
+      render(room.state);
+    }
+
     function applyTrackModeUi() {
       trackModeBtns.forEach((btn) => {
+        // The picker always reflects the user's real choice, not the override.
         const active = btn.dataset.mode === trackMode;
         btn.dataset.active = active ? "1" : "0";
         btn.setAttribute("aria-checked", active ? "true" : "false");
       });
-      leaderboard.dataset.mode = trackMode;
+      // The arena, on the other hand, shows whatever actually fits right now.
+      leaderboard.dataset.mode = effectiveTrackMode();
       applyTrackOrderUi();
     }
 
