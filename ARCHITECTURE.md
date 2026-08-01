@@ -2885,3 +2885,36 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   syncCompactLayout) and now re-run it on `resize`, `orientationchange`,
   `pageshow`, and a post-load `requestAnimationFrame`, so a stale initial
   read self-heals the instant any of those fires. No server or schema change.
+- 2026-08-01: Fixed the compact-layout quote window (client-only, mobile only)
+  reported broken with the tightest real case in mind (5 racers, "All tracks",
+  keyboard up, live carets on). Two independent defects, both found by
+  screenshotting the real client under Chrome mobile emulation via CDP:
+  1. The line that just scrolled off the top of the window painted straight
+     over the race tracks above it, and the window read as ~1.5 lines instead
+     of two. Root cause: the window clipped VERTICALLY with
+     `overflow: visible; clip-path: inset(0 ...)`, but `clip-path` does not clip
+     a descendant that paints on its own compositing layer, and #quoteScroll is
+     exactly that (it carries `will-change: transform` for the slide). So the
+     clip silently did nothing and the whole outgoing line leaked upward. Fixed
+     by switching to a real overflow clip: `overflow-x: visible; overflow-y:
+     clip`. `clip` (unlike `hidden`) does NOT force the other axis to `auto`, so
+     the box still lets the ghost lollipops and the pre-wrap trailing space hang
+     past the sides without becoming a scroll container, AND a real overflow
+     clip DOES clip composited descendants, which is the fix.
+  2. Even with clipping fixed, with live carets ON a thin sliver of the
+     finished line still showed at the very top: the --ghost-room band (the
+     padding that reserves room for the CURRENT top line's lollipop) is inside
+     the clip, so the outgoing line's top edge poked into it. Fixed by covering
+     that band's text with an opaque strip (#quoteTopMask, matches the arena
+     background) while keeping the lollipop visible above it. That required the
+     ghost carets to move into their own scroller (#ghostScroll) translated in
+     lock-step with #quoteScroll, so the mask can sit BETWEEN the text and the
+     lollipops in the stacking order (a single shared scroller is its own
+     stacking context via will-change, so a sibling mask can't get between its
+     children). #ghostScroll shares #quote's origin, so the measured ghost-caret
+     positions are unchanged. Verified by screenshot across: mobile carets-off
+     (clean 2 lines, finished line gone, no track overlap), mobile carets-on
+     (sliver masked), mobile carets-on with a second racer (ghost caret still
+     aligns and paints over the band), and desktop with a second racer (ghost
+     lollipop still lands exactly on the right character, i.e. the #ghostLayer
+     move introduced no coordinate regression). No server or schema change.

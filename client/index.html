@@ -187,7 +187,7 @@
     }
     @media (prefers-reduced-motion: reduce) {
       #settingsPanel[data-open="1"] { animation: none; }
-      #quoteScroll { transition: none; }
+      #quoteScroll, #ghostScroll { transition: none; }
     }
     /* Sticky so the title and the close button stay reachable while the body
        scrolls under them. */
@@ -581,7 +581,14 @@
        share an origin. Untransformed unless the compact layout is windowing
        the text (see updateQuoteWindow). */
     #quoteScroll { position: relative; }
-    #ghostLayer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+    /* The ghost carets' scroller. Shares #quote's origin: on desktop it fills
+       #quoteWrap; on the compact layout it starts at the content top (below the
+       --ghost-room band) so a caret measured relative to #quote lands right. It
+       gets the SAME translateY as #quoteScroll (updateQuoteWindow), and sits
+       above #quoteTopMask so the top line's lollipop shows over the masked band. */
+    #ghostScroll { position: absolute; top: var(--ghost-room, 0px); left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 3; }
+    #ghostLayer { position: absolute; inset: 0; pointer-events: none; }
+    #quoteTopMask { display: none; }
     .ghost-caret {
       position: absolute; width: 2px; border-radius: 2px; background: #7dd3fc;
       transition: left .18s ease-out, top .18s ease-out;
@@ -1019,36 +1026,38 @@
         flex: 1 1000 auto;
         min-height: calc(2 * var(--quote-line, 29px) + var(--ghost-room, 0px));
         padding-top: var(--ghost-room, 0px);
-        /* The window clips VERTICALLY only. `overflow: hidden` was the obvious
-           tool and the wrong one: it clips both axes, and things here are meant
-           to hang past the text horizontally - a ghost lollipop on a line's
-           FIRST character is centred on a caret at x=0, so half of it sits left
-           of the box, and pre-wrap deliberately lets a trailing space (and the
-           cursor on it) hang past the right edge. Widening the box with padding
-           is no help: box-sizing is border-box and the width here is 100%, so
-           side padding would eat into the text and reflow it rather than grow
-           the box. clip-path clips without touching layout and takes a per-side
-           inset, so the sides simply opt out; unlike an overflow value it also
-           cannot turn the box into a scroll container, which is what clipped
-           the racer avatars. --quote-bleed is half an emoji over, and matches
-           the arena's own side padding, so the overhang lands in space the
-           arena already owns and nothing gains a horizontal scrollbar. The
-           inset is measured on the border box, so the top edge sits above the
-           reserved --ghost-room and the first line's lollipop is inside the
-           window. */
-        overflow: visible;
-        --quote-bleed: 14px;
-        clip-path: inset(0 calc(-1 * var(--quote-bleed)));
+        /* The window clips VERTICALLY only. `overflow: hidden` clips both axes,
+           and things here are meant to hang past the text horizontally - a ghost
+           lollipop on a line's FIRST character is centred on a caret at x=0, so
+           half of it sits left of the box, and pre-wrap deliberately lets a
+           trailing space (and the cursor on it) hang past the right edge.
+           `overflow-y: clip` with `overflow-x: visible` clips only the vertical
+           axis while letting those hang past the sides, and - unlike
+           `overflow: hidden` - `clip` does NOT force the other axis to `auto`
+           (only `hidden`/`scroll`/`auto` do), so the box never becomes a scroll
+           container that would clip the overhang or the racer avatars.
+           This REPLACED a `clip-path: inset(0 ...)`: clip-path does not clip a
+           descendant that paints on its own compositing layer, and #quoteScroll
+           is exactly that (it has `will-change: transform`), so the outgoing
+           line leaked straight out of the top of the window and painted over the
+           race tracks above it. A real overflow clip does clip composited
+           descendants, which is the whole fix. */
+        overflow-x: visible;
+        overflow-y: clip;
       }
       /* Ghost carets ("Show racers on text") hang a lollipop ABOVE the line
          they sit on, so the FIRST line's emoji needs room above the text - room
          the window's own clip box was cutting off, and which the tightened
          track gap above was letting it collide with.
-         padding-top grows the clip box upward; the negative margin puts most of
-         it back so the text only drops by the few px of clearance wanted from
-         the tracks. Nothing is reserved when the feature is off, which is the
-         default. (The horizontal half of the same problem is --quote-bleed
-         above, which is unconditional - the sides have nothing to trade.) */
+         padding-top grows the clip box upward (the --ghost-room band); the
+         negative margin puts most of it back so the text only drops by the few
+         px of clearance wanted from the tracks. The band is inside the clip so
+         the current top line's lollipop can hang into it, but it's covered by
+         #quoteTopMask so the outgoing line's text sliver doesn't show there
+         (the lollipop layer sits above the mask). Nothing is reserved when the
+         feature is off, which is the default. The horizontal overhang is handled
+         separately by overflow-x: visible above - the sides have nothing to
+         trade, so they simply never clip. */
       #quoteWrap:has(#quote[data-ghosts="1"]) { --ghost-room: 22px; margin-top: -6px; }
       /* The lollipop lives in the leading between lines, and the mobile quote
          is 17px where the desktop one is 20px - the same 2.0 leaves a ~15px
@@ -1057,8 +1066,18 @@
       #quote[data-ghosts="1"] { line-height: 2.3; }
       /* Slides by whole lines. The transition is short and eased so a line
          change reads as a step rather than a jump; under reduced motion it
-         simply snaps. */
-      #quoteScroll { transition: transform .18s ease-out; will-change: transform; }
+         simply snaps. The ghost scroller slides in lock-step. */
+      #quoteScroll, #ghostScroll { transition: transform .18s ease-out; will-change: transform; }
+      /* The opaque band mask (see the markup): covers the text sliver of the
+         line that just scrolled off, so the finished line fully vanishes instead
+         of leaving its top edge showing in the lollipop band. Matches the arena
+         background; sits above the text but below #ghostScroll (z-index 3) so
+         the current top line's lollipop still paints over it. */
+      #quoteTopMask {
+        display: block; position: absolute; top: 0; left: 0; right: 0;
+        height: var(--ghost-room, 0px); background: #0b1120; z-index: 2;
+        pointer-events: none;
+      }
 
       /* The input rides the bottom of the arena instead of scrolling away with
          the text above it, so it's reachable the whole race however long the
@@ -1377,6 +1396,22 @@
       <div id="quoteWrap">
         <div id="quoteScroll">
           <div id="quote"></div>
+        </div>
+        <!-- Compact layout only: an opaque strip over the ghost-lollipop band at
+             the very top of the window. The band is inside the vertical clip so
+             the CURRENT top line's lollipop can hang into it, but the same band
+             would otherwise reveal the bottom sliver of the line that just
+             scrolled up and off. The mask hides that text sliver; #ghostLayer
+             sits ABOVE it (higher z-index, separate scroller) so the lollipop
+             still shows. Zero-height and inert on desktop (--ghost-room is 0). -->
+        <div id="quoteTopMask"></div>
+        <!-- Ghost carets ride in their own scroller, translated in lock-step
+             with #quoteScroll (see updateQuoteWindow), so the mask above can sit
+             BETWEEN the text and the lollipops in the stacking order - which a
+             single shared scroller (its own stacking context via will-change)
+             wouldn't allow. Shares #quote's origin, so the measured caret
+             positions still line up. -->
+        <div id="ghostScroll">
           <div id="ghostLayer"></div>
         </div>
       </div>
@@ -2174,6 +2209,7 @@
     const quoteEl     = document.getElementById("quote");
     const quoteWrap   = document.getElementById("quoteWrap");    // the fixed window on compact layouts
     const quoteScroll = document.getElementById("quoteScroll");  // what slides inside it
+    const ghostScroll = document.getElementById("ghostScroll");  // ghost carets' scroller, slid in lock-step
     const ghostLayer  = document.getElementById("ghostLayer");   // experimental: other racers' carets
     const ghostToggle = document.getElementById("ghostToggle");  // experimental: toggle for the above
     const soundToggle = document.getElementById("soundToggle");
@@ -2454,6 +2490,7 @@
     function updateQuoteWindow() {
       if (!compactLayout.matches) {
         quoteScroll.style.transform = "";
+        ghostScroll.style.transform = "";
         return;
       }
       const lineH = quoteLineHeight();
@@ -2463,7 +2500,7 @@
       const caretIdx = Math.min(committed.length + typeInput.value.length,
                                 quoteEl.children.length - 1);
       const span = quoteEl.children[caretIdx < 0 ? 0 : caretIdx];
-      if (!span) { quoteScroll.style.transform = ""; return; }
+      if (!span) { quoteScroll.style.transform = ""; ghostScroll.style.transform = ""; return; }
 
       const totalLines = Math.max(1, Math.round(quoteEl.offsetHeight / lineH));
       // clientHeight includes the padding that reserves room for a first-line
@@ -2479,7 +2516,9 @@
       // alone at the top with blank space under it.
       const maxLine = Math.max(0, totalLines - visible);
       const line = Math.max(0, Math.min(Math.round(span.offsetTop / lineH), maxLine));
-      quoteScroll.style.transform = line === 0 ? "" : `translateY(${-line * lineH}px)`;
+      const shift = line === 0 ? "" : `translateY(${-line * lineH}px)`;
+      quoteScroll.style.transform = shift;
+      ghostScroll.style.transform = shift;
     }
 
     // The rendered line box, which is what a line of text actually occupies.
