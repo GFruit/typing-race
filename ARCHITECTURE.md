@@ -3269,3 +3269,54 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   change: the `html[data-race-bar="1"]` rules already live inside the compact
   media query and gate only on the flag, not on height. `node --check` clean;
   worth a real-device confirm that the keyboard stays up across the merge.
+
+- 2026-08-01: Very short viewports now hide the header DURING a race for an
+  active racer, when the race can't otherwise fit without scrolling. Reported
+  from real-device testing: on a phone the second quote line was clipped after
+  the countdown until you scrolled down a little. New `refreshRaceChrome()`
+  (client) sets `body[data-race-fs="1"]` (CSS: `header { display:none }`) only
+  when `compactLayout` matches, the phase is `racing`/`countdown`, THIS client
+  is racing, and no settings/emoji popover is open (those hang off the header).
+  The fit test is deliberately "would the essential content - status readout,
+  shared track, two-line quote, WPM - fit WITH the header shown", not "does it
+  fit now", so it can't oscillate: hiding the header grows the arena, which
+  would otherwise make it fit and demand the header back next tick. The quote
+  window is the only arena block that flexes; every other is fixed. So the
+  minimum content height = `arena.scrollHeight - (quoteWrap.offsetHeight -
+  quoteFloor)`, a value stable across header visibility, compared against
+  `arena.clientHeight - (headerHidden ? shownHeaderH : 0)`. Called from
+  `render()`'s tail, `updateKeyboardInset()` (the keyboard is what crushes the
+  arena), the resize rAF, and the popover open/close handlers. `shownHeaderH`
+  is cached whenever the header is on screen so the compare still works once
+  it's hidden. `node --check` clean; worth a real-device confirm on the phone
+  that first showed the clipped second line.
+
+- 2026-08-01: Admin Testing panel gained a "Disable AFK kick" switch. During
+  testing you often want to sit in a race and watch it play out without being
+  auto-moved to spectating after INACTIVITY_TIMEOUT_MS. New admin-gated
+  `setAfkKick` message (RaceRoom) sets a server-only `afkKickDisabled` flag;
+  `tickRace()`'s inactivity sweep early-returns per racer when it's set, so WPM
+  still ticks/decays but nobody is kicked. Flag is per-room and off by default
+  (safe), gated by the same `isAdmin`/ADMIN_KEY check and acked on the existing
+  `botResult` channel. Client stores the preference in localStorage and, because
+  a fresh room always starts with the kick enabled, `attachRoom()` re-pushes it
+  after every connect / Switch Lobby / merge (`reapplyAdminAfk`). The toggle is
+  inside the already-admin-only Testing group, so an ordinary visitor never sees
+  it. `tsc --noEmit` clean; client scripts parse clean.
+
+- 2026-08-01: Quote window now only ever shows WHOLE lines on the compact
+  layout. `#quoteWrap` takes whatever height flex leaves it (`flex: 1 1000
+  auto`), which is almost never an exact multiple of the line box, so the
+  bottom line was being clipped mid-glyph by `overflow-y: clip` - a partial,
+  cut-off line whose height varied with the viewport. `updateQuoteWindow()`
+  already computes `visible = floor(innerH / lineH)` (the number of full lines
+  that fit) for the scroll math; it now also caps `quoteWrap.style.maxHeight`
+  at `visible * lineH + padY`, pushing the partial line out of the clip box
+  entirely so every visible line is complete. The cap is cleared and re-read
+  each call (and on the desktop / no-span early returns) so the window is
+  always measured at its natural flex height before being re-snapped, and
+  `updateQuoteWindow()` was added to the resize rAF so a bare height change
+  (no keystroke or keyboard toggle) re-snaps too. The freed sub-line slack
+  falls to the input bar's `margin-top:auto`, so the input stays pinned to the
+  bottom. Client scripts parse clean; worth a real-device confirm across a few
+  viewport heights.

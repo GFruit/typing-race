@@ -343,6 +343,12 @@ export class RaceRoom extends Room {
   private botSim = new Map<string, { wpm: number; startDelayMs: number }>();
   private botTicker: Delayed | null = null;
   private nextBotId = 1;
+  // Admin testing switch (see the "setAfkKick" handler and client's Testing
+  // panel): when true, tickRace()'s inactivity sweep never moves an idle racer
+  // to spectating, so you can sit on a race and watch it without being kicked.
+  // Off by default and admin-gated, exactly like the bot tools; nothing about
+  // it is synced (it only changes server-side sweep behaviour).
+  private afkKickDisabled = false;
   private raceStartedAt = 0;
   private correctCharsBySession = new Map<string, number>();
   private lastActivityBySession = new Map<string, number>();
@@ -659,6 +665,24 @@ export class RaceRoom extends Room {
       this.onRosterChanged();
       client.send("botResult", { ok: true, message: count > 0 ? `Cleared ${count} bot${count === 1 ? "" : "s"}.` : "No bots to clear." });
     },
+
+    // Toggle the inactivity kick for this room (see afkKickDisabled). Admin-only,
+    // like the bot tools, and acked on the same "botResult" channel the panel
+    // already listens on. Purely a testing aid: it does not touch anyone's
+    // current status, only whether future idle sweeps kick.
+    setAfkKick: (client: Client, payload: { key?: string; disabled?: boolean }) => {
+      if (!this.isAdmin(payload?.key)) {
+        client.send("botResult", { ok: false, message: "Unauthorized (bad or missing admin key)." });
+        return;
+      }
+      this.afkKickDisabled = !!payload?.disabled;
+      client.send("botResult", {
+        ok: true,
+        message: this.afkKickDisabled
+          ? "AFK kick disabled for this room - idle racers stay in."
+          : "AFK kick re-enabled for this room.",
+      });
+    },
   };
 
   /** True only when the admin key is configured AND the request supplied it. */
@@ -754,6 +778,10 @@ export class RaceRoom extends Room {
       if (this.isBot(sessionId)) return;
       p.wpm = this.calcWpm(this.correctCharsBySession.get(sessionId) ?? 0);
 
+      // WPM still ticks (and decays) above; only the kick is suppressed, so a
+      // disabled sweep still shows an idle racer slowing to 0 - it just leaves
+      // them in the race. See afkKickDisabled.
+      if (this.afkKickDisabled) return;
       const lastActivity = this.lastActivityBySession.get(sessionId) ?? this.raceStartedAt;
       if (now - lastActivity >= INACTIVITY_TIMEOUT_MS) {
         idlePlayers.push(p);

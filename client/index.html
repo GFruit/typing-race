@@ -53,6 +53,14 @@
       padding: 14px 24px; border-bottom: 1px solid #33291d;
       display: flex; align-items: center; gap: 12px;
     }
+    /* Full-screen race on a very short viewport: when an active racer can't fit
+       the status line, the shared track and the two-line quote with the header
+       present, refreshRaceChrome() hands the header's height back to the arena
+       by hiding it - so the race fits without a scrollbar (the bug it fixes: the
+       second quote line was clipped until you scrolled). Only ever set on
+       compact layouts, and only while THIS client is racing - see
+       refreshRaceChrome for the fit test and why it can't flip-flop. */
+    body[data-race-fs="1"] header { display: none; }
     /* line-height:1 keeps the taller wordmark from growing the header - its
        height is set by the emoji button (20px glyph + padding), which the
        wordmark now matches rather than exceeds. */
@@ -1941,6 +1949,13 @@
                 </div>
                 <div id="adminResult" aria-live="polite"></div>
               </div>
+              <div class="settings-row settings-row-toggle" data-switch="adminAfkToggle">
+                <div class="settings-text">
+                  <div class="settings-label">Disable AFK kick</div>
+                  <div class="settings-hint">Stop idle racers being moved to spectating, so you can sit in a race while testing. This room only.</div>
+                </div>
+                <button id="adminAfkToggle" class="switch" type="button" role="switch" aria-label="Disable AFK kick" aria-checked="false"></button>
+              </div>
             </div>
 
             <div class="settings-foot">Changes save automatically</div>
@@ -2900,6 +2915,7 @@
     const raceLeaveBtn = document.getElementById("raceLeaveBtn");
     const tapHintWrap = inputWrap; // #tapHint's visibility is driven off the wrapper
     const arenaEl    = document.querySelector(".arena");
+    const headerEl   = document.querySelector("header");
 
     // --- Compact (mobile) layout ----------------------------------------------
     // One media query is the single source of truth for "is the compact layout
@@ -3334,6 +3350,9 @@
       // height this keys off, so this is usually a no-op - but a zoom that fires
       // here as a visual-viewport change and not a resize would be caught.)
       placeInputBar();
+      // The keyboard opening is the very thing that crushes the arena, so
+      // re-decide whether the header has to give up its space (see below).
+      refreshRaceChrome();
     }
 
     if (window.visualViewport) {
@@ -3407,6 +3426,12 @@
         refreshTrackFit();
         // ...and whether the input should move into the bottom bar.
         placeInputBar();
+        // ...and whether a shorter viewport now needs the header hidden (or a
+        // taller one can have it back). See refreshRaceChrome.
+        refreshRaceChrome();
+        // A height change alone (no keystroke, no keyboard toggle) changes how
+        // many whole lines fit, so re-snap the quote window to that new count.
+        updateQuoteWindow();
         // A width change can make the start prompt start/stop fitting its box;
         // re-measure it (only meaningful while one is up).
         const shMode = startHint.dataset.mode;
@@ -3443,6 +3468,7 @@
       if (!compactLayout.matches) {
         quoteScroll.style.transform = "";
         ghostScroll.style.transform = "";
+        quoteWrap.style.maxHeight = "";
         return;
       }
       const lineH = quoteLineHeight();
@@ -3462,17 +3488,26 @@
       // Clamped to the last span so finishing the quote doesn't snap to the top.
       const anchorIdx = Math.min(committed.length, quoteEl.children.length - 1);
       const span = quoteEl.children[anchorIdx < 0 ? 0 : anchorIdx];
-      if (!span) { quoteScroll.style.transform = ""; ghostScroll.style.transform = ""; return; }
+      if (!span) { quoteScroll.style.transform = ""; ghostScroll.style.transform = ""; quoteWrap.style.maxHeight = ""; return; }
 
       const totalLines = Math.max(1, Math.round(quoteEl.offsetHeight / lineH));
       // clientHeight includes the padding that reserves room for a first-line
       // ghost lollipop, and that padding holds no text - counting it would
       // overstate how many lines are on screen and stop the window advancing
       // when it should.
+      // Clear any snap from a previous call FIRST so the window is measured at
+      // the natural height flex leaves it, not the height we last capped it to.
+      quoteWrap.style.maxHeight = "";
       const wcs = getComputedStyle(quoteWrap);
-      const innerH = quoteWrap.clientHeight
-        - parseFloat(wcs.paddingTop || 0) - parseFloat(wcs.paddingBottom || 0);
+      const padY = parseFloat(wcs.paddingTop || 0) + parseFloat(wcs.paddingBottom || 0);
+      const innerH = quoteWrap.clientHeight - padY;
       const visible = Math.max(1, Math.floor(innerH / lineH));
+      // Snap the window down to a WHOLE number of lines. The leftover flex
+      // height is almost never an exact multiple of the line box, so without
+      // this the bottom line shows as a cut-off sliver (clipped mid-glyph by
+      // overflow-y). Capping the height at visible*lineH pushes that partial
+      // line out of the clip box entirely, so every line on screen is full.
+      quoteWrap.style.maxHeight = (visible * lineH + padY) + "px";
       // Clamped to the last full window rather than left to run past the end,
       // so the final lines fill the window instead of the current line sitting
       // alone at the top with blank space under it.
@@ -3602,6 +3637,21 @@
     }
     const adminKey = readAdminKey();
 
+    // Admin "Disable AFK kick" preference (see the setAfkKick server handler).
+    // Remembered per browser like the other toggles, but the server flag is
+    // per-room and resets to "on" on every fresh room, so attachRoom re-applies
+    // this after any connect / Switch Lobby / merge (see reapplyAdminAfk).
+    const ADMIN_AFK_KEY = "typingRace.disableAfkKick";
+    let adminAfkDisabled = adminKey ? localStorage.getItem(ADMIN_AFK_KEY) === "1" : false;
+
+    // Push the current preference to the server, but only when we're an admin
+    // with a live room; a no-op otherwise (an ordinary visitor never calls this,
+    // and the server rejects it without the key anyway).
+    function reapplyAdminAfk() {
+      if (!adminKey || !room || !connected) return;
+      room.send("setAfkKick", { key: adminKey, disabled: adminAfkDisabled });
+    }
+
     function setAdminResult(text, kind) {
       const el = document.getElementById("adminResult");
       if (!el) return;
@@ -3638,6 +3688,25 @@
         if (!room || !connected) { setAdminResult("Not connected to a room yet.", "err"); return; }
         setAdminResult("Clearing…", "");
         room.send("clearBots", { key: adminKey });
+      });
+
+      // "Disable AFK kick" switch: reflects the stored preference on open, and
+      // on toggle persists it and pushes it to the current room. The server acks
+      // on "botResult", so the result line reports success/failure like the bot
+      // tools do.
+      const afkToggle = document.getElementById("adminAfkToggle");
+      const applyAfkToggleUi = () => {
+        afkToggle.dataset.on = adminAfkDisabled ? "1" : "0";
+        afkToggle.setAttribute("aria-checked", adminAfkDisabled ? "true" : "false");
+      };
+      applyAfkToggleUi();
+      afkToggle.addEventListener("click", () => {
+        adminAfkDisabled = !adminAfkDisabled;
+        localStorage.setItem(ADMIN_AFK_KEY, adminAfkDisabled ? "1" : "0");
+        applyAfkToggleUi();
+        if (!room || !connected) { setAdminResult("Not connected to a room yet.", "err"); return; }
+        setAdminResult(adminAfkDisabled ? "Disabling AFK kick…" : "Re-enabling AFK kick…", "");
+        reapplyAdminAfk();
       });
     }
     // ---------------------------------------------------------------------
@@ -3941,6 +4010,11 @@
       lastQuoteId = null;
       committed = "";
       typeInput.value = "";
+
+      // A fresh room starts with AFK kick enabled (the server default is per
+      // room), so re-push the admin's "Disable AFK kick" preference onto it. A
+      // no-op for everyone who isn't an admin with that preference set.
+      reapplyAdminAfk();
 
       // Re-render the whole player list on every state change. Simple and
       // fine for small state; we can optimize to fine-grained callbacks later.
@@ -4637,6 +4711,11 @@
         lastDensitySig = densitySig;
         syncSidebarDensity();
       }
+
+      // Hide the header for an active racer on a viewport too short to fit the
+      // race without scrolling (see refreshRaceChrome). Last, so it measures the
+      // arena in its final rendered state for this patch.
+      refreshRaceChrome();
     }
 
     function formatTime(totalSeconds) {
@@ -6967,6 +7046,7 @@
       refreshRecentGroup();
       updateGridSelection();
       emojiPicker.dataset.open = "1";
+      refreshRaceChrome(); // keep the header out while its popover is open
       emojiScroll.scrollTop = 0;
       updateActiveTab();
       // Typing is the fastest way through 1000+ emoji, so start there. Safe to
@@ -6982,6 +7062,7 @@
 
     function closeEmojiPicker() {
       emojiPicker.dataset.open = "0";
+      refreshRaceChrome(); // may re-hide the header now the popover is gone
     }
 
     function selectEmoji(emoji) {
@@ -7071,6 +7152,7 @@
       // the current emoji is always up to date (server-assigned or chosen).
       settingsAvatar.textContent = emojiBtn.textContent;
       settingsPanel.dataset.open = "1";
+      refreshRaceChrome(); // keep the header out while its popover is open
       if (focusName) { settingsUsername.focus(); settingsUsername.select(); }
     }
 
@@ -7078,6 +7160,7 @@
       if (settingsPanel.dataset.open !== "1") return;
       saveUsernameFromField(); // commit any pending name edit on close
       settingsPanel.dataset.open = "0";
+      refreshRaceChrome(); // may re-hide the header now the popover is gone
     }
 
     function toggleSettings(focusName) {
@@ -7206,6 +7289,67 @@
       if (low === lowTrackHeight) return;
       lowTrackHeight = low;
       render(room.state);
+    }
+
+    // --- Full-screen race on very short viewports -----------------------------
+    // On a phone with little vertical room, an active racer needs the status
+    // readout, the shared track (compact layouts fall back to it anyway) and two
+    // full lines of quote visible at once WITHOUT a scrollbar. When those can't
+    // fit with the header present, we hide the header and hand its ~43px back to
+    // the arena - but only while THIS client is actually racing (or counting
+    // down to it), and only if it genuinely doesn't fit. If it fits with the
+    // header shown, the header stays.
+    //
+    // The test is framed as "would the essential content fit WITH the header
+    // visible", not "does it fit right now", so it can't oscillate: hiding the
+    // header grows the arena, which would otherwise make the content fit and ask
+    // for the header back on the next tick. The one arena block that grows and
+    // shrinks with spare height is the quote window; everything else is fixed.
+    // So the smallest the content can be is the current arena scrollHeight minus
+    // however far the window has stretched past its two-line floor - a figure
+    // that's the same whether or not the header is currently showing, which is
+    // what makes the comparison stable.
+    let shownHeaderH = 0; // header height while visible, cached for when it's hidden
+    function refreshRaceChrome() {
+      if (!room) { document.body.dataset.raceFs = "0"; return; }
+      const st = room.state;
+      const me = st.players.get(room.sessionId);
+      const iAmRacing = !!me && me.status === "racing";
+      const inRace = st.phase === "racing" || st.phase === "countdown";
+      // A settings/emoji popover hangs off the header, so never yank it out from
+      // under an open one.
+      const popoverOpen =
+        settingsPanel.dataset.open === "1" || emojiPicker.dataset.open === "1";
+      const want = compactLayout.matches && inRace && iAmRacing && !popoverOpen;
+
+      const hidden = document.body.dataset.raceFs === "1";
+      // Refresh the cached header height whenever it's actually on screen; when
+      // it's hidden (offsetHeight 0) the last cached value stands in.
+      if (headerEl.offsetHeight > 0) shownHeaderH = headerEl.offsetHeight;
+
+      let hide = false;
+      if (want && shownHeaderH > 0) {
+        const line = parseFloat(getComputedStyle(quoteWrap).getPropertyValue("--quote-line")) || 29;
+        const ghost = parseFloat(getComputedStyle(quoteWrap).getPropertyValue("--ghost-room")) || 0;
+        let floor = parseFloat(getComputedStyle(quoteWrap).minHeight);
+        if (!Number.isFinite(floor)) floor = 2 * line + ghost;
+        const stretch = Math.max(0, quoteWrap.offsetHeight - floor);
+        const minContent = arenaEl.scrollHeight - stretch;
+        // The arena's height as it WOULD be with the header shown: subtract the
+        // header back off only when it's currently hidden (and thus not counted).
+        const arenaIfHeaderShown = arenaEl.clientHeight - (hidden ? shownHeaderH : 0);
+        hide = minContent > arenaIfHeaderShown + 2; // a couple px of slack
+      }
+
+      const next = hide ? "1" : "0";
+      if (document.body.dataset.raceFs !== next) {
+        document.body.dataset.raceFs = next;
+        // The arena's height just changed, so the quote window now shows a
+        // different number of lines and the ghost carets must be repositioned
+        // against it.
+        updateQuoteWindow();
+        renderGhostCarets(st);
+      }
     }
 
     function applyTrackModeUi() {
