@@ -203,6 +203,28 @@ function randomEmoji(): string {
   return EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
 }
 
+// A pool of plausible display names for admin-spawned test bots (see the
+// "spawnBots" handler). Purely so a generated field reads like a real lobby
+// rather than "bot1, bot2, ..."; the admin knows they're bots because they
+// spawned them. Nothing gameplay-facing keys off these.
+const BOT_NAMES = [
+  "Alex", "Sam", "Jordan", "Riley", "Casey", "Morgan", "Taylor", "Jamie",
+  "Quinn", "Avery", "Parker", "Reese", "Rowan", "Skyler", "Emerson", "Finley",
+  "Hayden", "Kai", "Nova", "Sage", "Blake", "Drew", "Elliot", "Frankie",
+  "Charlie", "Dakota", "Lennon", "Micah", "Remy", "Sol", "Wren", "Zephyr",
+];
+
+function randomBotName(): string {
+  return BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+}
+
+/** Coerces a possibly-missing/garbage client value to an integer in [min, max]. */
+function clampInt(value: unknown, min: number, max: number): number {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, n));
+}
+
 /**
  * Loose "is this a single emoji, and nothing but" check, so a client can pick
  * ANY emoji for its avatar (not just the EMOJIS quick-pick pool) while still
@@ -281,6 +303,23 @@ const RECONNECTION_GRACE_SECONDS = 20;
 // tab closed mid-jump) costs the room one seat for this long and no longer.
 const SLOT_RESERVATION_MS = 5000;
 
+// Admin testing tool (see the "spawnBots"/"clearBots" handlers and
+// client/index.html's admin panel). ADMIN_KEY gates every bot action: it must
+// be set in the environment (Render dashboard env var, or `$env:ADMIN_KEY=...`
+// locally) for the feature to work at all - unset means the handlers no-op, so
+// the safe default is "off". A request's `key` must equal it exactly.
+const ADMIN_KEY = process.env.ADMIN_KEY || "";
+// Guardrails on a spawn request so a stray/huge value can't wedge a room.
+const BOT_MAX_TOTAL = 40;      // most bots one spawn call may add at once
+const BOT_MIN_WPM = 10;
+const BOT_MAX_WPM = 250;
+// Each bot's own speed is jittered this fraction around the requested average,
+// so a spawned field doesn't move in lockstep.
+const BOT_WPM_VARIANCE = 0.15;
+// Longest random "reaction time" before a bot starts typing at race start, so
+// they don't all leave the line on the same frame.
+const BOT_MAX_START_DELAY_MS = 1200;
+
 export class RaceRoom extends Room {
   // Every live RaceRoom instance, keyed by roomId. Only valid within a
   // single process (see the "Post-race merging" doc note above); lets
@@ -296,6 +335,14 @@ export class RaceRoom extends Room {
   private countdownTimer: Delayed | null = null; // pre-race countdown AND results countdown (mutually exclusive phases)
   private wpmTicker: Delayed | null = null;
   private raceTimeoutTimer: Delayed | null = null;
+  // Admin testing bots (see the "spawnBots" handler). Server-only, per the
+  // state-minimalism rule: bots are ordinary synced `Player` entries, but
+  // "which players are simulated" and each one's target speed are bookkeeping
+  // clients never need. `botTicker` drives their typing during a live race.
+  private botSessions = new Set<string>();
+  private botSim = new Map<string, { wpm: number; startDelayMs: number }>();
+  private botTicker: Delayed | null = null;
+  private nextBotId = 1;
   private raceStartedAt = 0;
   private correctCharsBySession = new Map<string, number>();
   private lastActivityBySession = new Map<string, number>();
@@ -522,7 +569,144 @@ export class RaceRoom extends Room {
       // "leave" would be - no reconnection offered, none attempted.
       client.leave(CloseCode.CONSENTED);
     },
+
+    // ---- Admin testing tool (see ADMIN_KEY, and client/index.html's admin
+    // panel). Both handlers are gated on the shared secret: an unset ADMIN_KEY
+    // or a mismatched `key` is silently rejected, so nobody without the key can
+    // spawn or clear bots even if they discover these message names. Bots are
+    // real synced Player entries, so they appear and behave like ordinary
+    // players to everyone in the room. ----
+
+    // Populate the room with simulated players. `racers` of them take a racer
+    // slot (subject to MAX_RACERS - overflow lands on the waitlist, the same as
+    // real opt-ins), `spectators` of them just watch, and racer bots type at
+    // roughly `wpm` (jittered per bot). Replies with a "botResult" ack the panel
+    // shows.
+    spawnBots: (client: Client, payload: { key?: string; racers?: number; spectators?: number; wpm?: number }) => {
+      if (!this.isAdmin(payload?.key)) {
+        client.send("botResult", { ok: false, message: "Unauthorized (bad or missing admin key)." });
+        return;
+      }
+      const racers = clampInt(payload?.racers, 0, BOT_MAX_TOTAL);
+      const spectators = clampInt(payload?.spectators, 0, BOT_MAX_TOTAL);
+      const wpm = clampInt(payload?.wpm, BOT_MIN_WPM, BOT_MAX_WPM);
+      const total = Math.min(racers + spectators, BOT_MAX_TOTAL);
+      if (total <= 0) {
+        client.send("botResult", { ok: false, message: "Nothing to spawn (set racers or spectators above 0)." });
+        return;
+      }
+
+      let addedRacing = 0;
+      let addedQueued = 0;
+      let addedWaitlist = 0;
+      let addedWatching = 0;
+
+      // Racer bots first so they claim the free slots before spectators (spawn
+      // order otherwise wouldn't matter, but this keeps the counts predictable).
+      const wantRacer = Math.min(racers, total);
+      const wantSpectator = total - wantRacer;
+
+      for (let i = 0; i < wantRacer; i++) {
+        const p = this.makeBotPlayer(wpm);
+        // Same slot logic real opt-in uses (see setStatus): a free committed
+        // slot means racing-or-queued (by acceptsNewRacers), otherwise get in
+        // line. Bots respect the cap exactly like players do.
+        if (this.countCommittedSlots() < MAX_RACERS) {
+          p.status = this.acceptsNewRacers() ? "racing" : "queued";
+          p.slotOrder = this.nextSlotOrder++;
+          if (p.status === "racing") addedRacing++; else addedQueued++;
+        } else {
+          p.status = "waitlist";
+          p.waitlistOrder = this.nextWaitlistOrder++;
+          addedWaitlist++;
+        }
+        this.registerBot(p);
+      }
+      for (let i = 0; i < wantSpectator; i++) {
+        const p = this.makeBotPlayer(wpm);
+        p.status = "watching";
+        addedWatching++;
+        this.registerBot(p);
+      }
+
+      // Starts the countdown if racer bots were added into a "waiting" room,
+      // and pushes the new racerCount to clients/matchmaking - the same
+      // re-evaluation any real opt-in triggers.
+      this.onRosterChanged();
+
+      const parts: string[] = [];
+      if (addedRacing) parts.push(`${addedRacing} racing`);
+      if (addedQueued) parts.push(`${addedQueued} queued`);
+      if (addedWatching) parts.push(`${addedWatching} watching`);
+      if (addedWaitlist) parts.push(`${addedWaitlist} waitlisted (room cap is ${MAX_RACERS})`);
+      client.send("botResult", {
+        ok: true,
+        message: `Spawned ${total} bot${total === 1 ? "" : "s"}: ${parts.join(", ")}.`,
+      });
+    },
+
+    // Remove every bot from the room and let the phase re-settle (a countdown
+    // that only bots were feeding cancels itself back to "waiting").
+    clearBots: (client: Client, payload: { key?: string }) => {
+      if (!this.isAdmin(payload?.key)) {
+        client.send("botResult", { ok: false, message: "Unauthorized (bad or missing admin key)." });
+        return;
+      }
+      const count = this.botSessions.size;
+      for (const sessionId of [...this.botSessions]) {
+        this.removeBot(sessionId);
+      }
+      this.onRosterChanged();
+      client.send("botResult", { ok: true, message: count > 0 ? `Cleared ${count} bot${count === 1 ? "" : "s"}.` : "No bots to clear." });
+    },
   };
+
+  /** True only when the admin key is configured AND the request supplied it. */
+  private isAdmin(key: string | undefined): boolean {
+    return !!ADMIN_KEY && key === ADMIN_KEY;
+  }
+
+  private isBot(sessionId: string): boolean {
+    return this.botSessions.has(sessionId);
+  }
+
+  /** Builds a bot Player (name/emoji/ids) and its per-bot simulated speed. Does NOT add it to state; see registerBot. */
+  private makeBotPlayer(avgWpm: number): Player {
+    const id = `bot:${this.roomId}:${this.nextBotId++}`;
+    const p = new Player();
+    p.name = randomBotName();
+    p.emoji = randomEmoji();
+    p.clientId = id;
+    // Jitter each bot's speed around the requested average so the field doesn't
+    // move in lockstep, then keep it in the sane band.
+    const jitter = 1 + (Math.random() * 2 - 1) * BOT_WPM_VARIANCE;
+    const wpm = Math.max(BOT_MIN_WPM, Math.min(BOT_MAX_WPM, Math.round(avgWpm * jitter)));
+    this.botSim.set(id, { wpm, startDelayMs: Math.random() * BOT_MAX_START_DELAY_MS });
+    return p;
+  }
+
+  /** Commits a built bot into synced state + the bot registry, and announces it like any join. */
+  private registerBot(p: Player) {
+    // Its synthetic sessionId is the same as its clientId - a bot has no real
+    // Colyseus session, so there's nothing to keep them distinct.
+    const sessionId = p.clientId;
+    this.botSessions.add(sessionId);
+    // botSim is already keyed by this same id (see makeBotPlayer), so the
+    // ticker - which reads by sessionId - finds it directly.
+    this.state.players.set(sessionId, p);
+    this.postSystemMessage(`${p.name} joined the lobby.`, p.clientId, false);
+  }
+
+  /** Fully removes a bot: synced entry, registry, and all per-race scratch maps. */
+  private removeBot(sessionId: string) {
+    const p = this.state.players.get(sessionId);
+    if (p) this.postSystemMessage(`${p.name} left the lobby.`, p.clientId, true);
+    this.state.players.delete(sessionId);
+    this.botSessions.delete(sessionId);
+    this.botSim.delete(sessionId);
+    this.correctCharsBySession.delete(sessionId);
+    this.lastActivityBySession.delete(sessionId);
+  }
 
   private allRacersFinished(): boolean {
     let allDone = true;
@@ -564,6 +748,10 @@ export class RaceRoom extends Room {
     const idlePlayers: Player[] = [];
     this.state.players.forEach((p, sessionId) => {
       if (p.status !== "racing" || p.finished) return;
+      // Bots' wpm/progress/finish are owned entirely by tickBots(); leaving
+      // them out here keeps the two tickers from fighting and, since a bot
+      // never has real "activity", keeps the AFK sweep below from kicking one.
+      if (this.isBot(sessionId)) return;
       p.wpm = this.calcWpm(this.correctCharsBySession.get(sessionId) ?? 0);
 
       const lastActivity = this.lastActivityBySession.get(sessionId) ?? this.raceStartedAt;
@@ -594,6 +782,52 @@ export class RaceRoom extends Room {
       // only holdouts, so the race is effectively over now.
       this.endRace();
     }
+  }
+
+  /**
+   * Drives every racing bot's typing during a live race (see the "spawnBots"
+   * handler). Runs on its own faster interval than tickRace so the progress
+   * bars move smoothly. Each bot's correct-char count is derived from how long
+   * the race has been going and its own target wpm (minus a small per-bot
+   * reaction delay), which the server treats exactly like a real racer's
+   * counted input: it drives progress/wpm and, on reaching the full quote,
+   * finish + place + the same end-of-race check typeProgress does. Purely a
+   * function of elapsed time, so it self-corrects if a tick is skipped and a
+   * reconnecting spectator sees a consistent position.
+   */
+  private tickBots() {
+    if (this.state.phase !== "racing") return;
+    const quoteLength = this.state.quote.length;
+    const elapsedMs = Date.now() - this.raceStartedAt;
+    let anyFinishedNow = false;
+
+    this.state.players.forEach((p, sessionId) => {
+      if (p.status !== "racing" || p.finished) return;
+      const sim = this.botSim.get(sessionId);
+      if (!sim) return; // not a bot, or a bot with no sim entry (shouldn't happen)
+
+      const typingMs = Math.max(0, elapsedMs - sim.startDelayMs);
+      // wpm * 5 chars per word, per minute of actual typing.
+      const targetChars = Math.floor((sim.wpm * 5 * typingMs) / 60000);
+      const correctChars = Math.max(0, Math.min(quoteLength, targetChars));
+
+      this.correctCharsBySession.set(sessionId, correctChars);
+      // Keep the AFK sweep in tickRace() from ever seeing a bot as idle (it
+      // already skips bots, but this keeps the map coherent for any reader).
+      this.lastActivityBySession.set(sessionId, Date.now());
+      p.progress = quoteLength > 0 ? correctChars / quoteLength : 0;
+      p.wpm = this.calcWpm(correctChars);
+
+      if (quoteLength > 0 && correctChars === quoteLength) {
+        p.finished = true;
+        p.place = this.nextPlace++;
+        anyFinishedNow = true;
+      }
+    });
+
+    // Mirror typeProgress: only check for race end after the loop, and only if
+    // a bot actually crossed the line this tick.
+    if (anyFinishedNow && this.allRacersFinished()) this.endRace();
   }
 
   onJoin(client: Client, options: { name?: string; resumeRacing?: boolean; clientId?: string; emoji?: string }) {
@@ -741,6 +975,7 @@ export class RaceRoom extends Room {
     this.countdownTimer?.clear();
     this.wpmTicker?.clear();
     this.raceTimeoutTimer?.clear();
+    this.botTicker?.clear();
     RaceRoom.instances.delete(this.roomId);
     console.log("[RaceRoom] disposed:", this.roomId);
   }
@@ -1049,6 +1284,8 @@ export class RaceRoom extends Room {
     this.wpmTicker = null;
     this.raceTimeoutTimer?.clear();
     this.raceTimeoutTimer = null;
+    this.botTicker?.clear();
+    this.botTicker = null;
     this.correctCharsBySession.clear();
     this.lastActivityBySession.clear();
     this.state.phase = "waiting";
@@ -1111,6 +1348,12 @@ export class RaceRoom extends Room {
     this.raceTimeoutTimer?.clear();
     this.raceTimeoutTimer = this.clock.setTimeout(() => this.endRace(), RACE_TIMEOUT_MS);
 
+    // Drive any spawned bots' typing for the duration of this race (see
+    // tickBots). Faster than the wpm ticker so their progress bars move
+    // smoothly. Harmless when there are no bots (the loop finds none).
+    this.botTicker?.clear();
+    this.botTicker = this.clock.setInterval(() => this.tickBots(), 200);
+
     console.log(`[RaceRoom] race started, ${this.countRacers()} racer(s)`);
   }
 
@@ -1125,6 +1368,8 @@ export class RaceRoom extends Room {
     this.raceTimeoutTimer = null;
     this.wpmTicker?.clear();
     this.wpmTicker = null;
+    this.botTicker?.clear();
+    this.botTicker = null;
 
     const stragglers: Player[] = [];
     this.state.players.forEach((p) => {
@@ -1178,6 +1423,12 @@ export class RaceRoom extends Room {
    */
   private attemptMerge(): boolean {
     if (this.clients.length === 0) return false;
+    // Never merge a room that holds admin test bots away: a bot has no socket,
+    // so it can't follow the "redirect" every real client does - it would just
+    // vanish when this room disposes, silently gutting the test field. Keeping
+    // the room put lets the bots (and any real players watching them) race on.
+    // Real rooms merging INTO this one are unaffected and still fine.
+    if (this.botSessions.size > 0) return false;
 
     // Sized by slots, not just racers: anyone queued here needs a slot over
     // there too (they're about to be promoted into the target's next race).

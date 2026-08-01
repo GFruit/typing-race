@@ -2949,3 +2949,43 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   two-line view is correspondingly more compact. This is the "reclaim the band"
   half of the deferred item above; a fully adaptive 2-or-3-line window is still
   open. Client-only.
+- 2026-08-01: Admin bot testing tool (dev tooling, orthogonal to the gameplay
+  roadmap - no new roadmap step). Lets the site owner populate a lobby with
+  simulated players to see how the layout/leaderboard/race loop behave with a
+  full field, testable on the live site without recruiting real people.
+  - Server-side bots (chosen over client-side extra connections so the feature
+    can be genuinely gated server-side and stays true to the "server is
+    authoritative" rule). Bots are ordinary synced `Player` entries, so they
+    appear and behave like real players to everyone in the room; all bot
+    bookkeeping (`botSessions`, `botSim`, `botTicker`, `nextBotId`) is
+    ephemeral server-only state per the state-minimalism rule - NO RaceState
+    schema change. See RaceRoom's `spawnBots`/`clearBots` handlers,
+    `makeBotPlayer`/`registerBot`/`removeBot`, and `tickBots`.
+  - Gating: `ADMIN_KEY` (env var; unset = feature off, the safe default). Every
+    bot message must carry a `key` equal to it, so knowing the message names
+    isn't enough. Client unlocks its hidden panel with `?admin=<key>` (stored
+    in localStorage, stripped from the URL); the panel is `display:none` for
+    everyone else, so a normal visitor's page is unchanged. On Render the key is
+    set as a service env var; locally `$env:ADMIN_KEY="..."` (PowerShell) /
+    `ADMIN_KEY=... npm start`.
+  - Behavior: the panel sets racer count, spectator count, and average WPM.
+    Racer bots take real racer slots via the same logic as a real opt-in
+    (`acceptsNewRacers()`/`countCommittedSlots()`), so more than MAX_RACERS
+    racers correctly overflow to the waitlist - surfaced back in the panel's
+    ack ("5 racing, 3 waitlisted"). `tickBots` (a 200ms ticker started in
+    `startRace`, cleared with the other timers) advances each racing bot's
+    correct-char count purely as a function of elapsed race time and its own
+    jittered target wpm, feeding progress/wpm and the same finish/place/endRace
+    path `typeProgress` uses. Bots are excluded from `tickRace`'s AFK sweep
+    (they have no real activity) and persist across races, so a spawned field
+    keeps racing round after round until cleared. A room holding bots refuses to
+    merge itself away (`attemptMerge` early-returns), since a socketless bot
+    can't follow a redirect - which keeps the test field intact between races.
+  - Verified with a scripted `@colyseus/sdk` client against a local server
+    (temporary dev install, not committed): a wrong/missing key is rejected with
+    no state change; 3 racers + 2 spectators @ 80 wpm start a countdown, race
+    with smoothly advancing progress and wpm converging near target, and are NOT
+    AFK-kicked over a 12s+ race; 8 racers land as 5 racing + 3 waitlisted (cap
+    honored and reported); high-wpm racers finish, get placed, show results, and
+    the room loops into a second race off the persisted field; clear removes
+    every bot and settles back to "waiting".
