@@ -7315,7 +7315,14 @@
       const st = room.state;
       const me = st.players.get(room.sessionId);
       const iAmRacing = !!me && me.status === "racing";
-      const inRace = st.phase === "racing" || st.phase === "countdown";
+      // "finished" (the results screen) counts as in-race for the header too: a
+      // racer keeps status "racing" through it (see RaceRoom.endRace), so this
+      // holds the header hidden across the ~3s results instead of flashing it
+      // back and then out again as the next race's countdown starts. It also
+      // keeps the arena height constant from countdown through results into the
+      // next race, so the "All tracks" fit check can't briefly flip the arena
+      // to the shared track for a frame at each race boundary.
+      const inRace = st.phase === "racing" || st.phase === "countdown" || st.phase === "finished";
       // A settings/emoji popover hangs off the header, so never yank it out from
       // under an open one.
       const popoverOpen =
@@ -7349,6 +7356,14 @@
         // against it.
         updateQuoteWindow();
         renderGhostCarets(st);
+        // The fit test at the top of render() ran BEFORE this toggle, so it
+        // measured the "All tracks" fit against the old (header-shown) arena.
+        // Now that the header's height has moved, re-check it against the real
+        // arena and re-render if the override flipped - otherwise the first
+        // race after a header-shown lobby briefly shows the shared track before
+        // a later patch corrects it. Only fires on an actual flip, and the
+        // re-render can't toggle raceFs again (already settled), so no loop.
+        refreshTrackFit();
       }
     }
 

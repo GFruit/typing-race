@@ -3320,3 +3320,19 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   falls to the input bar's `margin-top:auto`, so the input stays pinned to the
   bottom. Client scripts parse clean; worth a real-device confirm across a few
   viewport heights.
+
+- 2026-08-02: Fixed a transient shared-track flash at each race boundary on the
+  compact layout with "All tracks" selected. `refreshRaceChrome()`'s in-race
+  test now also treats `"finished"` (the results screen) as in-race, so a racer
+  (status stays `"racing"` through results - see `endRace`) keeps the header
+  hidden across the ~3s results instead of the header flashing back and then
+  out again as the next countdown starts. Keeping the header hidden also keeps
+  the arena height constant from countdown through results into the next race,
+  so the fit check can't briefly demote "All tracks" to the shared track at the
+  boundary. Belt-and-suspenders for the very first race (lobby header shown ->
+  countdown): the fit test runs at the top of `render()`, BEFORE
+  `refreshRaceChrome()` hides the header at the end, so it measured the wrong
+  (header-shown) arena; the header-toggle branch now calls `refreshTrackFit()`
+  after moving the header, which re-measures and re-renders only if the "All
+  tracks" override flipped (can't re-toggle raceFs, so no loop). Client scripts
+  parse clean; worth a real-device confirm across a couple of back-to-back races.
