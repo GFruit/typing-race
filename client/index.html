@@ -2495,11 +2495,21 @@
       }
       const lineH = quoteLineHeight();
       quoteWrap.style.setProperty("--quote-line", lineH + "px");
-      // Where the caret is, by character index. Falls back to the last span so
-      // finishing the quote doesn't snap the window back to the top.
-      const caretIdx = Math.min(committed.length + typeInput.value.length,
-                                quoteEl.children.length - 1);
-      const span = quoteEl.children[caretIdx < 0 ? 0 : caretIdx];
+      // Anchor the window on the START of the still-editable text
+      // (committed.length), NOT the caret. Everything you can still act on lives
+      // in the input box, which begins exactly there - including an uncorrected
+      // mistake you've typed a few characters past. Anchoring on the caret
+      // instead could push that mistake up onto the line that just scrolled off,
+      // hiding the very thing you have to go back and fix. The editable run is
+      // only ever about a line and a half (the error-tail cap stops you before
+      // it can grow past that), so the mistake stays on the top visible line
+      // while the caret stays in view just below it. In ordinary typing
+      // committed.length sits on the caret's own line anyway, so the view reads
+      // the same - it only diverges to show the earlier line when the box has
+      // actually spilled onto the next one, which is exactly when you want it.
+      // Clamped to the last span so finishing the quote doesn't snap to the top.
+      const anchorIdx = Math.min(committed.length, quoteEl.children.length - 1);
+      const span = quoteEl.children[anchorIdx < 0 ? 0 : anchorIdx];
       if (!span) { quoteScroll.style.transform = ""; ghostScroll.style.transform = ""; return; }
 
       const totalLines = Math.max(1, Math.round(quoteEl.offsetHeight / lineH));

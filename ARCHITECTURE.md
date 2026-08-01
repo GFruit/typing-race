@@ -2918,3 +2918,21 @@ The scaffold may instead generate the older `@colyseus/tools` style with
      aligns and paints over the band), and desktop with a second racer (ghost
      lollipop still lands exactly on the right character, i.e. the #ghostLayer
      move introduced no coordinate regression). No server or schema change.
+- 2026-08-01: Follow-up to the quote-window fix, from playing it on a phone: an
+  uncorrected mistake could scroll off the top and hide. The window anchored on
+  the CARET's line, but the error-tail cap lets you type ~15 chars past a
+  mistake (about half a line) before it blocks, so the caret can cross onto the
+  next line while the mistake sits on the line that just scrolled away. Fixed by
+  anchoring updateQuoteWindow on committed.length (the START of the still-
+  editable input box) instead of the caret: everything you can still act on -
+  including the mistake - lives in that box, which begins exactly there, so the
+  mistake's line is always the top visible one. The editable run is only ever
+  about a line and a half (the cap keeps it from growing further), so the caret
+  stays in view just below. In ordinary typing committed.length is on the
+  caret's own line, so the view is unchanged; it only diverges to show the
+  earlier line once the box has actually spilled onto the next one, which is
+  exactly when you want it. Verified by screenshot: a typo near a line end stays
+  on the top line while the caret sits a line below it; normal typing is
+  unchanged. Client-only. (Deferred, per user: making the 2nd line always FULLY
+  visible / an adaptive 2-or-3 line window - would need reclaiming the ~22px
+  lollipop band or trading track/WPM space; not done yet.)
