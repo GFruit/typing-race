@@ -2001,9 +2001,13 @@
              keyboard's predictive text rewrites whole words behind the racer's
              back, which the per-character scoring reads as a burst of
              mistakes. enterkeyhint keeps the return key from reading as
-             "Search" or "Go". -->
+             "Search" or "Go". The data-*-ignore / data-form-type hints ask
+             third-party password managers (1Password, LastPass) not to offer
+             the autofill strip over the box; the OS's own autofill may still
+             show it - that part isn't fully suppressible from the page. -->
         <input id="typeInput" type="text" autocomplete="off" autocorrect="off"
-               autocapitalize="none" spellcheck="false" enterkeyhint="done" />
+               autocapitalize="none" spellcheck="false" enterkeyhint="done"
+               data-1p-ignore data-lpignore="true" data-form-type="other" />
         <!-- Compact layout only: a phone can't auto-focus the box (focusing
              without a tap doesn't raise the keyboard), so the box would just
              sit there looking inert. This says what to do about it, and
@@ -2134,7 +2138,8 @@
              rows, so it can be pushed to the bottom (see #chatMessagesInner). -->
         <div id="chatMessages"><div id="chatMessagesInner"></div></div>
         <form id="chatForm">
-          <input id="chatInput" type="text" maxlength="200" autocomplete="off" enterkeyhint="send" placeholder="Send a message" />
+          <input id="chatInput" type="text" maxlength="200" autocomplete="off" enterkeyhint="send" placeholder="Send a message"
+                 data-1p-ignore data-lpignore="true" data-form-type="other" />
           <button type="submit" class="btn-send">Send</button>
         </form>
       </div>
