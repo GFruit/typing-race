@@ -974,18 +974,20 @@
       }
 
       /* Composing a message: an on-screen keyboard has taken half the screen,
-         and what's left was being shared with the roster and the Switch Lobby
-         row, leaving about three messages visible. Neither is any use while
-         you're typing INTO the chat, so both stand down and the log takes the
-         space; they come straight back when the field loses focus.
+         and what's left was being shared with the roster, leaving about three
+         messages visible. The roster is no use while you're typing INTO the
+         chat, so it stands down and the log takes the space; it comes straight
+         back when the field loses focus. The Switch Lobby row STAYS - it carries
+         the only way out (Switch Lobby) and, on the two-view sheet, the
+         players/chat toggle, and a keyboard-driven layout change can strand you
+         on the chat with no other exit if it's hidden.
          TOUCH, not width - this reclaims room from a keyboard that is covering
          the screen, and a narrow window on a machine with a real keyboard has
          nothing to reclaim. Keying it to the breakpoint made a PC user's
          roster vanish the moment they clicked the chat box, for no reason at
          all. `data-composing` is only ever set on touch (see setComposing), so
          the JS gates it too. */
-      .sidebar[data-composing="1"] .roster,
-      .sidebar[data-composing="1"] .lobby-row { display: none; }
+      .sidebar[data-composing="1"] .roster { display: none; }
     }
 
     /* ==========================================================================
