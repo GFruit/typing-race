@@ -1639,6 +1639,12 @@
       html[data-theme="light"] #inputWrap,
       html[data-theme="light"] #quoteTopMask { background: var(--l-bg); }
     }
+    /* ...except in the race-bar layout, where the wrapper is transparent and
+       sits inside #mobileBar (an --l-card fill). The beige rule above would
+       otherwise paint the square wrapper behind the input's rounded corners,
+       leaving beige triangles at each corner. Keep it transparent so the bar's
+       matching card colour shows through instead. */
+    html[data-theme="light"][data-race-bar="1"] #inputWrap { background: transparent; }
     html[data-theme="light"] #errorNotice {
       background: linear-gradient(to right, rgba(255, 255, 255, 0), var(--l-card) 24px); color: var(--l-bad);
     }
@@ -2939,6 +2945,12 @@
     const NO_START_NOTICE_MS = 5000;
     let raceStartAt = 0;
     let startIdleTimer = null;
+    // Whether we've typed at least one character in the CURRENT race. The
+    // "Start typing the text above" nudge is a first-time instruction: once
+    // you've typed anything you've clearly understood it, so backspacing all
+    // the way back to empty (usually after botching the first letter) must not
+    // re-trigger it. Reset to false whenever a new quote starts.
+    let typedThisRace = false;
 
     // The sidebar's contents are identical in both layouts; only where the join
     // button lives differs. Moving the element (rather than duplicating it)
@@ -3505,7 +3517,7 @@
       if (nothingTyped && !tapHintUp) {
         if (raceInputLive) {
           const idleLongEnough = raceStartAt !== 0 && Date.now() - raceStartAt >= NO_START_NOTICE_MS;
-          if (idleLongEnough) mode = "go";
+          if (idleLongEnough && !typedThisRace) mode = "go";
         } else if (raceInputArmed) {
           mode = "ready";
         }
@@ -4475,6 +4487,10 @@
         }
         typeInput.value = "";
         committed = state.quote.slice(0, resumedChars);
+        // A brand-new race: the nudge is due again if this racer stays idle.
+        // (A mid-race reconnect that resumes with progress leaves this true so
+        // the nudge doesn't reappear for someone already well into the quote.)
+        typedThisRace = resumedChars > 0;
         lastQuoteId = state.quoteId;
         // Clear the block from last race, so the next one doesn't open with a
         // stale notice (and replay its blink as the box comes back into view).
@@ -7365,6 +7381,9 @@
       absorbCorrectWords(quote);
       enforceErrorCap(quote);
       paintQuote(quote);
+      // Once anything has been typed this race, the "start typing" nudge is
+      // done for good - it won't come back if they backspace to empty.
+      if (committed !== "" || typeInput.value !== "") typedThisRace = true;
       refreshStartHint(); // the first keystroke pulls the "start typing" nudge
       room.send("typeProgress", { input: committed + typeInput.value });
     }
