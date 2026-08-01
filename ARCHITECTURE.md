@@ -2989,3 +2989,34 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     honored and reported); high-wpm racers finish, get placed, show results, and
     the room loops into a second race off the persisted field; clear removes
     every bot and settles back to "waiting".
+- 2026-08-01: Adaptive sidebar density (client-only, desktop column). The
+  roster is fixed-size in the flex column and the chat takes the leftover, so a
+  crowded lobby - or the user zooming the page in, which shrinks the viewport in
+  CSS pixels - could push the chat off the bottom (reported: at 125% zoom with a
+  full field the chat was already gone). `syncSidebarDensity()` now measures the
+  actual leftover chat height and steps the roster down through ordered tiers
+  until the chat clears a floor (`CHAT_MIN_HEIGHT`, 160px): the Watching list
+  shrinks 3→2 rows, then collapses to just its "Watching N" header count, then
+  the queue trims 2→1 rows and finally drops out entirely (its state still reads
+  off the join button - "Leave Race Queue" and the "#N" position badge). It
+  picks the roomiest tier the chat can afford, so nothing hides until it must.
+  Spectator caps are driven by `data-density` on `.roster` in CSS; the queue's
+  visible count / drop is driven by `waitlistVisible`/`waitlistCollapsed` read
+  in `fillWaitlist`. Re-fit on window resize (rAF-coalesced; zoom fires resize),
+  on breakpoint change, and from `render()` guarded on the racer/queue/spectator
+  headcounts so the several-per-second race patches don't reflow for no change.
+  The compact sheet scrolls its own roster, so it's held at tier 0.
+- 2026-08-01: Extended the adaptive density to the compact (mobile) sheet too.
+  There the roster is a capped scroller (`max-height: 42%`) and the chat below
+  takes the leftover, so the chat was never starved - but a crowded lobby turned
+  the roster into a cramped nested scroll (the Watching list scrolling inside
+  the roster scrolling inside the sheet) and the reclaimable space never reached
+  the chat. `syncSidebarDensity` now runs on compact as well, with a per-layout
+  stop condition (`densityFits`): desktop still measures the chat panel against
+  CHAT_MIN_HEIGHT; compact instead steps the roster down until it fits its cap
+  WITHOUT scrolling (`rosterEl.scrollHeight <= clientHeight`). Because the cap is
+  a max and the roster is content-sized, a collapsed Watching list / trimmed
+  queue both de-clutters the roster and hands the height it stops using to the
+  chat (which grows past 58%). Same tier ladder and CSS (`data-density`) as
+  desktop. Also re-fit from `setComposing(false)`, since the roster is
+  `display:none` while the chat input is focused and can't be measured then.

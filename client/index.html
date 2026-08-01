@@ -773,12 +773,26 @@
     .empty { color: #475569; font-style: italic; padding: 5px 0; }
 
     /* Spectators are secondary to the racers, so they're dimmed as a group.
-       Capped at 5 rows (row = 5px + 18.2px line + 5px, so 5 * 28.2 ≈ 141px)
+       Capped at 3 rows (row = 5px + 18.2px line + 5px, so 3 * 28.2 ≈ 85px)
        and scrolling past that - but it's a MAX, not a height: with fewer
        spectators the list only takes the room it needs and the chat below
        keeps the rest. */
-    .spectators { opacity: .62; max-height: 141px; overflow-y: auto; }
+    .spectators { opacity: .62; max-height: 85px; overflow-y: auto; }
     .spectators .empty { opacity: .8; }
+
+    /* Adaptive roster density. When the sidebar runs short on height - a
+       crowded lobby (many racers + a long queue + lots of spectators) or the
+       user zooming the page in - the roster yields to the chat in stages
+       rather than squeezing it off the bottom. syncSidebarDensity() sets
+       data-density on .roster to the tightest tier the chat can still afford:
+       the Watching list shrinks (tier 1), then collapses to just its
+       "Watching N" header count (tier 2+); the queue is trimmed and finally
+       dropped separately, in JS. Desktop column only - the compact sheet
+       scrolls, so it's left at tier 0 (the base rules above). */
+    .roster[data-density="1"] .spectators { max-height: 57px; } /* ~2 rows */
+    .roster[data-density="2"] .spectators,
+    .roster[data-density="3"] .spectators,
+    .roster[data-density="4"] .spectators { display: none; }    /* count only */
 
     /* Trailing label on a roster row: "next race" for a racer holding a slot
        for the one after this (see Player.status's "queued") - they count
@@ -1141,9 +1155,13 @@
       }
       .sidebar-scroll { overflow: hidden; }
       /* The roster no longer has a full column to itself, so it's capped and
-         scrolls rather than pushing the chat off the bottom of the sheet. */
+         scrolls rather than pushing the chat off the bottom of the sheet. The
+         cap is a MAX, not a fixed height: syncSidebarDensity collapses the
+         Watching list / trims the queue when the roster would overflow this,
+         which both avoids a cramped nested scroll and lets the shorter roster
+         hand the reclaimed height to the chat below (which takes the leftover). */
       .roster { max-height: 42%; overflow-y: auto; }
-      .spectators { max-height: 113px; }
+      .spectators { max-height: 85px; }
       .panel { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
 
 
@@ -1524,9 +1542,11 @@
              the racers and the spectators (its members left the Watching group
              when they got in line), separated from the racers by its top rule -
              the queue isn't part of the "x / 5" above it. Hidden entirely while
-             nobody is in line. Shows the first 3, then "+N more"; if I'm
+             nobody is in line. Shows the first couple, then "+N more"; if I'm
              further back than that, my own row is pinned below its own rule so
-             my position is always on screen. -->
+             my position is always on screen. How many rows show (and whether
+             the whole block is dropped when the sidebar is short on height) is
+             adaptive - see syncSidebarDensity. -->
         <div id="waitlistBlock" hidden>
           <ul id="waitlistTop"></ul>
           <div id="waitlistMore" hidden></div>
@@ -1536,7 +1556,10 @@
         <div class="section-header">
           <h2>Watching <span id="spectatorCount" class="section-count"></span></h2>
         </div>
-        <!-- Grows with its contents up to 5 rows, then scrolls; see .spectators. -->
+        <!-- Grows with its contents up to a few rows, then scrolls; the cap
+             tightens - and the list collapses to just the header count above -
+             as the sidebar runs short on height. See .spectators and
+             syncSidebarDensity. -->
         <ul id="spectatorsList" class="spectators"></ul>
       </div>
 
@@ -2433,11 +2456,17 @@
     function setComposing(on) {
       if (composingBlurTimer) { clearTimeout(composingBlurTimer); composingBlurTimer = null; }
       const next = on && touchInput.matches ? "1" : "0";
-      if (sidebarEl.dataset.composing === next) return;
+      const prev = sidebarEl.dataset.composing;
+      if (prev === next) return;
       sidebarEl.dataset.composing = next;
       // The log just grew or shrank by the height of what was hidden or
       // restored, so re-pin it rather than leaving it mid-scroll.
       anchorChatToBottom();
+      // Only when leaving an ACTUAL composing state (the roster was
+      // display:none'd and so couldn't be measured): re-fit its density now
+      // that it's back. Gated on prev === "1" so the setup-time call - which
+      // runs before syncSidebarDensity's own state is initialized - is skipped.
+      if (next === "0" && prev === "1") syncSidebarDensity();
     }
 
     chatInput.addEventListener("focus", () => setComposing(true));
@@ -2506,6 +2535,10 @@
     compactLayout.addEventListener("change", () => {
       syncCompactLayout();
       updateKeyboardInset();
+      // Crossing the breakpoint swaps between the scrolling sheet and the
+      // fixed desktop column, so the roster's density has to be re-fit (or
+      // reset to tier 0 on the sheet). See syncSidebarDensity.
+      syncSidebarDensity();
     });
     // Runs now, before anything paints, so the join button is already in the
     // right place on the first frame. The keyboard inset can't be read yet
@@ -2523,6 +2556,15 @@
     // the sheet; these extra hooks only ever fix placement.)
     window.addEventListener("resize", placeJoinButton);
     window.addEventListener("orientationchange", placeJoinButton);
+    // Zooming the page in fires resize (the viewport shrinks in CSS pixels), as
+    // does dragging the window shorter; both change how much room the chat has,
+    // so re-fit the roster's density. rAF-coalesced so a drag's resize storm
+    // costs one measure per frame at most. See syncSidebarDensity.
+    let densityRaf = 0;
+    window.addEventListener("resize", () => {
+      if (densityRaf) return;
+      densityRaf = requestAnimationFrame(() => { densityRaf = 0; syncSidebarDensity(); });
+    });
     // pageshow fires on load and on bfcache restore, where a restored context
     // can hand back a stale matchMedia value until the first real read.
     window.addEventListener("pageshow", placeJoinButton);
@@ -3646,6 +3688,16 @@
       // disables it now - a state patch arriving around one mustn't re-enable
       // a button that leads nowhere (room.onLeave disables it).
       joinBtn.disabled = !connected;
+
+      // Re-fit the roster's density (see syncSidebarDensity) so the chat keeps
+      // its floor when the sidebar is crowded. Guarded on the headcounts that
+      // actually drive it, so the several-per-second race patches - which don't
+      // change who's racing/queued/watching - don't trigger its measure/reflow.
+      const densitySig = `${rosterRacers.length}|${waitlist.length}|${spectators.length}`;
+      if (densitySig !== lastDensitySig) {
+        lastDensitySig = densitySig;
+        syncSidebarDensity();
+      }
     }
 
     function formatTime(totalSeconds) {
@@ -3825,7 +3877,16 @@
     }
 
     // How many of the race queue are listed before it collapses to "+N more".
-    const WAITLIST_VISIBLE = 3;
+    // The MAX is the roomy default; syncSidebarDensity() lowers waitlistVisible
+    // (and can drop the queue entirely via waitlistCollapsed) when the sidebar
+    // is short on height - the queue's state still reads off the join button,
+    // which carries both "Leave Race Queue" and my own "#N" position badge.
+    const WAITLIST_VISIBLE_MAX = 2;
+    let waitlistVisible = WAITLIST_VISIBLE_MAX;
+    let waitlistCollapsed = false;
+    // Last render's queue, kept so syncSidebarDensity() can re-fit the queue
+    // (a resize with no new state has no `people` of its own to work from).
+    let lastWaitlist = [];
 
     // The race queue block between the racers and the spectators. Shows the
     // front of the line and hides the tail behind a count - a queue of 20 is
@@ -3833,10 +3894,13 @@
     // that matters to YOU is your own, which is why it gets pinned below
     // rather than left somewhere off in the collapsed tail.
     function fillWaitlist(people) {
-      waitlistBlock.hidden = people.length === 0;
-      if (people.length === 0) return;
+      lastWaitlist = people;
+      // waitlistCollapsed is the tightest density tier dropping the queue
+      // outright; an empty queue hides the block for the ordinary reason.
+      waitlistBlock.hidden = waitlistCollapsed || people.length === 0;
+      if (waitlistBlock.hidden) return;
 
-      const shown = people.slice(0, WAITLIST_VISIBLE);
+      const shown = people.slice(0, waitlistVisible);
       const hidden = people.length - shown.length;
       fillNames(waitlistTop, shown, "");
 
@@ -3847,9 +3911,72 @@
       // the line my row is already on screen, so pinning it again would just
       // list me twice.
       const mine = people.find((p) => p.me);
-      const pinMine = !!mine && mine.queuePos > WAITLIST_VISIBLE;
+      const pinMine = !!mine && mine.queuePos > waitlistVisible;
       waitlistSelf.hidden = !pinMine;
       if (pinMine) fillNames(waitlistSelf, [mine], "");
+    }
+
+    // Adaptive sidebar density. The roster (racers, queue, spectators) is
+    // fixed-size in the flex column and the chat below takes whatever height is
+    // left, so a crowded lobby - or the user zooming the page in, which shrinks
+    // the viewport in CSS pixels - can push the chat off the bottom entirely.
+    // Rather than fixed caps, the roster stands down in ordered stages until
+    // the chat clears CHAT_MIN_HEIGHT: the Watching list shrinks, then
+    // collapses to just its "Watching N" header count, then the queue trims to
+    // one row and finally drops out. We pick the ROOMIEST tier the chat can
+    // afford, so nothing is hidden until it has to be, and re-fit on every
+    // resize and whenever the roster's headcounts change. Desktop column only;
+    // the compact sheet has its own scrolling roster and stays at tier 0.
+    const rosterEl = sidebarEl.querySelector(".roster");
+    const chatPanelEl = sidebarEl.querySelector(".panel");
+    const CHAT_MIN_HEIGHT = 160;
+    let lastDensitySig = "";
+
+    // Roomiest (0) to tightest (4). Each sets the queue controls; the spectator
+    // list is capped by data-density in CSS (3 rows / 2 rows / hidden).
+    const DENSITY_TIERS = [
+      { queueVisible: 2, queueCollapsed: false }, // spectators: 3 rows
+      { queueVisible: 2, queueCollapsed: false }, // spectators: 2 rows
+      { queueVisible: 2, queueCollapsed: false }, // spectators: count only
+      { queueVisible: 1, queueCollapsed: false }, // + queue trimmed to 1
+      { queueVisible: 1, queueCollapsed: true  }, // + queue dropped entirely
+    ];
+
+    function applyDensityTier(i) {
+      const tier = DENSITY_TIERS[i];
+      rosterEl.dataset.density = String(i);
+      waitlistVisible = tier.queueVisible;
+      waitlistCollapsed = tier.queueCollapsed;
+      fillWaitlist(lastWaitlist);
+    }
+
+    // "Does the roster have room at the current tier?" - the stop condition for
+    // the density search, asked differently per layout because the two starve
+    // different things:
+    //  - Desktop column: the roster is fixed-size and the chat takes the
+    //    leftover, so room means the chat panel itself clears CHAT_MIN_HEIGHT.
+    //  - Compact sheet: the roster is a capped scroller (max-height) and the
+    //    chat below it is safe by construction, so room instead means the
+    //    roster fits its cap WITHOUT scrolling. Collapsing the Watching list /
+    //    trimming the queue until it does both de-clutters the roster (no more
+    //    nested scroll) and hands the space it stops using back to the chat -
+    //    the cap is a max, not a fixed height, so a shorter roster grows chat.
+    function densityFits() {
+      if (compactLayout.matches) {
+        return rosterEl.scrollHeight <= rosterEl.clientHeight + 2;
+      }
+      return chatPanelEl.offsetHeight >= CHAT_MIN_HEIGHT;
+    }
+
+    function syncSidebarDensity() {
+      if (!rosterEl || !chatPanelEl) return;
+      for (let i = 0; i < DENSITY_TIERS.length; i++) {
+        applyDensityTier(i);
+        // Reading a layout metric forces the reflow this tier just caused, so
+        // each step is measured against its real effect. Stop at the first
+        // (roomiest) tier that fits; fall through to the tightest if none do.
+        if (densityFits()) break;
+      }
     }
 
     // Derives a soft track color from an emoji's own palette, so each racer's
