@@ -1238,75 +1238,37 @@
       .settings-row-toggle:hover { background: transparent; }
     }
 
-    /* Admin bot testing panel (see the admin unlock JS). Hidden entirely unless
-       an admin key is present in localStorage, so an ordinary visitor never sees
-       it. Floats over everything in the bottom-left, out of the race UI's way. */
-    #adminPanel {
-      display: none; position: fixed; left: 12px; bottom: 12px; z-index: 60;
-      width: 240px; background: #111a2e; border: 1px solid #334155;
-      border-radius: 12px; box-shadow: 0 8px 30px rgba(2, 6, 16, .6);
-      font-size: 13px; color: #e2e8f0; overflow: hidden;
-    }
-    #adminPanel.open { display: block; }
-    #adminHead {
+    /* Admin bot testing controls, shown as a "Testing" group inside the Settings
+       modal. The whole group stays display:none unless unlockAdmin() finds an
+       admin key (see the admin unlock JS), so an ordinary visitor's Settings
+       modal is completely unchanged. Styled to sit natively among the other
+       settings groups. */
+    #settingsTesting { display: none; }
+    #settingsTesting.admin-on { display: block; }
+    .test-row {
       display: flex; align-items: center; justify-content: space-between;
-      gap: 8px; padding: 8px 10px; background: #0b1220; cursor: pointer;
-      border-bottom: 1px solid #1e293b; user-select: none;
+      gap: 10px; margin-top: 8px;
     }
-    #adminHead .admin-title { font-weight: 600; letter-spacing: .02em; }
-    #adminHead .admin-title small { color: #64748b; font-weight: 400; margin-left: 4px; }
-    #adminCollapse { color: #94a3b8; font-size: 12px; }
-    #adminBody { padding: 10px; display: grid; gap: 8px; }
-    #adminPanel.collapsed #adminBody { display: none; }
-    .admin-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .admin-field label { color: #94a3b8; }
-    .admin-field input {
-      width: 72px; padding: 5px 8px; background: #0b1120; color: #e2e8f0;
+    .test-row .settings-label { margin: 0; }
+    .test-input {
+      width: 84px; padding: 6px 8px; background: #0b1120; color: #e2e8f0;
       border: 1px solid #334155; border-radius: 8px; font: inherit; text-align: right;
     }
-    .admin-field input:focus { outline: none; border-color: #7dd3fc; }
-    .admin-buttons { display: flex; gap: 8px; margin-top: 2px; }
-    .admin-buttons button {
-      flex: 1; padding: 7px 10px; border: 0; border-radius: 8px; cursor: pointer;
+    .test-input:focus { outline: none; border-color: #7dd3fc; }
+    .test-buttons { display: flex; gap: 8px; margin-top: 12px; }
+    .test-buttons button {
+      flex: 1; padding: 8px 10px; border: 0; border-radius: 8px; cursor: pointer;
       font: inherit; font-weight: 600; color: #04140a; background: #22c55e;
     }
-    .admin-buttons button:hover { filter: brightness(1.08); }
-    .admin-buttons button.secondary { background: #334155; color: #e2e8f0; }
-    .admin-buttons button.secondary:hover { background: #3f4d63; }
-    #adminResult { min-height: 1.2em; color: #94a3b8; font-size: 12px; line-height: 1.35; }
+    .test-buttons button:hover { filter: brightness(1.08); }
+    .test-buttons button.secondary { background: #334155; color: #e2e8f0; }
+    .test-buttons button.secondary:hover { background: #3f4d63; }
+    #adminResult { min-height: 1.2em; margin-top: 10px; color: #94a3b8; font-size: 12px; line-height: 1.35; }
     #adminResult.err { color: #f87171; }
     #adminResult.ok { color: #86efac; }
   </style>
 </head>
 <body>
-  <!-- Admin bot testing panel. Stays display:none unless unlockAdmin() finds an
-       admin key in localStorage (set via ?admin=<key>), so a normal visitor
-       never sees it. Wired up in the script below. -->
-  <div id="adminPanel">
-    <div id="adminHead" title="Collapse / expand">
-      <span class="admin-title">Test bots <small>admin</small></span>
-      <span id="adminCollapse">▾</span>
-    </div>
-    <div id="adminBody">
-      <div class="admin-field">
-        <label for="adminRacers">Racers</label>
-        <input id="adminRacers" type="number" min="0" max="40" step="1" value="4" />
-      </div>
-      <div class="admin-field">
-        <label for="adminSpectators">Spectators</label>
-        <input id="adminSpectators" type="number" min="0" max="40" step="1" value="2" />
-      </div>
-      <div class="admin-field">
-        <label for="adminWpm">Avg WPM</label>
-        <input id="adminWpm" type="number" min="10" max="250" step="5" value="70" />
-      </div>
-      <div class="admin-buttons">
-        <button id="adminSpawnBtn" type="button">Spawn</button>
-        <button id="adminClearBtn" type="button" class="secondary">Clear bots</button>
-      </div>
-      <div id="adminResult" aria-live="polite"></div>
-    </div>
-  </div>
   <header>
     <h1>Ty<span class="brand-accent">pro</span></h1>
     <!-- Nothing sits between the wordmark and the identity box on purpose.
@@ -1432,6 +1394,33 @@
                   <input id="soundVolumeSlider" type="range" min="0" max="100" step="1" aria-label="Sound volume" />
                   <span id="soundVolumeValue" aria-hidden="true">70%</span>
                 </div>
+              </div>
+            </div>
+
+            <!-- Admin-only. The whole group stays display:none unless
+                 unlockAdmin() adds .admin-on (an admin key is present), so an
+                 ordinary visitor's Settings modal looks exactly as before. -->
+            <div class="settings-group" id="settingsTesting">
+              <div class="settings-group-title">Testing</div>
+              <div class="settings-field">
+                <div class="settings-hint">Fill this room with simulated players to preview a busy lobby. Only you can see this.</div>
+                <div class="test-row">
+                  <label class="settings-label" for="adminRacers">Racers</label>
+                  <input id="adminRacers" class="test-input" type="number" min="0" max="40" step="1" value="4" />
+                </div>
+                <div class="test-row">
+                  <label class="settings-label" for="adminSpectators">Spectators</label>
+                  <input id="adminSpectators" class="test-input" type="number" min="0" max="40" step="1" value="2" />
+                </div>
+                <div class="test-row">
+                  <label class="settings-label" for="adminWpm">Avg WPM</label>
+                  <input id="adminWpm" class="test-input" type="number" min="10" max="250" step="5" value="70" />
+                </div>
+                <div class="test-buttons">
+                  <button id="adminSpawnBtn" type="button">Spawn</button>
+                  <button id="adminClearBtn" type="button" class="secondary">Clear bots</button>
+                </div>
+                <div id="adminResult" aria-live="polite"></div>
               </div>
             </div>
 
@@ -2686,18 +2675,14 @@
     }
 
     function unlockAdmin() {
-      if (!adminKey) return; // ordinary visitor: panel stays hidden
-      const panel = document.getElementById("adminPanel");
-      const head = document.getElementById("adminHead");
-      const collapse = document.getElementById("adminCollapse");
+      if (!adminKey) return; // ordinary visitor: the Testing group stays hidden
+      // Reveal the "Testing" group inside the existing Settings modal. Nothing
+      // else about Settings changes, and for a non-admin this class is never
+      // added, so their modal is byte-for-byte the same as before.
+      const group = document.getElementById("settingsTesting");
+      if (group) group.classList.add("admin-on");
       const spawnBtn = document.getElementById("adminSpawnBtn");
       const clearBtn = document.getElementById("adminClearBtn");
-      panel.classList.add("open");
-
-      head.addEventListener("click", () => {
-        const collapsed = panel.classList.toggle("collapsed");
-        collapse.textContent = collapsed ? "▸" : "▾";
-      });
 
       const num = (id, min, max) => {
         const v = Math.floor(Number(document.getElementById(id).value));
