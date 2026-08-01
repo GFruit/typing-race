@@ -3240,12 +3240,47 @@
     raceLeaveBtn.onclick = () => { if (room) room.send("setStatus", { racing: false }); };
 
     // --- On-screen keyboard ----------------------------------------------------
+    // Composing (chat-input focus) hides the roster and the Switch Lobby row to
+    // give the log room while the keyboard covers the screen, and is meant to
+    // end when the field blurs. But a phone keyboard can be dismissed WITHOUT
+    // blurring the field it was raised for - Android's hide-keyboard gesture and
+    // Back button both leave the caret in place - so the `blur` never fires,
+    // `data-composing` stays "1", and the roster + Switch Lobby row + view
+    // toggle stay hidden with the sheet stuck on the chat-only view even after
+    // the keyboard is gone.
+    //
+    // So we watch the keyboard's actual presence instead of trusting focus. The
+    // visual-viewport HEIGHT shrinks when the keyboard is up on both kinds of
+    // mobile browser - the overlay kind (keyboard sits over the page) and the
+    // layout-resizing kind (page shrinks to fit above it) - unlike the --kb-inset
+    // `covered` measure below, which only the overlay kind reports. The tallest
+    // height seen is the "no keyboard" baseline; a sustained shrink past the
+    // same 120px floor used below is the keyboard. The moment it closes while the
+    // chat field still holds focus, we blur it so the normal composing-off path
+    // runs and everything comes back.
+    let kbBaselineH = 0;
+    let kbWasOpen = false;
+    function trackKeyboardPresence() {
+      const vv = window.visualViewport;
+      if (!vv) return;
+      // A grown viewport (the keyboard closing, a URL bar retracting, a rotation
+      // to a taller orientation) resets the baseline; only a shrink is a keyboard.
+      if (vv.height > kbBaselineH) kbBaselineH = vv.height;
+      const open = kbBaselineH - vv.height > 120;
+      if (kbWasOpen && !open && document.activeElement === chatInput) {
+        // Dismissed without a blur - drop the focus ourselves so composing ends.
+        chatInput.blur();
+      }
+      kbWasOpen = open;
+    }
+
     // A phone keyboard covers the bottom of the *visual* viewport without
     // shrinking the layout viewport, so a full-height shell ends up with its
     // input box behind the keyboard. visualViewport reports the covered strip;
     // publishing it as --kb-inset lets the CSS size the shell to the space
     // that's actually visible, which puts the typing box right above the keys.
     function updateKeyboardInset() {
+      trackKeyboardPresence();
       const vv = window.visualViewport;
       let inset = 0;
       if (vv && compactLayout.matches) {
@@ -3328,6 +3363,10 @@
     // the sheet; these extra hooks only ever fix placement.)
     window.addEventListener("resize", placeJoinButton);
     window.addEventListener("orientationchange", placeJoinButton);
+    // Rotating changes the natural (no-keyboard) viewport height, so drop the
+    // learned keyboard baseline and let trackKeyboardPresence recapture it -
+    // otherwise a rotation to a shorter orientation reads as a keyboard opening.
+    window.addEventListener("orientationchange", () => { kbBaselineH = 0; kbWasOpen = false; });
     // Zooming the page in fires resize (the viewport shrinks in CSS pixels), as
     // does dragging the window shorter; both change how much room the chat has,
     // so re-fit the roster's density. rAF-coalesced so a drag's resize storm
