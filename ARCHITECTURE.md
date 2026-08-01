@@ -3336,3 +3336,65 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   after moving the header, which re-measures and re-renders only if the "All
   tracks" override flipped (can't re-toggle raceFs, so no loop). Client scripts
   parse clean; worth a real-device confirm across a couple of back-to-back races.
+
+- 2026-08-02: On short viewports the emoji picker and Settings popover now run
+  down over the bottom action bar (Next Race + chat toggle) instead of stopping
+  132px short of it. The compact popover rules pin both to `top:54px` with a
+  `max-height` that leaves that 132px clearance so the action bar stays reachable
+  beside an open picker - correct when there's height to spare, but wasted room
+  when the viewport is short (a very small phone, or the desktop zoomed way in),
+  exactly where the picker is most cramped. A new media query on the short-
+  compact-sheet breakpoint (`(max-width:820px) and (max-height:560px)`, or
+  `(max-height:520px) and (pointer:coarse)`) drops the `max-height` cap and sets
+  `bottom:var(--kb-inset)` so the popover spans from the header down to the
+  keyboard/viewport bottom, covering the bar. It already stacks above the bar
+  (z-index 60 > 50) and carries its own Close button (+ Escape), so hiding the
+  bar behind it costs nothing. The emoji picker's scroll region (`#emojiScroll`)
+  drops its 46dvh cap and flexes to fill (`flex:1 1 auto; min-height:0`) so the
+  reclaimed height isn't left as a strip of bar showing through. CSS-only, scoped
+  to the short breakpoint; normal-height mobile keeps the bar visible as before.
+  Worth a real-device confirm at high zoom / on a small phone with the keyboard
+  up.
+
+- 2026-08-02: Follow-ups to the popover-covers-footer change, all CSS-only.
+  (1) Bottom breathing gap: the short-breakpoint popover rule went from
+  `bottom:var(--kb-inset)` (flush to the screen's bottom edge) to
+  `bottom:calc(var(--kb-inset) + 10px)`, matching the 10px side gutters and the
+  ~10px header clearance so the card floats with an even margin all round.
+  (2) Shortest-tier strip-down, on the existing very-short breakpoint
+  (`(max-width:820px) and (max-height:430px)`, or `(max-height:430px) and
+  (pointer:coarse)`) where at extreme zoom the popovers' own chrome was eating
+  the content's room: Settings' sticky title bar (`.settings-head`) collapses to
+  `height:0; overflow:visible` with the title hidden - it stays sticky (the body
+  scrolls well past 430px) so the Close it holds pins to the panel's top-right
+  and rides over the scrolling content instead of scrolling away; the Close gets
+  a resting chip fill (dark `#33291d`, plus a light-theme `--l-inset` override
+  placed after the light `#settingsClose` rules so source order wins) for
+  legibility over that content. The emoji picker drops its category tab row
+  (`#emojiTabs`) and every section title (`.emoji-group-title`), keeping the
+  search box (the most space-efficient way to reach any emoji when the grid is
+  tiny) + the grid; with the tabs gone the search row inherits the overlaid
+  `#emojiClose`, so `#emojiSearchWrap` gains `padding-right:44px` and
+  `#emojiSearchClear` shifts to `right:50px` (same 6px-inside-the-input inset as
+  before, now clear of the Close). Client scripts unchanged; worth a real-device
+  confirm at very high zoom in both themes.
+
+- 2026-08-02: Graduated the emoji-picker strip-down by zoom (was all-at-once at
+  `max-height:430px`), per user feedback that the section titles were worth
+  keeping at moderate zoom. Now three height tiers: taller than 430px (~200%
+  zoom) keeps full chrome (tabs + sticky titles); 430px-and-under (~250%) drops
+  the tabs but KEEPS the section titles, only un-sticking them
+  (`.emoji-group-title { position: static }`) so they scroll away instead of
+  pinning a row; 300px-and-under (~400%) drops the titles entirely
+  (`display:none`) and shrinks the glyph a touch (`.emoji-cell` 22px->19px) for
+  the narrow tracks. The 250% tier just swapped its old `.emoji-group-title
+  {display:none}` for `{position:static}`; the 400% tier is a new
+  `(max-width:820px) and (max-height:300px)` / `(max-height:300px) and
+  (pointer:coarse)` block. Also killed the picker's horizontal scrollbar at high
+  zoom: the grid went from `repeat(8, 1fr)` to `repeat(8, minmax(0,1fr))` so the
+  8 tracks shrink to fit the box instead of forcing it wider, plus
+  `overflow-x:hidden` on the compact `#emojiScroll` (safe there - the hover-pop
+  that needs the horizontal room is already disabled on touch/compact) as a
+  belt-and-suspenders against a last-column glyph spilling a pixel. The
+  zoom->height mapping is approximate (depends on the physical screen), so the
+  430/300 thresholds may want nudging after a real-device check. CSS-only.

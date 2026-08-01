@@ -174,7 +174,12 @@
       font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
       color: #b4a487; font-weight: 600; padding: 8px 2px 6px;
     }
-    .emoji-group-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+    /* minmax(0,1fr) rather than plain 1fr so the 8 tracks may shrink below the
+       glyph's intrinsic width instead of forcing the grid wider than its box -
+       that overflow is what put a horizontal scrollbar on the picker at high
+       zoom. The glyph shrinks with it at the tightest tiers (see the media
+       blocks) so it isn't cramped. */
+    .emoji-group-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; }
     .emoji-cell {
       position: relative; font-size: 20px; line-height: 1; padding: 5px 0; cursor: pointer;
       background: transparent; border: 1px solid transparent; border-radius: 8px;
@@ -1340,7 +1345,10 @@
         position: fixed; top: 54px; left: 10px; right: 10px;
         width: auto; max-height: calc(100dvh - var(--kb-inset) - 132px);
       }
-      #emojiScroll { max-height: min(46dvh, 340px); }
+      /* overflow-x hidden clips any last-column glyph that spills a pixel past
+         the grid so it can never raise a horizontal scrollbar. Safe here where
+         the hover-pop (which needs the room) is already off - see below. */
+      #emojiScroll { max-height: min(46dvh, 340px); overflow-x: hidden; }
       .emoji-cell { font-size: 22px; padding: 8px 0; }
       /* Room on the tab row for the close button overlaid on its right end. */
       #emojiTabs { padding-right: 38px; }
@@ -1356,6 +1364,31 @@
       /* A finger has no hover, so the scale-up just fights the tap; the
          selection ring is what has to carry the state here. */
       .emoji-cell:hover { transform: none; }
+    }
+
+    /* --- Short viewport: let the popovers cover the footer -----------------
+       The 132px of bottom clearance above keeps the action bar (Next Race +
+       chat toggle) reachable beside an open picker - right when there's height
+       to spare. On a short viewport (a very small phone, or the desktop zoomed
+       way in) that clearance is room the already-cramped picker can't afford,
+       so here it instead runs all the way down over the action bar. It already
+       stacks above the bar (z-index 60 > 50), and its own Close button (plus
+       Escape) is the way out, so covering the bar costs nothing. bottom rides
+       --kb-inset so it still clears an open keyboard, matching the sheet. The
+       breakpoint mirrors the short-compact-sheet query. */
+    @media (max-width: 820px) and (max-height: 560px),
+           (max-height: 520px) and (pointer: coarse) {
+      #emojiPicker, #settingsPanel {
+        /* Same 10px inset the side gutters (left/right) and the header
+           clearance above use, so the card floats with an even margin rather
+           than sitting flush against the screen's bottom edge. */
+        bottom: calc(var(--kb-inset, 0px) + 10px);
+        max-height: none;
+      }
+      /* The picker is a flex column; let its scroll region grow into the
+         reclaimed height instead of capping at 46dvh and leaving a strip of
+         bar showing through the gap below it. */
+      #emojiScroll { max-height: none; flex: 1 1 auto; min-height: 0; }
     }
 
     /* ==========================================================================
@@ -1484,6 +1517,57 @@
       #chatForm { gap: 0; }
     }
     html[data-theme="light"] #sheetClose { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft); }
+
+    /* --- Short tiers: pare the popovers' own chrome back as room runs out ---
+       At high zoom / on small screens the popovers get squeezed enough that
+       their chrome starts costing more than it's worth. This is the first of
+       two steps (the second is the max-height:300px block further down), so the
+       shedding is graduated by height rather than all-at-once:
+         - taller than 430px (~200% zoom): full chrome, nothing stripped;
+         - 430px and under  (~250% zoom): Settings title bar collapsed to a
+             pinned Close; emoji category tabs dropped; section titles kept but
+             un-stuck;
+         - 300px and under  (~400% zoom): section titles dropped too.
+       Same 430px breakpoint as the shortest sidebar tier above. */
+    @media (max-width: 820px) and (max-height: 430px),
+           (max-height: 430px) and (pointer: coarse) {
+      /* Settings: reclaim the whole title bar. It collapses to zero height
+         (title hidden, border and fill gone) yet stays sticky, so the Close it
+         holds pins to the panel's top-right and rides OVER the scrolling body
+         rather than scrolling away with it - the body runs well past 430px, so
+         the Close has to stay reachable throughout. */
+      .settings-head {
+        height: 0; min-height: 0; padding: 0; overflow: visible;
+        border-bottom: 0; background: transparent;
+        align-items: flex-start; justify-content: flex-end;
+      }
+      .settings-head h3 { display: none; }
+      /* A resting chip fill (not just the transparent hover state) so it stays
+         legible over whatever body content scrolls beneath it. */
+      #settingsClose { margin: 6px 6px 0 0; background: #33291d; color: #d8cdb8; }
+      .settings-body { padding-top: 6px; }
+
+      /* Emoji picker: drop the category tab row (pure overhead once the grid is
+         this small), but KEEP the section titles - just un-stick them, so a
+         title scrolls away with its group instead of pinning a whole row to the
+         top of the list. They only vanish entirely at the shortest tier below.
+         With the tabs gone the search row inherits the overlaid Close, so give
+         the box room on its right and shift its own clear button in to match. */
+      #emojiTabs { display: none; }
+      .emoji-group-title { position: static; }
+      #emojiSearchWrap { padding-right: 44px; }
+      #emojiSearchClear { right: 50px; }
+    }
+
+    /* Shortest tier (≈400%+ zoom): even the un-stuck section titles are overhead
+       now - drop them too, leaving just the search box and the grid (the state
+       this whole strip-down began from). The glyph shrinks a touch so 8 columns
+       sit comfortably in the very narrow tracks rather than crowding. */
+    @media (max-width: 820px) and (max-height: 300px),
+           (max-height: 300px) and (pointer: coarse) {
+      .emoji-group-title { display: none; }
+      .emoji-cell { font-size: 19px; padding: 6px 0; }
+    }
 
     /* Landscape phones specifically: ~390px of height total, most of it eaten
        by the keyboard the moment you type. The status readout is the one big
@@ -1689,6 +1773,12 @@
     html[data-theme="light"] .settings-head h3 { color: var(--l-ink); }
     html[data-theme="light"] #settingsClose { color: var(--l-faint); }
     html[data-theme="light"] #settingsClose:hover { background: var(--l-inset); color: var(--l-ink); }
+    /* Light-theme fill for the collapsed Close chip on the shortest tier (see
+       the strip-down media block above), where it rides over scrolling body. */
+    @media (max-width: 820px) and (max-height: 430px),
+           (max-height: 430px) and (pointer: coarse) {
+      html[data-theme="light"] #settingsClose { background: var(--l-inset); color: var(--l-soft); }
+    }
     html[data-theme="light"] .settings-group + .settings-group { border-top-color: var(--l-line); }
     html[data-theme="light"] .settings-group-title { color: var(--l-faint); }
     html[data-theme="light"] .settings-row-toggle:hover { background: var(--l-inset); }
