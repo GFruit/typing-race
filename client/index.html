@@ -1387,9 +1387,14 @@
     }
     html[data-theme="light"] .switch-lobby-btn:hover { background: var(--l-line); color: var(--l-ink); }
 
-    /* --- Switches / segmented pickers (terracotta "on"/active stays base) --- */
+    /* --- Switches / segmented pickers ------------------------------------- */
     html[data-theme="light"] .switch { background: var(--l-line2); }
     html[data-theme="light"] .switch::after { background: #fff; }
+    /* The "on" track must be re-stated here: the light `.switch` off rule above
+       is more specific than the base `.switch[data-on="1"]`, so without this the
+       track would stay tan and only the knob would move. Terracotta reads the
+       same as dark and matches the light primary button. */
+    html[data-theme="light"] .switch[data-on="1"] { background: #e2603f; }
     html[data-theme="light"] .segmented { background: var(--l-inset); border-color: var(--l-line); }
     html[data-theme="light"] .segmented-btn { color: var(--l-soft); }
     html[data-theme="light"] .segmented-btn:hover { background: var(--l-line); color: var(--l-ink); }
