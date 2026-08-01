@@ -5382,6 +5382,23 @@
       // get it out of the way. Both directions - joining wants the typing box
       // in view, and backing out wants the race you're now watching.
       setSheetOpen(false);
+      // Touch, and we're joining (not backing out): raise the on-screen keyboard
+      // NOW, inside this tap. Joining only asks the server to enroll us; the race
+      // then begins on a server event that carries no user gesture, and a phone
+      // won't open its keyboard without one - so this tap is the only moment it
+      // can be raised. Show and enable the box and focus it here; once our
+      // "racing" status lands, render() keeps it up (see keyboardParked), and if
+      // the join can't seat us it drops it again. This runs AFTER setSheetOpen,
+      // whose modal-close hands focus back to the opener button - focusing here
+      // last is what wins and keeps the keyboard tied to the input.
+      if (touchInput.matches && !iAmIn) {
+        raceInputShowing = true;
+        inputWrap.dataset.visible = "1";
+        typeInput.dataset.visible = "1";
+        typeInput.disabled = false;
+        placeInputBar();
+        typeInput.focus();
+      }
     };
 
     // Always available, regardless of phase or whether we're racing or
