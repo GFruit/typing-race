@@ -3020,3 +3020,76 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   chat (which grows past 58%). Same tier ladder and CSS (`data-density`) as
   desktop. Also re-fit from `setComposing(false)`, since the roster is
   `display:none` while the chat input is focused and can't be measured then.
+- 2026-08-01: Added a centered prompt inside the typing box (`#startHint`,
+  client-only). Before the race is live for a racer (box shown but inert -
+  "waiting"/"countdown") it reads a calm, muted "Type the text above as soon as
+  the race starts!"; once racing goes live and the racer sits idle past
+  `NO_START_NOTICE_MS` (5s) with nothing typed, it swaps to an amber, blinking
+  "Start typing the text above!" (reuses the `notice-blink` keyframe - flashes a
+  few times, then holds static until the first keystroke). Driven by
+  `refreshStartHint()`/`setStartHint()`: the 5s is armed off a timer set when
+  the race goes live (an idle racer fires no input events), and the prompt
+  clears from `sendProgress` on the first keystroke. It stands down whenever the
+  touch "Tap to type" hint owns the box, so the two never stack in the centered
+  slot. No background (the empty box has nothing to mask), so the focus outline
+  stays visible through the blink; a compact-layout inset override aligns it to
+  the input's center rather than the padded wrapper's, mirroring `#errorNotice`.
+- 2026-08-01: Themes (client-only, cosmetic). Added an "Appearance > Theme"
+  picker to the Settings modal (a two-option segmented control, same idiom as
+  the track pickers) and a first alternate theme, "Bubblegum": a bright, cute,
+  candy-colored light skin aimed at a younger/casual audience (vibrant pastel
+  gradients, rounded/playful system type, emoji accents, pink+grape+mint
+  accents). "Midnight" is the original dark look and stays the default.
+  Architecture: a theme is just a `data-theme` value on `<html>`, and every
+  Bubblegum rule is scoped under `html[data-theme="cute"]`, so the whole thing
+  is purely additive - the default look renders from the untouched base rules
+  when the attribute is absent (the "midnight = no attribute" convention). The
+  choice is persisted in `localStorage` under `typingRace.theme` and applied two
+  ways: the main script's `applyThemeUi()` sets/clears the attribute live when
+  you pick, and a tiny inline `<head>` script re-applies the saved value before
+  first paint so a reload never flashes the wrong palette. No schema fields, no
+  room messages - the server never hears about it. Adding another theme is a new
+  `data-theme` value + its own scoped block; nothing else needs to change.
+  Verified statically (CSS braces balance; ~147 scoped rules; picker markup
+  nests cleanly; JS mirrors the existing toggle conventions) - this environment
+  has no working browser automation for a visual pass.
+- 2026-08-01: Pivoted the alternate theme from the cute "Bubblegum" skin to a
+  plain "Light" mode, per user decision: a heavy re-vibe (playful fonts,
+  gradients, emoji accents, per-surface backgrounds) is far more to maintain and
+  was the source of the layout bugs it hit (popover stacking via the header's
+  backdrop-filter; the input-box rectangles from backgrounding the wrapper),
+  whereas a color-only theme stays coherent and robust for nearly free. Light is
+  now the dark theme's exact structure recolored: the slate palette flipped from
+  dark-on-near-black to dark-on-near-white (all values kept in `--l-*` vars for
+  legibility), the green accent left unchanged in both themes, and no new fonts,
+  gradients, shadows, or decorative accents. Theme values renamed for clarity:
+  default is now `dark` (still the absence of a `data-theme` attribute) and the
+  alternate is `light`; the picker reads "Dark"/"Light" (🌙/☀️). Everything else
+  about the mechanism is unchanged (localStorage `typingRace.theme`, the inline
+  <head> anti-flash script, `applyThemeUi()` setting/clearing the attribute). A
+  previously-saved "cute" value falls back to the default gracefully (not in the
+  THEMES allowlist). Verified statically (braces balance; no stale
+  cute/midnight/`--c-` refs remain). Adding more themes is still just a new
+  `data-theme` value + scoped block - and now, ideally, a color-only one.
+
+- 2026-08-01: Re-skinned both themes off the generic slate+green look ("De-AI"
+  recolor), per user request. Two levers only - colors and a header font -
+  corners/structure left untouched. Palette is now **warm paper + terracotta**:
+  the dark theme's slate neutrals became a warm espresso/brown ramp (page
+  `#0b1120`->`#16130d`, ink `#e2e8f0`->`#ece4d6`, lines `#1e293b`->`#33291d`,
+  etc.), and the bright green brand accent `#22c55e` became terracotta
+  `#e2603f` (wordmark, primary buttons, switches, progress fills, favicon
+  gradient). Semantic colors were kept legible and distinct: "correct" text
+  shifted green->warm sage (`#86efac`->`#a7c585`), errors stay red (`#f87171`),
+  and the cool cyan "you/cursor/finished" accent (`#7dd3fc`) was retuned to a
+  teal (`#5ec9c2`) that complements terracotta. Light mode's `--l-*` vars were
+  rewritten to a cream/beige-on-warm-brown palette with the same terracotta
+  accent and teal cursor. Font: added Space Mono (Google Fonts) as `--font-head`
+  and applied it to true headers only - the wordmark, sidebar section headers,
+  and the Settings panel `h3` - so the app reads as its own brand while body/UI
+  text stay on the system sans stack; degrades to platform monospace offline.
+  Implementation was a scoped find/replace: the light `--l-*` block was
+  rewritten first to clear the five slate hexes it shared with the dark base
+  (`#1e293b`/`#64748b`/`#94a3b8`/`#e2e8f0`/`#334155`), after which global
+  hex swaps on the dark base were collision-free. Verified: no stale old hexes
+  remain and the key surfaces resolve to the new palette.

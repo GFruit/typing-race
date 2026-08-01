@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Typro</title>
 
-  <!-- Favicon: a rounded square rotated 45deg into a diamond/emerald, in the
-       site's button green (#22c55e) with a subtle lighter-to-darker gradient
-       for a bit of gem depth. Inlined as an SVG data URI so there's no extra
-       asset to serve. -->
-  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Cdefs%3E%3ClinearGradient%20id='g'%20x1='0'%20y1='0'%20x2='0'%20y2='1'%3E%3Cstop%20offset='0'%20stop-color='%234ade80'/%3E%3Cstop%20offset='1'%20stop-color='%2316a34a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20x='8'%20y='8'%20width='16'%20height='16'%20rx='3'%20transform='rotate(45%2016%2016)'%20fill='url(%23g)'/%3E%3C/svg%3E" />
+  <!-- Favicon: a rounded square rotated 45deg into a diamond/gem, in the
+       site's button terracotta (#e2603f) with a subtle lighter-to-darker
+       gradient for a bit of gem depth. Inlined as an SVG data URI so there's
+       no extra asset to serve. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Cdefs%3E%3ClinearGradient%20id='g'%20x1='0'%20y1='0'%20x2='0'%20y2='1'%3E%3Cstop%20offset='0'%20stop-color='%23ef8a6a'/%3E%3Cstop%20offset='1'%20stop-color='%23c04a2c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20x='8'%20y='8'%20width='16'%20height='16'%20rx='3'%20transform='rotate(45%2016%2016)'%20fill='url(%23g)'/%3E%3C/svg%3E" />
 
   <!--
     Colyseus client SDK (browser build, no bundler needed).
@@ -17,6 +17,14 @@
     (server is 0.17, so we use the ^0.17 client).
   -->
   <script src="https://unpkg.com/@colyseus/sdk@^0.17.0/dist/colyseus.js"></script>
+
+  <!-- Space Mono (Google Fonts): a distinct typewriter display face for the
+       wordmark and section headers, so the app reads as its own brand instead
+       of the generic system-sans look. Body/UI text stay on the system sans
+       stack. Degrades to the platform monospace if this fails to load. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" />
 
   <style>
     :root {
@@ -26,27 +34,31 @@
          is active; stays 0px everywhere else, so a desktop browser only ever
          sees the plain full-height shell below. */
       --kb-inset: 0px;
+      /* Distinct typewriter display face for the wordmark + section headers
+         (loaded via the <link> in <head>). Body/UI stay on the system sans
+         stack; only true headers opt into this for a custom brand identity. */
+      --font-head: "Space Mono", ui-monospace, "Cascadia Code", "Courier New", monospace;
     }
     * { box-sizing: border-box; }
     body {
       /* dvh (with the vh fallback for old engines) so the shell tracks a
          mobile browser's collapsing URL bar instead of running off the bottom
          of the screen. On desktop dvh and vh are the same number. */
-      margin: 0; height: 100vh; height: 100dvh; background: #0b1120; color: #e2e8f0;
+      margin: 0; height: 100vh; height: 100dvh; background: #16130d; color: #ece4d6;
       font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
       display: flex; flex-direction: column;
     }
     header {
       flex-shrink: 0;
-      padding: 14px 24px; border-bottom: 1px solid #1e293b;
+      padding: 14px 24px; border-bottom: 1px solid #33291d;
       display: flex; align-items: center; gap: 12px;
     }
     /* line-height:1 keeps the taller wordmark from growing the header - its
        height is set by the emoji button (20px glyph + padding), which the
        wordmark now matches rather than exceeds. */
-    h1 { margin: 0; font-size: 26px; font-weight: 650; line-height: 1; }
-    /* Same green as .btn's "Join Race" state, so the wordmark echoes it. */
-    h1 .brand-accent { color: #22c55e; }
+    h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1; font-family: var(--font-head); }
+    /* Same terracotta as .btn's "Join Race" state, so the wordmark echoes it. */
+    h1 .brand-accent { color: #e2603f; }
     /* Emoji avatar picker, top-right of the header, just left of the settings
        gear. The button shows your current racer avatar (the same one that
        rides your progress bar); clicking it opens a grid popover to change it.
@@ -61,16 +73,16 @@
       padding: 3px 5px; transition: transform .15s ease-out;
     }
     #settingsBtn:hover { transform: rotate(25deg) scale(1.1); }
-    #settingsBtn:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    #settingsBtn:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 1px; }
     /* Read-only username shown in the header so you can always see your name at
        a glance; editing lives in Settings, and clicking it just opens that. */
     #usernameDisplay {
-      cursor: pointer; color: #e2e8f0; font-size: 13px; font-weight: 600;
+      cursor: pointer; color: #ece4d6; font-size: 13px; font-weight: 600;
       padding: 4px 8px; border-radius: 8px; border: 1px solid transparent;
       max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    #usernameDisplay:hover { background: #1e293b; border-color: #334155; }
-    #usernameDisplay:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    #usernameDisplay:hover { background: #33291d; border-color: #4a3b29; }
+    #usernameDisplay:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 1px; }
     #emojiBox { position: relative; }
     #emojiBtn {
       cursor: pointer; font-size: 20px; line-height: 1;
@@ -78,15 +90,15 @@
       padding: 3px 5px; transition: transform .12s ease-out;
     }
     #emojiBtn:hover { transform: scale(1.18); }
-    #emojiBtn:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    #emojiBtn:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 1px; }
     /* Anchored to the button's right edge (right:0) so the popover grows
        leftward and stays on-screen next to the viewport's right side. */
     #emojiPicker {
       display: none; position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
       flex-direction: column; overflow: hidden;
-      background: #111a2e; border: 1px solid #1e293b; border-radius: 12px;
+      background: #221c12; border: 1px solid #33291d; border-radius: 12px;
       padding: 0; width: min(348px, 92vw);
-      box-shadow: 0 12px 32px rgba(2, 6, 16, .6);
+      box-shadow: 0 12px 32px rgba(20, 15, 8, .6);
     }
     #emojiPicker[data-open="1"] { display: flex; }
     /* Compact layout only - see the media block near the bottom of this
@@ -98,14 +110,14 @@
        the scroll area (see updateActiveTab). */
     #emojiTabs {
       display: flex; gap: 2px; padding: 8px 8px 6px; flex-shrink: 0;
-      border-bottom: 1px solid #1e293b;
+      border-bottom: 1px solid #33291d;
     }
     .emoji-tab {
       position: relative; flex: 1; font-size: 17px; line-height: 1; padding: 6px 0;
       cursor: pointer; background: transparent; border: 0; border-radius: 8px; opacity: .55;
     }
-    .emoji-tab:hover { background: #1e293b; opacity: 1; }
-    .emoji-tab[data-active="1"] { opacity: 1; background: #1e293b; }
+    .emoji-tab:hover { background: #33291d; opacity: 1; }
+    .emoji-tab[data-active="1"] { opacity: 1; background: #33291d; }
     /* While a search is active the tabs point at groups that aren't on screen,
        so they're dimmed to read as inert. Still clickable - clicking one
        clears the search and jumps to that group (see the tab's onclick). */
@@ -113,7 +125,7 @@
     #emojiTabs[data-searching="1"] .emoji-tab[data-active="1"]::after { display: none; }
     .emoji-tab[data-active="1"]::after {
       content: ""; position: absolute; left: 24%; right: 24%; bottom: 1px;
-      height: 2px; background: #7dd3fc; border-radius: 2px;
+      height: 2px; background: #5ec9c2; border-radius: 2px;
     }
 
     /* Search row, between the tabs and the scrolling grid. Filters the whole
@@ -121,11 +133,11 @@
     #emojiSearchWrap { position: relative; padding: 8px 8px 6px; flex-shrink: 0; }
     #emojiSearch {
       width: 100%; box-sizing: border-box; padding: 7px 26px 7px 28px;
-      background: #0b1220; color: #e2e8f0; font: inherit; font-size: 13px;
-      border: 1px solid #1e293b; border-radius: 8px; outline: none;
+      background: #16130d; color: #ece4d6; font: inherit; font-size: 13px;
+      border: 1px solid #33291d; border-radius: 8px; outline: none;
     }
-    #emojiSearch::placeholder { color: #64748b; }
-    #emojiSearch:focus { border-color: #7dd3fc; }
+    #emojiSearch::placeholder { color: #8c7a5f; }
+    #emojiSearch:focus { border-color: #5ec9c2; }
     /* Magnifier and clear button sit on top of the input's own padding. */
     #emojiSearchWrap::before {
       content: "🔍"; position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
@@ -134,10 +146,10 @@
     #emojiSearchClear {
       position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
       display: none; width: 16px; height: 16px; padding: 0; line-height: 14px;
-      background: #1e293b; color: #94a3b8; border: 0; border-radius: 50%;
+      background: #33291d; color: #b4a487; border: 0; border-radius: 50%;
       font-size: 11px; cursor: pointer;
     }
-    #emojiSearchClear:hover { background: #334155; color: #e2e8f0; }
+    #emojiSearchClear:hover { background: #4a3b29; color: #ece4d6; }
     #emojiSearchWrap[data-searching="1"] #emojiSearchClear { display: block; }
 
     /* Scrollable grouped grid. Uses the same thin scrollbar as the chat (see
@@ -150,9 +162,9 @@
     /* Each group's title sticks to the top of the scroll area while that
        group is in view, so you always know which section you're looking at. */
     .emoji-group-title {
-      position: sticky; top: 0; z-index: 1; background: #111a2e;
+      position: sticky; top: 0; z-index: 1; background: #221c12;
       font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
-      color: #94a3b8; font-weight: 600; padding: 8px 2px 6px;
+      color: #b4a487; font-weight: 600; padding: 8px 2px 6px;
     }
     .emoji-group-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
     .emoji-cell {
@@ -162,9 +174,9 @@
     }
     /* Pop the emoji on hover (raised above its neighbours) instead of a box. */
     .emoji-cell:hover { transform: scale(1.4); z-index: 2; }
-    /* Current avatar: a clean cyan ring, no fill. */
-    .emoji-cell[data-selected="1"] { border-color: #7dd3fc; }
-    .emoji-empty { grid-column: 1 / -1; color: #64748b; font-size: 12px; font-style: italic; padding: 4px 2px; }
+    /* Current avatar: a clean teal ring, no fill. */
+    .emoji-cell[data-selected="1"] { border-color: #5ec9c2; }
+    .emoji-empty { grid-column: 1 / -1; color: #8c7a5f; font-size: 12px; font-style: italic; padding: 4px 2px; }
 
     /* Settings popover, opened by the header gear. Anchored to the button's
        right edge so it stays on-screen. Laid out as titled groups (Profile /
@@ -175,10 +187,10 @@
        instead of running off the bottom of the screen. */
     #settingsPanel {
       display: none; position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
-      background: #111a2e; border: 1px solid #1e293b; border-radius: 14px;
+      background: #221c12; border: 1px solid #33291d; border-radius: 14px;
       width: min(324px, calc(100vw - 24px));
       max-height: calc(100vh - 76px); overflow-y: auto; overscroll-behavior: contain;
-      box-shadow: 0 16px 40px rgba(2, 6, 16, .65);
+      box-shadow: 0 16px 40px rgba(20, 15, 8, .65);
     }
     #settingsPanel[data-open="1"] { display: block; animation: settings-in .13s ease-out; }
     @keyframes settings-in {
@@ -192,28 +204,28 @@
     /* Sticky so the title and the close button stay reachable while the body
        scrolls under them. */
     .settings-head {
-      position: sticky; top: 0; z-index: 2; background: #111a2e;
+      position: sticky; top: 0; z-index: 2; background: #221c12;
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 12px 14px 10px; border-bottom: 1px solid #1e293b;
+      padding: 12px 14px 10px; border-bottom: 1px solid #33291d;
       border-radius: 14px 14px 0 0;
     }
-    .settings-head h3 { margin: 0; font-size: 13px; font-weight: 650; color: #e2e8f0; }
+    .settings-head h3 { margin: 0; font-size: 13px; font-weight: 700; color: #ece4d6; font-family: var(--font-head); }
     #settingsClose {
       flex-shrink: 0; width: 24px; height: 24px; padding: 0; line-height: 1;
       display: grid; place-items: center;
       background: transparent; border: 0; border-radius: 7px;
-      color: #64748b; font-size: 13px; cursor: pointer;
+      color: #8c7a5f; font-size: 13px; cursor: pointer;
       transition: background .12s ease-out, color .12s ease-out;
     }
-    #settingsClose:hover { background: #1e293b; color: #e2e8f0; }
-    #settingsClose:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    #settingsClose:hover { background: #33291d; color: #ece4d6; }
+    #settingsClose:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 1px; }
     .settings-body { padding: 2px 14px 12px; }
 
     /* Each group is a titled cluster; a hairline separates one from the next. */
-    .settings-group + .settings-group { border-top: 1px solid #1a2540; margin-top: 8px; }
+    .settings-group + .settings-group { border-top: 1px solid #33291d; margin-top: 8px; }
     .settings-group-title {
       font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
-      color: #64748b; font-weight: 700; padding: 12px 2px 4px;
+      color: #8c7a5f; font-weight: 700; padding: 12px 2px 4px;
     }
     /* Row = one setting: text block on the left, control on the right. The
        negative margin lets the hover highlight bleed to the panel's padding
@@ -227,10 +239,10 @@
        switch - see the .settings-row-toggle wiring), so the whole row reacts
        to hover, not just the switch itself. */
     .settings-row-toggle { cursor: pointer; }
-    .settings-row-toggle:hover { background: #16213a; }
+    .settings-row-toggle:hover { background: #2b2416; }
     .settings-field { padding: 8px 0 10px; }
-    .settings-label { display: block; font-size: 13px; color: #e2e8f0; font-weight: 600; }
-    .settings-hint { font-size: 11px; color: #64748b; line-height: 1.4; margin-top: 2px; }
+    .settings-label { display: block; font-size: 13px; color: #ece4d6; font-weight: 600; }
+    .settings-hint { font-size: 11px; color: #8c7a5f; line-height: 1.4; margin-top: 2px; }
     /* Hints inside a full-width field sit between the label and the control. */
     .settings-field .settings-hint { margin: 2px 0 8px; }
     .settings-text { min-width: 0; }
@@ -240,10 +252,10 @@
        The whole thing lights up on focus, so it reads as a single control. */
     .name-field {
       display: flex; align-items: center; gap: 8px;
-      background: #0b1120; border: 1px solid #334155; border-radius: 10px;
+      background: #16130d; border: 1px solid #4a3b29; border-radius: 10px;
       padding: 4px; transition: border-color .15s ease-out;
     }
-    .name-field:focus-within { border-color: #7dd3fc; }
+    .name-field:focus-within { border-color: #5ec9c2; }
     /* padding:0 matters: a button's UA default (1px 6px) leaves an 18px-wide
        content box here, which an ~25px emoji glyph overflows to one side, so
        place-items:center centered a box the glyph had already spilled out of.
@@ -257,67 +269,70 @@
       background: transparent; border: 0; border-radius: 8px;
       transition: transform .12s ease-out, background .12s ease-out;
     }
-    #settingsAvatar:hover { background: #1e293b; transform: scale(1.08); }
-    #settingsAvatar:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    #settingsAvatar:hover { background: #33291d; transform: scale(1.08); }
+    #settingsAvatar:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 1px; }
     #settingsUsername {
       flex: 1; min-width: 0; padding: 6px 0; background: transparent; border: 0;
-      color: #e2e8f0; font-size: 14px; font-family: inherit; outline: none;
+      color: #ece4d6; font-size: 14px; font-family: inherit; outline: none;
     }
-    #settingsUsername::placeholder { color: #475569; }
+    #settingsUsername::placeholder { color: #6b5940; }
     #nameCount {
-      flex-shrink: 0; padding-right: 6px; font-size: 11px; color: #475569;
+      flex-shrink: 0; padding-right: 6px; font-size: 11px; color: #6b5940;
       font-variant-numeric: tabular-nums;
     }
-    #nameCount[data-full="1"] { color: #94a3b8; }
+    #nameCount[data-full="1"] { color: #b4a487; }
 
     /* On/off slider switch (Large WPM display, Show racers on text, Sound cues). */
     .switch {
       position: relative; flex-shrink: 0; width: 40px; height: 22px;
-      border: 0; border-radius: 999px; background: #334155; cursor: pointer;
+      border: 0; border-radius: 999px; background: #4a3b29; cursor: pointer;
       transition: background .15s ease-out;
     }
     .switch::after {
       content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
-      border-radius: 50%; background: #e2e8f0;
+      border-radius: 50%; background: #ece4d6;
       transition: transform .15s ease-out;
     }
-    .switch[data-on="1"] { background: #22c55e; }
+    .switch[data-on="1"] { background: #e2603f; }
     .switch[data-on="1"]::after { transform: translateX(18px); }
-    .switch:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
+    .switch:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 2px; }
 
     /* Three-way "Track display" picker (#trackModeGroup). Each option carries a
        tiny diagram of what it does (stacked bars / one bar / none), which says
        more at a glance than its label alone. */
     .segmented {
-      display: flex; gap: 4px; background: #0b1120; border: 1px solid #1e293b;
+      display: flex; gap: 4px; background: #16130d; border: 1px solid #33291d;
       border-radius: 10px; padding: 4px;
     }
     .segmented-btn {
       flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
       padding: 8px 4px; border: 0; border-radius: 7px; background: transparent;
-      color: #94a3b8; font-size: 11px; font-weight: 650; font-family: inherit; cursor: pointer;
+      color: #b4a487; font-size: 11px; font-weight: 650; font-family: inherit; cursor: pointer;
       transition: background .15s ease-out, color .15s ease-out;
     }
-    .segmented-btn:hover { background: #16213a; color: #e2e8f0; }
-    .segmented-btn[data-active="1"] { background: #1c2b45; color: #e2e8f0; }
-    .segmented-btn:focus-visible { outline: 2px solid #7dd3fc; outline-offset: -2px; }
+    .segmented-btn:hover { background: #2b2416; color: #ece4d6; }
+    .segmented-btn[data-active="1"] { background: #3a2f1e; color: #ece4d6; }
+    .segmented-btn:focus-visible { outline: 2px solid #5ec9c2; outline-offset: -2px; }
     /* The diagram: up to three stacked bars, sized per mode by the rules below. */
     .seg-glyph { display: flex; flex-direction: column; gap: 2px; width: 26px; height: 14px; justify-content: center; }
-    .seg-glyph i { display: block; height: 3px; border-radius: 2px; background: #475569; transition: background .15s ease-out; }
-    .segmented-btn[data-active="1"] .seg-glyph i { background: #22c55e; }
+    .seg-glyph i { display: block; height: 3px; border-radius: 2px; background: #6b5940; transition: background .15s ease-out; }
+    .segmented-btn[data-active="1"] .seg-glyph i { background: #e2603f; }
     .seg-glyph-all i:nth-child(1) { width: 100%; }
     .seg-glyph-all i:nth-child(2) { width: 62%; }
     .seg-glyph-all i:nth-child(3) { width: 38%; }
     .seg-glyph-shared i { height: 6px; width: 100%; }
     /* "Hide tracks": an empty dashed slot, i.e. visibly nothing there. */
-    .seg-glyph-hidden i { height: 10px; width: 100%; background: transparent; border: 1px dashed #475569; border-radius: 3px; }
-    .segmented-btn[data-active="1"] .seg-glyph-hidden i { background: transparent; border-color: #22c55e; }
+    .seg-glyph-hidden i { height: 10px; width: 100%; background: transparent; border: 1px dashed #6b5940; border-radius: 3px; }
+    .segmented-btn[data-active="1"] .seg-glyph-hidden i { background: transparent; border-color: #e2603f; }
     /* "Live positions" draws its diagrams as SVG rather than stacked <i> bars -
        they need arrows and a crossover mark, not just rectangles. Everything in
        them is fill-based (no strokes) so this one rule recolors the whole glyph
        on selection, exactly like the bar version above. */
-    .seg-glyph svg { width: 26px; height: 14px; fill: #475569; transition: fill .15s ease-out; }
-    .segmented-btn[data-active="1"] .seg-glyph svg { fill: #22c55e; }
+    .seg-glyph svg { width: 26px; height: 14px; fill: #6b5940; transition: fill .15s ease-out; }
+    .segmented-btn[data-active="1"] .seg-glyph svg { fill: #e2603f; }
+    /* Emoji glyph variant of a segmented option (the Theme picker uses it in
+       place of the little bar/arrow diagrams the track pickers draw). */
+    .seg-emoji { font-size: 22px; line-height: 1; }
 
     /* "Live positions" is nested under the Track display it depends on, using
        the same indent + left rail as Volume under Sound cues: it only means
@@ -327,21 +342,21 @@
     #trackOrderField { transition: opacity .15s ease-out; }
     #trackOrderField[data-enabled="0"] { opacity: .4; }
     #trackOrderField[data-enabled="0"] .segmented-btn { cursor: not-allowed; }
-    #trackOrderField[data-enabled="0"] .segmented-btn:hover { background: transparent; color: #94a3b8; }
+    #trackOrderField[data-enabled="0"] .segmented-btn:hover { background: transparent; color: #b4a487; }
 
     /* Volume, nested under the Sound cues toggle it depends on: the left rail
        and indent show the dependency, and the row dims and stops accepting
        input while cues are off (adjusting a volume that currently affects
        nothing would be confusing). */
     .settings-subrow {
-      margin-left: 10px; padding-left: 12px; border-left: 2px solid #1e293b;
+      margin-left: 10px; padding-left: 12px; border-left: 2px solid #33291d;
       border-radius: 0 10px 10px 0;
     }
     #soundVolumeRow { transition: opacity .15s ease-out; }
     #soundVolumeRow[data-enabled="0"] { opacity: .4; }
     .volume-control { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
     #soundVolumeValue {
-      min-width: 32px; text-align: right; font-size: 11px; color: #94a3b8;
+      min-width: 32px; text-align: right; font-size: 11px; color: #b4a487;
       font-variant-numeric: tabular-nums;
     }
     /* Custom-drawn so the filled portion reads at a glance in this palette
@@ -350,18 +365,18 @@
       -webkit-appearance: none; appearance: none;
       flex-shrink: 0; width: 92px; height: 4px; border-radius: 999px; cursor: pointer;
       background:
-        linear-gradient(#22c55e, #22c55e) 0 / var(--pct, 70%) 100% no-repeat,
-        #334155;
+        linear-gradient(#e2603f, #e2603f) 0 / var(--pct, 70%) 100% no-repeat,
+        #4a3b29;
     }
     #soundVolumeSlider::-webkit-slider-thumb {
       -webkit-appearance: none; width: 14px; height: 14px; border: 0; border-radius: 50%;
-      background: #e2e8f0; cursor: pointer; box-shadow: 0 1px 3px rgba(2, 6, 16, .7);
+      background: #ece4d6; cursor: pointer; box-shadow: 0 1px 3px rgba(20, 15, 8, .7);
     }
     #soundVolumeSlider::-moz-range-thumb {
       width: 14px; height: 14px; border: 0; border-radius: 50%;
-      background: #e2e8f0; cursor: pointer; box-shadow: 0 1px 3px rgba(2, 6, 16, .7);
+      background: #ece4d6; cursor: pointer; box-shadow: 0 1px 3px rgba(20, 15, 8, .7);
     }
-    #soundVolumeSlider:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 4px; }
+    #soundVolumeSlider:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 4px; }
     #soundVolumeRow[data-enabled="0"] #soundVolumeSlider,
     #soundVolumeRow[data-enabled="0"] #soundVolumeSlider::-webkit-slider-thumb { cursor: not-allowed; }
 
@@ -369,8 +384,8 @@
        commits on change, the name on blur/Enter/close), so the panel says so
        rather than leaving people hunting for one. */
     .settings-foot {
-      border-top: 1px solid #1a2540; margin-top: 8px; padding: 10px 2px 2px;
-      font-size: 11px; color: #475569; text-align: center;
+      border-top: 1px solid #33291d; margin-top: 8px; padding: 10px 2px 2px;
+      font-size: 11px; color: #6b5940; text-align: center;
     }
 
     /* Twitch-style layout: main content (quote) fills the remaining space,
@@ -402,9 +417,9 @@
     #phaseBanner {
       display: inline-block; font-weight: 650; font-size: 13px;
       padding: 5px 12px; border-radius: 999px;
-      background: #1e293b; color: #94a3b8;
+      background: #33291d; color: #b4a487;
     }
-    #phaseBanner[data-phase="racing"] { background: #052e16; color: #86efac; }
+    #phaseBanner[data-phase="racing"] { background: #331409; color: #a7c585; }
 
     /* Three dots trailing "Waiting for racers", pulsing in sequence so an idle
        lobby reads as live rather than frozen. currentColor keeps them matched
@@ -432,13 +447,13 @@
     #bigReadout[data-visible="1"] { display: block; }
     #bigReadout .readout-cap {
       height: 13px; line-height: 13px; font-size: 11px; letter-spacing: .12em;
-      text-transform: uppercase; color: #64748b; font-weight: 650;
+      text-transform: uppercase; color: #8c7a5f; font-weight: 650;
       opacity: 0; transition: opacity .18s ease;
     }
     #bigReadout .readout-cap[data-on="1"] { opacity: 1; }
     #bigReadout .readout-number {
       margin: 2px 0; font-size: 44px; font-weight: 700; line-height: 1;
-      color: #86efac; font-variant-numeric: tabular-nums;
+      color: #a7c585; font-variant-numeric: tabular-nums;
       transition: color .18s ease;
     }
     #bigReadout[data-mode="countdown"] .readout-number { color: #fdba74; }
@@ -447,7 +462,7 @@
        with the countdown/results banner for attention. */
     #raceTimer {
       display: none; position: absolute; top: 14px; right: 18px;
-      font-size: 12px; color: #475569; font-variant-numeric: tabular-nums;
+      font-size: 12px; color: #6b5940; font-variant-numeric: tabular-nums;
     }
     #raceTimer[data-visible="1"] { display: block; }
 
@@ -494,18 +509,18 @@
     #leaderboard[data-mode="shared"] #sharedTrack { display: block; }
     /* Square, not pill-shaped, to match the carets riding on it - those are
        straight bars too, so rounding just the track would clash. */
-    #sharedTrackBase { height: 100%; background: #1e293b; }
+    #sharedTrackBase { height: 100%; background: #33291d; }
     /* No transition, deliberately - see .shared-caret below: my own caret
        shares this exact value every render, and even a smoothing transition
        that both nominally share can drift the two apart by a visible sliver
        while chasing frequent updates (fast typing). Snapping both instantly
        is the only way to guarantee they're always pixel-locked together. */
     #sharedTrackFill {
-      height: 100%; width: 100%; background: #22c55e;
+      height: 100%; width: 100%; background: #e2603f;
       transform: scaleX(0); transform-origin: left;
     }
-    #sharedTrackFill.finished { background: #7dd3fc; }
-    #sharedTrackFill.afk { background: #475569; }
+    #sharedTrackFill.finished { background: #5ec9c2; }
+    #sharedTrackFill.afk { background: #6b5940; }
     /* Same "regular caret + emoji lollipop on top" language as .ghost-caret /
        .ghost-caret-emoji (the live carets drawn on the quote text), just
        bigger and positioned by overall progress% instead of by character. No
@@ -514,13 +529,13 @@
        than offsetting vertically - see fillSharedTrack for the ordering. */
     .shared-caret {
       position: absolute; top: 0; bottom: 0; width: 4px; border-radius: 4px;
-      background: #22c55e; transform: translateX(-50%);
+      background: #e2603f; transform: translateX(-50%);
       /* No transition - see #sharedTrackFill: my own caret and the track fill
          must snap in lockstep, and any independent smoothing on this one
          (even nominally matching) can let a gap open between the two. */
     }
-    .shared-caret.finished { background: #7dd3fc; }
-    .shared-caret.afk { background: #475569; opacity: .6; }
+    .shared-caret.finished { background: #5ec9c2; }
+    .shared-caret.afk { background: #6b5940; opacity: .6; }
     .shared-caret-emoji {
       position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
       margin-bottom: 3px; font-size: 26px; line-height: 1;
@@ -530,15 +545,15 @@
        cross-fade (see #leaderboard[data-order="slide"] above); it costs
        nothing in the other modes, which never touch opacity. */
     .racer-name { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; transition: opacity .15s ease; }
-    .racer-wpm { color: #94a3b8; }
+    .racer-wpm { color: #b4a487; }
     /* Wrapper so the avatar can ride ON the bar (and overhang it a little)
        without being clipped by the track's own overflow:hidden - that clip
        exists to keep the fill inside the rounded track. position:relative
        anchors the absolutely-positioned emoji to the track's width. */
     .racer-track-wrap { position: relative; }
-    .racer-track { background: #1e293b; border-radius: 999px; height: 14px; overflow: hidden; }
-    .racer-fill { background: #22c55e; height: 100%; border-radius: 999px; transition: width .25s ease-out; }
-    .racer-fill.finished { background: #7dd3fc; }
+    .racer-track { background: #33291d; border-radius: 999px; height: 14px; overflow: hidden; }
+    .racer-fill { background: #e2603f; height: 100%; border-radius: 999px; transition: width .25s ease-out; }
+    .racer-fill.finished { background: #5ec9c2; }
     /* The avatar IS the racer, sitting right at the front of its own colored
        trail. Its `left` is set per-render to the exact progress point (see
        fillLeaderboard) and the translate centers the glyph on that point,
@@ -564,7 +579,7 @@
     /* Idled out mid-race: row stays in place (not removed/reshuffled), just
        dimmed, with the bar going gray and "AFK" where wpm normally shows. */
     .racer-row.afk { opacity: .55; }
-    .racer-fill.afk { background: #475569; }
+    .racer-fill.afk { background: #6b5940; }
 
     /* The quote block is centered as a whole within the arena, but its lines
        stay left-aligned (ragged right) rather than centered individually. */
@@ -590,7 +605,7 @@
     #ghostLayer { position: absolute; inset: 0; pointer-events: none; }
     #quoteTopMask { display: none; }
     .ghost-caret {
-      position: absolute; width: 2px; border-radius: 2px; background: #7dd3fc;
+      position: absolute; width: 2px; border-radius: 2px; background: #5ec9c2;
       transition: left .18s ease-out, top .18s ease-out;
     }
     .ghost-caret-emoji {
@@ -605,7 +620,7 @@
 
     #quote {
       width: 100%; max-width: 640px; text-align: left;
-      font-size: 20px; line-height: 1.7; color: #64748b; letter-spacing: .2px;
+      font-size: 20px; line-height: 1.7; color: #8c7a5f; letter-spacing: .2px;
       font-family: ui-monospace, "Cascadia Code", monospace;
       /* Normal whitespace collapses a space to zero width when it lands at a
          wrapped line's end, which hid the box-shadow cursor there. pre-wrap
@@ -613,8 +628,8 @@
          of collapsing) while still wrapping normally at word boundaries. */
       white-space: pre-wrap;
     }
-    #quote[data-placeholder="1"] { color: #475569; font-style: italic; font-size: 16px; font-family: inherit; text-align: center; }
-    #quote span.ok { color: #86efac; }
+    #quote[data-placeholder="1"] { color: #6b5940; font-style: italic; font-size: 16px; font-family: inherit; text-align: center; }
+    #quote span.ok { color: #a7c585; }
     #quote span.bad { color: #f87171; text-decoration: underline; text-underline-offset: 3px; }
     /* box-shadow instead of border-left: a border adds real width to the
        inline span, which (when the cursor lands on the first character of a
@@ -625,9 +640,9 @@
        JS adds the "blinking" class after CURSOR_IDLE_BEFORE_BLINK_MS of no
        keystrokes (see renderQuote). Blinks the shadow itself, not the span's
        opacity, so the character underneath stays fully readable throughout. */
-    #quote span.cursor { box-shadow: -2px 0 0 0 #7dd3fc; }
+    #quote span.cursor { box-shadow: -2px 0 0 0 #5ec9c2; }
     @keyframes caret-blink {
-      0%, 49% { box-shadow: -2px 0 0 0 #7dd3fc; }
+      0%, 49% { box-shadow: -2px 0 0 0 #5ec9c2; }
       50%, 100% { box-shadow: -2px 0 0 0 transparent; }
     }
     /* The cursor span is rebuilt from scratch on every render (not just
@@ -642,7 +657,7 @@
        scalloped/notched edge along the top and bottom where the boxes tile
        together. Square corners let adjacent characters merge into one clean
        rectangle. */
-    #quote span.selected { background: rgba(125, 211, 252, .25); }
+    #quote span.selected { background: rgba(94, 201, 194, .25); }
 
     /* The input is wrapped so #errorNotice can be overlaid on its right edge.
        Visibility lives on the wrapper (the input itself is always display:block
@@ -653,14 +668,14 @@
     #typeInput {
       display: block; width: 100%; padding: 12px 14px;
       font-size: 16px; font-family: ui-monospace, "Cascadia Code", monospace;
-      background: #0b1120; border: 1px solid #334155; border-radius: 10px;
-      color: #e2e8f0; outline: none;
+      background: #16130d; border: 1px solid #4a3b29; border-radius: 10px;
+      color: #ece4d6; outline: none;
       /* The real caret can't be phase-synced with our custom one above (its
          blink timing is OS/browser-controlled, not exposed to the page), so
          instead there's only one visible cursor: hide this one entirely. */
       caret-color: transparent;
     }
-    #typeInput:focus { border-color: #7dd3fc; }
+    #typeInput:focus { border-color: #5ec9c2; }
 
     /* Shown while typing is blocked because too many characters have piled up
        past an uncorrected mistake (see ERROR_TAIL_CAP). Inset by 1px so it
@@ -669,7 +684,7 @@
     #errorNotice {
       display: none; position: absolute; right: 1px; top: 1px; bottom: 1px;
       align-items: center; padding: 0 14px 0 30px; border-radius: 0 9px 9px 0;
-      background: linear-gradient(to right, rgba(11, 17, 32, 0), #0b1120 24px);
+      background: linear-gradient(to right, rgba(22, 19, 13, 0), #16130d 24px);
       color: #f87171; font-size: 13px; font-weight: 600; white-space: nowrap;
       pointer-events: none;
     }
@@ -679,22 +694,41 @@
     #errorNotice[data-on="1"] { display: flex; animation: notice-blink .6s ease-in-out 3; }
     @keyframes notice-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
+    /* Centered over the (empty) box. No background: the box behind it holds
+       nothing to mask, so leaving it clear keeps the border - blue when focused
+       - fully visible even through the "go" blink. Sans font, not the input's
+       monospace, so the longer "get ready" line fits a narrow phone. */
+    #startHint {
+      display: none; position: absolute; top: 1px; right: 1px; bottom: 1px; left: 1px;
+      align-items: center; justify-content: center; text-align: center;
+      padding: 0 12px; white-space: nowrap; pointer-events: none;
+      font-size: 13px; font-weight: 600; letter-spacing: .01em;
+    }
+    /* Before the race: a calm, muted prompt. */
+    #startHint[data-mode="ready"] { display: flex; color: #8c7a5f; }
+    /* Idle once live: an amber nudge that blinks a few times to pull the eye,
+       then holds static until the first keystroke. Amber, not the error red -
+       nothing's wrong, the racer just hasn't started. */
+    #startHint[data-mode="go"] {
+      display: flex; color: #fbbf24; animation: notice-blink 1.1s ease-in-out 3;
+    }
+
     /* Full-height, own background + a divider (border-left) against the
        arena, so it reads as an actual sidebar rather than a component
        floating next to the arena. */
     .sidebar {
       width: 320px; flex-shrink: 0; min-height: 0;
       display: flex; flex-direction: column; gap: 0;
-      padding: 0; background: #0d1524; border-left: 1px solid #1e293b;
+      padding: 0; background: #1c1710; border-left: 1px solid #33291d;
     }
     .btn {
       position: relative; /* anchors #joinBtnBadge */
       display: block; width: 100%; padding: 14px;
       border: 0; border-radius: 0; font-size: 15px; font-weight: 650;
-      cursor: pointer; background: #22c55e; color: #052e16; transition: opacity .15s;
+      cursor: pointer; background: #e2603f; color: #331409; transition: opacity .15s;
     }
     .btn:hover { opacity: .9; }
-    .btn[data-racing="1"] { background: #334155; color: #e2e8f0; }
+    .btn[data-racing="1"] { background: #4a3b29; color: #ece4d6; }
     .btn:disabled { opacity: .5; cursor: default; }
     /* Race-queue position, pinned to the button's right edge. Absolute rather
        than a flex sibling so it can't shift the label off center - the label
@@ -710,22 +744,22 @@
        below, so it gets the separating space rather than a header to sit in. */
     .lobby-row {
       flex-shrink: 0; display: flex; justify-content: center;
-      padding: 10px 16px; border-bottom: 1px solid #1e293b;
+      padding: 10px 16px; border-bottom: 1px solid #33291d;
     }
     .switch-lobby-btn {
       white-space: nowrap;
-      padding: 5px 12px; border-radius: 8px; border: 1px solid #334155;
-      background: #1e293b; color: #cbd5e1; font-size: 11px; font-weight: 650;
+      padding: 5px 12px; border-radius: 8px; border: 1px solid #4a3b29;
+      background: #33291d; color: #d8cdb8; font-size: 11px; font-weight: 650;
       letter-spacing: .02em; cursor: pointer;
     }
-    .switch-lobby-btn:hover { background: #334155; color: #e2e8f0; }
+    .switch-lobby-btn:hover { background: #4a3b29; color: #ece4d6; }
 
     /* Roster block: "Racers" (in join order, matching the race tracks) then
        "Watching". Sized by its contents - it never steals height from the
        chat below beyond what its rows actually need, and only the spectator
        list is allowed to cap-and-scroll (see .spectators). */
     .roster {
-      flex-shrink: 0; padding: 12px 0 12px 16px; border-bottom: 1px solid #1e293b;
+      flex-shrink: 0; padding: 12px 0 12px 16px; border-bottom: 1px solid #33291d;
     }
     /* Shared by both roster groups and the chat: an uppercase label on the
        left, an optional count on the right. One declaration so the three
@@ -736,10 +770,10 @@
     }
     .section-header h2 {
       margin: 0; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
-      color: #94a3b8; font-weight: 600;
+      color: #b4a487; font-weight: 700; font-family: var(--font-head);
     }
     .section-count {
-      font-size: 12px; color: #64748b; font-weight: 600; font-variant-numeric: tabular-nums;
+      font-size: 12px; color: #8c7a5f; font-weight: 600; font-variant-numeric: tabular-nums;
     }
     /* The Watching group needs air above whatever precedes it (the racer list,
        or the race queue when someone's in line); the first header sits right
@@ -752,15 +786,15 @@
        separators rather than as the panel's own borders. */
     #waitlistBlock {
       margin-top: 8px; padding-top: 6px;
-      border-top: 1px solid #334155; margin-right: 16px;
+      border-top: 1px solid #4a3b29; margin-right: 16px;
     }
     #waitlistBlock[hidden], #waitlistMore[hidden], #waitlistSelf[hidden] { display: none; }
     /* "+3 more": a count, not a person, so it's deliberately quieter than the
        rows around it and doesn't get an avatar. */
     #waitlistMore {
-      padding: 5px 0; font-size: 12px; color: #64748b; font-style: italic;
+      padding: 5px 0; font-size: 12px; color: #8c7a5f; font-style: italic;
     }
-    #waitlistSelf { margin-top: 6px; padding-top: 6px; border-top: 1px solid #334155; }
+    #waitlistSelf { margin-top: 6px; padding-top: 6px; border-top: 1px solid #4a3b29; }
     /* The block's own margin-right already holds the rules off the edge, so
        the rows inside it must not inset their text a second time. */
     #waitlistBlock li { padding-right: 0; }
@@ -770,7 +804,7 @@
        "avatar then name" shape (see fillNames), so the roster and the chat
        read as the same list of people rather than two unrelated designs. */
     li { padding: 5px 16px 5px 0; font-size: 13px; line-height: 1.4; word-break: break-word; }
-    .empty { color: #475569; font-style: italic; padding: 5px 0; }
+    .empty { color: #6b5940; font-style: italic; padding: 5px 0; }
 
     /* Spectators are secondary to the racers, so they're dimmed as a group.
        Capped at 3 rows (row = 5px + 18.2px line + 5px, so 3 * 28.2 ≈ 85px)
@@ -800,8 +834,8 @@
        what stops that from reading as "racing right now" - or "queue #2" for
        a place in line. `.mine` is my own row, in the same cyan the rest of the
        UI uses for me (.me), so my own position is findable at a glance. */
-    .roster-tag { margin-left: 6px; font-size: 11px; color: #64748b; font-weight: 600; }
-    .roster-tag.mine { color: #7dd3fc; }
+    .roster-tag { margin-left: 6px; font-size: 11px; color: #8c7a5f; font-weight: 600; }
+    .roster-tag.mine { color: #5ec9c2; }
 
     /* Racer rows gain a right-aligned wpm/AFK/rank column when the arena's
        tracks are hidden or collapsed to one shared track - see
@@ -812,16 +846,16 @@
     }
     .roster-row-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .roster-stat {
-      flex-shrink: 0; font-size: 12px; color: #94a3b8; font-weight: 600;
+      flex-shrink: 0; font-size: 12px; color: #b4a487; font-weight: 600;
       font-variant-numeric: tabular-nums;
     }
-    .roster-stat.mine { color: #7dd3fc; }
+    .roster-stat.mine { color: #5ec9c2; }
 
     /* Chat fills whatever height the roster above leaves. */
     .panel {
       position: relative; flex: 1; min-height: 0;
       display: flex; flex-direction: column;
-      background: #111a2e; border: 0; border-radius: 0; padding: 12px 0 14px 16px;
+      background: #221c12; border: 0; border-radius: 0; padding: 12px 0 14px 16px;
     }
     /* Scrolls internally once there's more history than fits. No right padding
        here on purpose: the panel itself has none either, so the scrollbar sits
@@ -845,8 +879,8 @@
     /* Shared by chat lines and roster rows so the two can't drift apart; both
        get the emoji-derived tint inline on top of this (see getEmojiColor),
        with .me's cyan as the fallback when an emoji can't be sampled. */
-    .chat-msg-name, .player-name { font-weight: 600; color: #94a3b8; }
-    .chat-msg-name.me, .player-name.me { color: #7dd3fc; }
+    .chat-msg-name, .player-name { font-weight: 600; color: #b4a487; }
+    .chat-msg-name.me, .player-name.me { color: #5ec9c2; }
     /* Server system messages ("X joined the lobby") and local-only status lines
        (the connection status - see setConnectionStatus - and the sound notice -
        see refreshSoundStatusMessage) are styled IDENTICALLY, deliberately: a
@@ -855,28 +889,28 @@
        happen to match. The separate class name is kept only because the two
        differ in origin - system lines come from the server and everyone sees
        them, status lines never leave this tab. */
-    .chat-msg-system, .chat-msg-status { color: #64748b; font-style: italic; }
+    .chat-msg-system, .chat-msg-status { color: #8c7a5f; font-style: italic; }
     #chatForm { display: flex; gap: 8px; padding-right: 16px; }
     #chatInput {
       flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px;
-      background: #0b1120; border: 1px solid #334155; color: #e2e8f0;
+      background: #16130d; border: 1px solid #4a3b29; color: #ece4d6;
       font-size: 13px; font-family: inherit; outline: none;
     }
-    #chatInput:focus { border-color: #7dd3fc; }
+    #chatInput:focus { border-color: #5ec9c2; }
 
     /* Custom scrollbar: thin, flat (no rounding, matching the rest of the
        sidebar), and transparent-tracked so it doesn't add its own visible
        gutter next to the screen edge. */
-    .arena, #chatMessages, #emojiScroll, .spectators, #settingsPanel, .roster { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    .arena, #chatMessages, #emojiScroll, .spectators, #settingsPanel, .roster { scrollbar-width: thin; scrollbar-color: #4a3b29 transparent; }
     .arena::-webkit-scrollbar, #chatMessages::-webkit-scrollbar, #emojiScroll::-webkit-scrollbar, .spectators::-webkit-scrollbar, #settingsPanel::-webkit-scrollbar, .roster::-webkit-scrollbar { width: 8px; }
     .arena::-webkit-scrollbar-track, #chatMessages::-webkit-scrollbar-track, #emojiScroll::-webkit-scrollbar-track, .spectators::-webkit-scrollbar-track, #settingsPanel::-webkit-scrollbar-track, .roster::-webkit-scrollbar-track { background: transparent; }
     .arena::-webkit-scrollbar-thumb, #chatMessages::-webkit-scrollbar-thumb, #emojiScroll::-webkit-scrollbar-thumb, .spectators::-webkit-scrollbar-thumb, #settingsPanel::-webkit-scrollbar-thumb, .roster::-webkit-scrollbar-thumb {
-      background: #334155; border-radius: 0;
+      background: #4a3b29; border-radius: 0;
     }
-    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover, #emojiScroll::-webkit-scrollbar-thumb:hover, .spectators::-webkit-scrollbar-thumb:hover, #settingsPanel::-webkit-scrollbar-thumb:hover, .roster::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .arena::-webkit-scrollbar-thumb:hover, #chatMessages::-webkit-scrollbar-thumb:hover, #emojiScroll::-webkit-scrollbar-thumb:hover, .spectators::-webkit-scrollbar-thumb:hover, #settingsPanel::-webkit-scrollbar-thumb:hover, .roster::-webkit-scrollbar-thumb:hover { background: #6b5940; }
     .btn-send {
       padding: 8px 14px; border-radius: 8px; border: 0;
-      background: #22c55e; color: #052e16; font-size: 13px; font-weight: 650; cursor: pointer;
+      background: #e2603f; color: #331409; font-size: 13px; font-weight: 650; cursor: pointer;
     }
     .btn-send:hover { opacity: .9; }
 
@@ -910,7 +944,7 @@
         left: var(--hint-x); right: var(--hint-x);
         top: var(--hint-top); bottom: var(--hint-bottom);
         border-radius: 10px; pointer-events: none;
-        color: #64748b; font-size: 14px; font-weight: 600; letter-spacing: .02em;
+        color: #8c7a5f; font-size: 14px; font-weight: 600; letter-spacing: .02em;
       }
 
       /* Composing a message: an on-screen keyboard has taken half the screen,
@@ -1095,7 +1129,7 @@
          the current top line's lollipop still paints over it. */
       #quoteTopMask {
         display: block; position: absolute; top: 0; left: 0; right: 0;
-        height: var(--ghost-room, 0px); background: #0b1120; z-index: 2;
+        height: var(--ghost-room, 0px); background: #16130d; z-index: 2;
         pointer-events: none;
       }
 
@@ -1116,7 +1150,7 @@
         position: sticky; bottom: 0; z-index: 3;
         margin: auto -14px 0; padding: 12px 14px calc(10px + env(safe-area-inset-bottom));
         width: calc(100% + 28px); max-width: none;
-        background: #0b1120;
+        background: #16130d;
         /* Keeps #tapHint aligned to the box now that the wrapper is padded. */
         --hint-x: 14px; --hint-top: 12px;
         --hint-bottom: calc(10px + env(safe-area-inset-bottom));
@@ -1126,13 +1160,29 @@
       #typeInput { font-size: 16px; padding: 11px 12px; }
       #chatInput, #settingsUsername, #emojiSearch { font-size: 16px; }
 
+      /* The wrapper is padded here (unlike desktop), so the notice's 1px insets
+         would resolve against the padding box and let its opaque background ride
+         over the input's border - which then blinks away with the animation.
+         Re-inset by the wrapper padding + 1px so it aligns to the input's border
+         box and leaves the (blue, when focused) outline uncovered. */
+      #errorNotice {
+        top: 13px; right: 15px;
+        bottom: calc(11px + env(safe-area-inset-bottom));
+      }
+      /* Same re-inset so the centered prompt lands on the input's center rather
+         than the padded wrapper's (whose bottom padding is much deeper). */
+      #startHint {
+        top: 13px; right: 15px; left: 15px;
+        bottom: calc(11px + env(safe-area-inset-bottom));
+      }
+
       /* --- The sidebar as a bottom sheet ---------------------------------- */
       .sidebar {
         position: absolute; left: 0; right: 0; bottom: 0; top: 30px;
         width: auto; z-index: 40;
-        border-left: 0; border-top: 1px solid #1e293b;
+        border-left: 0; border-top: 1px solid #33291d;
         border-radius: 16px 16px 0 0;
-        box-shadow: 0 -12px 32px rgba(2, 6, 16, .55);
+        box-shadow: 0 -12px 32px rgba(20, 15, 8, .55);
         /* Closed by default, and translated rather than display:none'd so the
            chat's scroll position and the roster's DOM survive a close/open.
            visibility flips (never animates) but is DELAYED until the slide-out
@@ -1151,7 +1201,7 @@
       .sidebar::before {
         content: ""; flex-shrink: 0; align-self: center;
         width: 38px; height: 4px; margin: 8px 0 2px;
-        border-radius: 999px; background: #334155;
+        border-radius: 999px; background: #4a3b29;
       }
       .sidebar-scroll { overflow: hidden; }
       /* The roster no longer has a full column to itself, so it's capped and
@@ -1167,7 +1217,7 @@
 
       #sheetScrim {
         display: block; position: absolute; inset: 0; z-index: 30;
-        background: rgba(2, 6, 16, .55);
+        background: rgba(20, 15, 8, .55);
         opacity: 0; pointer-events: none; transition: opacity .22s ease-out;
       }
       #sheetScrim[data-open="1"] { opacity: 1; pointer-events: auto; }
@@ -1179,7 +1229,7 @@
            800px wide and a button that filled it would read as a banner. */
         justify-content: center;
         padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
-        border-top: 1px solid #1e293b; background: #0d1524;
+        border-top: 1px solid #33291d; background: #1c1710;
         /* Above the sheet: Join/Spectate and the toggle stay usable while the
            sheet is open, which is the whole reason the button was moved out
            of the sidebar in the first place. */
@@ -1192,17 +1242,17 @@
       #lobbyToggle {
         position: relative; flex-shrink: 0; width: 52px;
         display: grid; place-items: center;
-        background: #1e293b; color: #cbd5e1;
-        border: 1px solid #334155; border-radius: 11px; cursor: pointer;
+        background: #33291d; color: #d8cdb8;
+        border: 1px solid #4a3b29; border-radius: 11px; cursor: pointer;
       }
-      #lobbyToggle[aria-expanded="true"] { background: #334155; color: #e2e8f0; }
-      #lobbyToggle:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
+      #lobbyToggle[aria-expanded="true"] { background: #4a3b29; color: #ece4d6; }
+      #lobbyToggle:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 2px; }
       /* Unread chat, while the sheet is closed - a dot, not a count: the exact
          number of messages you missed isn't worth a second thing to read. */
       #lobbyUnread {
         position: absolute; top: 9px; right: 12px;
         width: 8px; height: 8px; border-radius: 50%;
-        background: #22c55e; border: 2px solid #0d1524;
+        background: #e2603f; border: 2px solid #1c1710;
       }
       #lobbyUnread[hidden] { display: none; }
 
@@ -1228,9 +1278,9 @@
         position: absolute; top: 8px; right: 8px; z-index: 2;
         width: 30px; height: 30px; padding: 0; line-height: 1;
         background: transparent; border: 0; border-radius: 8px;
-        color: #64748b; font-size: 14px; cursor: pointer;
+        color: #8c7a5f; font-size: 14px; cursor: pointer;
       }
-      #emojiClose:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+      #emojiClose:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 1px; }
       /* A finger has no hover, so the scale-up just fights the tap; the
          selection ring is what has to carry the state here. */
       .emoji-cell:hover { transform: none; }
@@ -1269,22 +1319,249 @@
     }
     .test-row .settings-label { margin: 0; }
     .test-input {
-      width: 84px; padding: 6px 8px; background: #0b1120; color: #e2e8f0;
-      border: 1px solid #334155; border-radius: 8px; font: inherit; text-align: right;
+      width: 84px; padding: 6px 8px; background: #16130d; color: #ece4d6;
+      border: 1px solid #4a3b29; border-radius: 8px; font: inherit; text-align: right;
     }
-    .test-input:focus { outline: none; border-color: #7dd3fc; }
+    .test-input:focus { outline: none; border-color: #5ec9c2; }
     .test-buttons { display: flex; gap: 8px; margin-top: 12px; }
     .test-buttons button {
       flex: 1; padding: 8px 10px; border: 0; border-radius: 8px; cursor: pointer;
-      font: inherit; font-weight: 600; color: #04140a; background: #22c55e;
+      font: inherit; font-weight: 600; color: #331409; background: #e2603f;
     }
     .test-buttons button:hover { filter: brightness(1.08); }
-    .test-buttons button.secondary { background: #334155; color: #e2e8f0; }
-    .test-buttons button.secondary:hover { background: #3f4d63; }
-    #adminResult { min-height: 1.2em; margin-top: 10px; color: #94a3b8; font-size: 12px; line-height: 1.35; }
+    .test-buttons button.secondary { background: #4a3b29; color: #ece4d6; }
+    .test-buttons button.secondary:hover { background: #574733; }
+    #adminResult { min-height: 1.2em; margin-top: 10px; color: #b4a487; font-size: 12px; line-height: 1.35; }
     #adminResult.err { color: #f87171; }
-    #adminResult.ok { color: #86efac; }
+    #adminResult.ok { color: #a7c585; }
+
+    /* ==========================================================================
+       THEME: "Light" - a warm-paper light mode. It's the dark theme's exact
+       structure recolored: the warm espresso/cream palette flipped from
+       light-on-dark to dark-on-cream, keeping the same terracotta accent and
+       teal cursor. No new gradients, shadows, or decorative accents.
+
+       Everything here is scoped under html[data-theme="light"], so it's purely
+       ADDITIVE: with no attribute (the "dark" default) the original look renders
+       untouched. The picker writes data-theme onto <html>, and a tiny inline
+       <head> script applies the saved choice before first paint so a reload
+       never flashes the wrong palette. To add another theme, add a data-theme
+       value + its own scoped block; nothing else needs to know.
+       ========================================================================== */
+    html[data-theme="light"] {
+      color-scheme: light;
+      --l-bg: #f4ede0;       /* page background: warm cream/beige (was slate #f1f5f9) */
+      --l-card: #fffdf7;     /* raised surfaces: header, chat panel, inputs (warm white) */
+      --l-shell: #faf4e8;    /* sidebar / popover shell (warm cream) */
+      --l-inset: #efe6d5;    /* recessed fields: segmented, name box (deeper cream) */
+      --l-ink: #2b2419;      /* primary text: warm dark brown */
+      --l-soft: #6f6350;     /* muted text (warm) */
+      --l-faint: #9c8f78;    /* faint text / counts (warm) */
+      --l-line: #e3d8c4;     /* hairline (warm) */
+      --l-line2: #d3c4a9;    /* stronger border (warm) */
+      --l-me: #0b8a86;       /* "this is me" highlight: teal, complements terracotta */
+      --l-cyan: #0e9c96;     /* cursor / focus ring (teal) */
+      --l-ok: #5f8a3f;       /* correctly-typed text: warm sage green */
+      --l-bad: #cc2f2f;      /* mistyped text / errors: clear red, distinct from accent */
+      --l-finished: #0e9c96; /* finished bar (teal, matches cursor) */
+      --l-count: #d98218;    /* countdown number (warm amber) */
+      --l-warn: #c2751a;     /* "start typing" nudge (warm amber) */
+    }
+    html[data-theme="light"] body { background: var(--l-bg); color: var(--l-ink); }
+
+    /* --- Header ------------------------------------------------------------- */
+    html[data-theme="light"] header { background: var(--l-card); border-bottom-color: var(--l-line); }
+    html[data-theme="light"] h1 { color: #2b2419; }
+    /* h1 .brand-accent and the terracotta .btn stay the base accent - it reads
+       fine on cream, so the accent color is unchanged across both themes. */
+    html[data-theme="light"] #usernameDisplay { color: var(--l-ink); }
+    html[data-theme="light"] #usernameDisplay:hover { background: var(--l-inset); border-color: var(--l-line); }
+    html[data-theme="light"] #emojiBtn:hover,
+    html[data-theme="light"] #settingsAvatar:hover { background: var(--l-inset); }
+
+    /* --- Buttons (terracotta primary is unchanged; only the neutral states move) - */
+    html[data-theme="light"] .btn[data-racing="1"] { background: var(--l-line); color: var(--l-ink); }
+    html[data-theme="light"] .test-buttons button.secondary { background: var(--l-line); color: var(--l-ink); }
+    html[data-theme="light"] .switch-lobby-btn {
+      background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft);
+    }
+    html[data-theme="light"] .switch-lobby-btn:hover { background: var(--l-line); color: var(--l-ink); }
+
+    /* --- Switches / segmented pickers (terracotta "on"/active stays base) --- */
+    html[data-theme="light"] .switch { background: var(--l-line2); }
+    html[data-theme="light"] .switch::after { background: #fff; }
+    html[data-theme="light"] .segmented { background: var(--l-inset); border-color: var(--l-line); }
+    html[data-theme="light"] .segmented-btn { color: var(--l-soft); }
+    html[data-theme="light"] .segmented-btn:hover { background: var(--l-line); color: var(--l-ink); }
+    html[data-theme="light"] .segmented-btn[data-active="1"] { background: var(--l-line); color: var(--l-ink); }
+    html[data-theme="light"] .seg-glyph i { background: var(--l-line2); }
+    html[data-theme="light"] .seg-glyph svg { fill: var(--l-line2); }
+
+    /* --- Arena: banner, readout, quote ------------------------------------- */
+    html[data-theme="light"] #phaseBanner { background: var(--l-line); color: var(--l-soft); }
+    html[data-theme="light"] #phaseBanner[data-phase="racing"] { background: #f6e3d7; color: #b0491f; }
+    html[data-theme="light"] #bigReadout .readout-cap { color: var(--l-faint); }
+    html[data-theme="light"] #bigReadout .readout-number { color: var(--l-ok); }
+    html[data-theme="light"] #bigReadout[data-mode="countdown"] .readout-number { color: var(--l-count); }
+    html[data-theme="light"] #raceTimer { color: var(--l-faint); }
+    html[data-theme="light"] #quote { color: var(--l-soft); }
+    html[data-theme="light"] #quote[data-placeholder="1"] { color: var(--l-faint); }
+    html[data-theme="light"] #quote span.ok { color: var(--l-ok); }
+    html[data-theme="light"] #quote span.bad { color: var(--l-bad); }
+    html[data-theme="light"] #quote span.cursor { box-shadow: -2px 0 0 0 var(--l-cyan); }
+    html[data-theme="light"] #quote span.selected { background: rgba(14, 156, 150, .16); }
+    /* The blink keyframe hard-codes the dark theme's cyan, so give light its own. */
+    @keyframes caret-blink-light {
+      0%, 49% { box-shadow: -2px 0 0 0 #0e9c96; }
+      50%, 100% { box-shadow: -2px 0 0 0 transparent; }
+    }
+    html[data-theme="light"] #quote span.cursor.blinking { animation-name: caret-blink-light; }
+    html[data-theme="light"] .ghost-caret { background: var(--l-cyan); }
+
+    /* --- Leaderboard tracks (terracotta fills stay base) ------------------- */
+    html[data-theme="light"] .racer-track { background: var(--l-line); }
+    html[data-theme="light"] .racer-fill.finished { background: var(--l-finished); }
+    html[data-theme="light"] .racer-fill.afk { background: var(--l-line2); }
+    html[data-theme="light"] .racer-wpm { color: var(--l-soft); }
+    html[data-theme="light"] #sharedTrackBase { background: var(--l-line); }
+    html[data-theme="light"] #sharedTrackFill.finished { background: var(--l-finished); }
+    html[data-theme="light"] #sharedTrackFill.afk { background: var(--l-line2); }
+    html[data-theme="light"] .shared-caret.finished { background: var(--l-finished); }
+    html[data-theme="light"] .shared-caret.afk { background: var(--l-line2); }
+
+    /* --- Typing input / hints ---------------------------------------------- */
+    html[data-theme="light"] #typeInput { background: var(--l-card); border-color: var(--l-line2); color: var(--l-ink); }
+    html[data-theme="light"] #typeInput:focus { border-color: var(--l-cyan); }
+    /* Desktop is deliberately left untouched: the input wrapper has NO
+       background in the base theme (the input's own rounded box fills it), and
+       giving it one would show past the input's rounded corners. Only the
+       compact layout's sticky bar needs a fill, handled in the @media below. */
+    @media (max-width: 820px), (max-height: 520px) and (pointer: coarse) {
+      /* On mobile the input is a sticky bar and the ghost top-mask is opaque,
+         to hide quote text scrolling under them. The base theme uses a solid
+         matching its #16130d body; here just match the light body colour. */
+      html[data-theme="light"] #inputWrap,
+      html[data-theme="light"] #quoteTopMask { background: var(--l-bg); }
+    }
+    html[data-theme="light"] #errorNotice {
+      background: linear-gradient(to right, rgba(255, 255, 255, 0), var(--l-card) 24px); color: var(--l-bad);
+    }
+    html[data-theme="light"] #startHint[data-mode="ready"] { color: var(--l-soft); }
+    html[data-theme="light"] #startHint[data-mode="go"] { color: var(--l-warn); }
+
+    /* --- Sidebar, roster, chat --------------------------------------------- */
+    html[data-theme="light"] .sidebar {
+      background: var(--l-shell); border-left-color: var(--l-line); border-top-color: var(--l-line);
+    }
+    html[data-theme="light"] .sidebar::before { background: var(--l-line2); }
+    html[data-theme="light"] .panel { background: var(--l-card); }
+    html[data-theme="light"] .roster, html[data-theme="light"] .lobby-row { border-bottom-color: var(--l-line); }
+    html[data-theme="light"] #waitlistBlock, html[data-theme="light"] #waitlistSelf { border-top-color: var(--l-line2); }
+    html[data-theme="light"] .section-header h2 { color: var(--l-soft); }
+    html[data-theme="light"] .section-count { color: var(--l-faint); }
+    html[data-theme="light"] li { color: var(--l-ink); }
+    html[data-theme="light"] .empty { color: var(--l-faint); }
+    html[data-theme="light"] .chat-msg-name, html[data-theme="light"] .player-name { color: var(--l-soft); }
+    html[data-theme="light"] .chat-msg-name.me, html[data-theme="light"] .player-name.me,
+    html[data-theme="light"] .roster-tag.mine, html[data-theme="light"] .roster-stat.mine { color: var(--l-me); }
+    html[data-theme="light"] .chat-msg-system, html[data-theme="light"] .chat-msg-status { color: var(--l-faint); }
+    html[data-theme="light"] .roster-tag { color: var(--l-faint); }
+    html[data-theme="light"] .roster-stat { color: var(--l-soft); }
+    html[data-theme="light"] #chatInput { background: var(--l-card); border-color: var(--l-line2); color: var(--l-ink); }
+    html[data-theme="light"] #chatInput:focus { border-color: var(--l-cyan); }
+
+    /* --- Settings popover --------------------------------------------------- */
+    html[data-theme="light"] #settingsPanel {
+      background: var(--l-shell); border-color: var(--l-line);
+      box-shadow: 0 16px 40px rgba(15, 23, 42, .18);
+    }
+    html[data-theme="light"] .settings-head { background: var(--l-shell); border-bottom-color: var(--l-line); }
+    html[data-theme="light"] .settings-head h3 { color: var(--l-ink); }
+    html[data-theme="light"] #settingsClose { color: var(--l-faint); }
+    html[data-theme="light"] #settingsClose:hover { background: var(--l-inset); color: var(--l-ink); }
+    html[data-theme="light"] .settings-group + .settings-group { border-top-color: var(--l-line); }
+    html[data-theme="light"] .settings-group-title { color: var(--l-faint); }
+    html[data-theme="light"] .settings-row-toggle:hover { background: var(--l-inset); }
+    html[data-theme="light"] .settings-label { color: var(--l-ink); }
+    html[data-theme="light"] .settings-hint { color: var(--l-soft); }
+    html[data-theme="light"] .settings-subrow { border-left-color: var(--l-line); }
+    html[data-theme="light"] .settings-foot { color: var(--l-faint); border-top-color: var(--l-line); }
+    html[data-theme="light"] .name-field { background: var(--l-inset); border-color: var(--l-line2); }
+    html[data-theme="light"] .name-field:focus-within { border-color: var(--l-cyan); }
+    html[data-theme="light"] #settingsUsername { color: var(--l-ink); }
+    html[data-theme="light"] #settingsUsername::placeholder { color: var(--l-faint); }
+    html[data-theme="light"] #nameCount { color: var(--l-faint); }
+    html[data-theme="light"] #soundVolumeValue { color: var(--l-soft); }
+    html[data-theme="light"] #soundVolumeSlider {
+      background: linear-gradient(#e2603f, #e2603f) 0 / var(--pct, 70%) 100% no-repeat, var(--l-line2);
+    }
+    html[data-theme="light"] #soundVolumeSlider::-webkit-slider-thumb {
+      background: #fff; box-shadow: 0 1px 3px rgba(15, 23, 42, .3);
+    }
+    html[data-theme="light"] #soundVolumeSlider::-moz-range-thumb { background: #fff; }
+    html[data-theme="light"] .test-input { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-ink); }
+    html[data-theme="light"] #adminResult { color: var(--l-soft); }
+
+    /* --- Emoji picker ------------------------------------------------------- */
+    html[data-theme="light"] #emojiPicker {
+      background: var(--l-shell); border-color: var(--l-line);
+      box-shadow: 0 12px 32px rgba(15, 23, 42, .2);
+    }
+    html[data-theme="light"] #emojiTabs { border-bottom-color: var(--l-line); }
+    html[data-theme="light"] .emoji-tab:hover, html[data-theme="light"] .emoji-tab[data-active="1"] { background: var(--l-inset); }
+    html[data-theme="light"] .emoji-tab[data-active="1"]::after { background: var(--l-cyan); }
+    html[data-theme="light"] #emojiSearch { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-ink); }
+    html[data-theme="light"] #emojiSearch:focus { border-color: var(--l-cyan); }
+    html[data-theme="light"] #emojiSearch::placeholder { color: var(--l-faint); }
+    html[data-theme="light"] #emojiSearchClear { background: var(--l-line); color: var(--l-soft); }
+    html[data-theme="light"] #emojiSearchClear:hover { background: var(--l-line2); color: var(--l-ink); }
+    html[data-theme="light"] .emoji-group-title { background: var(--l-shell); color: var(--l-soft); }
+    html[data-theme="light"] .emoji-cell[data-selected="1"] { border-color: var(--l-cyan); }
+    html[data-theme="light"] #emojiClose { color: var(--l-faint); }
+
+    /* --- Mobile bottom bar / sheet ----------------------------------------- */
+    html[data-theme="light"] #mobileBar { background: var(--l-card); border-top-color: var(--l-line); }
+    html[data-theme="light"] #lobbyToggle { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft); }
+    html[data-theme="light"] #lobbyToggle[aria-expanded="true"] { background: var(--l-line); color: var(--l-ink); }
+    html[data-theme="light"] #lobbyUnread { border-color: var(--l-card); }
+
+    /* --- Focus rings + scrollbars ------------------------------------------ */
+    html[data-theme="light"] :focus-visible { outline-color: var(--l-cyan); }
+    html[data-theme="light"] .arena,
+    html[data-theme="light"] #chatMessages,
+    html[data-theme="light"] #emojiScroll,
+    html[data-theme="light"] .spectators,
+    html[data-theme="light"] #settingsPanel,
+    html[data-theme="light"] .roster { scrollbar-color: var(--l-line2) transparent; }
+    html[data-theme="light"] .arena::-webkit-scrollbar-thumb,
+    html[data-theme="light"] #chatMessages::-webkit-scrollbar-thumb,
+    html[data-theme="light"] #emojiScroll::-webkit-scrollbar-thumb,
+    html[data-theme="light"] .spectators::-webkit-scrollbar-thumb,
+    html[data-theme="light"] #settingsPanel::-webkit-scrollbar-thumb,
+    html[data-theme="light"] .roster::-webkit-scrollbar-thumb { background: var(--l-line2); }
+    html[data-theme="light"] .arena::-webkit-scrollbar-thumb:hover,
+    html[data-theme="light"] #chatMessages::-webkit-scrollbar-thumb:hover,
+    html[data-theme="light"] #emojiScroll::-webkit-scrollbar-thumb:hover,
+    html[data-theme="light"] .spectators::-webkit-scrollbar-thumb:hover,
+    html[data-theme="light"] #settingsPanel::-webkit-scrollbar-thumb:hover,
+    html[data-theme="light"] .roster::-webkit-scrollbar-thumb:hover { background: var(--l-faint); }
   </style>
+
+  <!--
+    Apply the saved theme BEFORE first paint so a non-default theme never
+    flashes the default (dark) colors on load. Deliberately tiny and
+    self-contained; the full picker + persistence lives in the main script
+    below. Mirrors that script's "typingRace.theme" key and its convention that
+    "dark" (the default) is represented by the ABSENCE of a data-theme attr.
+  -->
+  <script>
+    try {
+      var savedTheme = localStorage.getItem("typingRace.theme");
+      if (savedTheme && savedTheme !== "dark") {
+        document.documentElement.setAttribute("data-theme", savedTheme);
+      }
+    } catch (e) { /* private mode / storage disabled: fall back to default */ }
+  </script>
 </head>
 <body>
   <header>
@@ -1318,6 +1595,24 @@
                   <button id="settingsAvatar" type="button" title="Change your racer avatar" aria-label="Change your racer avatar">🚀</button>
                   <input id="settingsUsername" type="text" maxlength="20" autocomplete="off" spellcheck="false" placeholder="guest" />
                   <span id="nameCount" aria-hidden="true">0/20</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">Appearance</div>
+              <div class="settings-field">
+                <div class="settings-label">Theme</div>
+                <div class="settings-hint">Give the whole site a new look. Saved on this device.</div>
+                <div id="themeGroup" class="segmented" role="radiogroup" aria-label="Theme">
+                  <button type="button" class="segmented-btn" data-theme-choice="dark" role="radio" aria-checked="false">
+                    <span class="seg-emoji" aria-hidden="true">🌙</span>
+                    <span>Dark</span>
+                  </button>
+                  <button type="button" class="segmented-btn" data-theme-choice="light" role="radio" aria-checked="false">
+                    <span class="seg-emoji" aria-hidden="true">☀️</span>
+                    <span>Light</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1509,6 +1804,10 @@
              disappears the moment the box has focus. -->
         <div id="tapHint" aria-hidden="true">Tap to type</div>
         <div id="errorNotice">Fix errors to continue</div>
+        <!-- Centered prompt shown in the empty box: a "get ready" line before
+             the race, then a flashing nudge if the racer sits idle once it's
+             live. Text is set from setStartHint. -->
+        <div id="startHint" aria-hidden="true"></div>
       </div>
     </section>
 
@@ -2291,6 +2590,7 @@
     const trackOrderGroup = document.getElementById("trackOrderGroup");
     const trackOrderField = document.getElementById("trackOrderField");
     const trackOrderHint  = document.getElementById("trackOrderHint");
+    const themeGroup  = document.getElementById("themeGroup");
     const quoteEl     = document.getElementById("quote");
     const quoteWrap   = document.getElementById("quoteWrap");    // the fixed window on compact layouts
     const quoteScroll = document.getElementById("quoteScroll");  // what slides inside it
@@ -2304,6 +2604,7 @@
     const inputWrap   = document.getElementById("inputWrap");
     const typeInput   = document.getElementById("typeInput");
     const errorNotice = document.getElementById("errorNotice");
+    const startHint   = document.getElementById("startHint");
     const emojiBtn    = document.getElementById("emojiBtn");
     const emojiPicker = document.getElementById("emojiPicker");
     const settingsBtn   = document.getElementById("settingsBtn");
@@ -2352,6 +2653,13 @@
     // are what the typing guards read instead.
     let raceInputLive = false;
     let raceInputArmed = false;
+
+    // The race went live for us at this wall-clock time (0 when it isn't). Once
+    // it's been idle this long with nothing typed, the "Start typing" nudge
+    // flashes up - armed off a timer since an idle racer fires no input events.
+    const NO_START_NOTICE_MS = 5000;
+    let raceStartAt = 0;
+    let startIdleTimer = null;
 
     // The sidebar's contents are identical in both layouts; only where the join
     // button lives differs. Moving the element (rather than duplicating it)
@@ -2664,8 +2972,37 @@
                    document.activeElement !== typeInput;
       tapHintWrap.dataset.hint = show ? "1" : "0";
     }
-    typeInput.addEventListener("focus", () => { refreshTapHint(); updateQuoteWindow(); });
-    typeInput.addEventListener("blur", refreshTapHint);
+    typeInput.addEventListener("focus", () => { refreshTapHint(); refreshStartHint(); updateQuoteWindow(); });
+    typeInput.addEventListener("blur", () => { refreshTapHint(); refreshStartHint(); });
+
+    // The centered box prompt: a static "get ready" line before the race, and a
+    // flashing "start typing" nudge once it's live but still untouched. Both are
+    // stood down while the tap hint owns the box (touch, unfocused), so the two
+    // never pile into the same centered slot - "Tap to type" is the more urgent
+    // instruction there anyway.
+    function refreshStartHint() {
+      const nothingTyped = committed === "" && typeInput.value === "";
+      const tapHintUp = tapHintWrap.dataset.hint === "1";
+      let mode = "off";
+      if (nothingTyped && !tapHintUp) {
+        if (raceInputLive) {
+          const idleLongEnough = raceStartAt !== 0 && Date.now() - raceStartAt >= NO_START_NOTICE_MS;
+          if (idleLongEnough) mode = "go";
+        } else if (raceInputArmed) {
+          mode = "ready";
+        }
+      }
+      setStartHint(mode);
+    }
+
+    function setStartHint(mode) {
+      // Only touch the attribute on a real change, so the blink replays once
+      // when "go" engages instead of restarting on every render tick.
+      if (startHint.dataset.mode === mode) return;
+      if (mode === "ready") startHint.textContent = "Type the text above as soon as the race starts!";
+      else if (mode === "go") startHint.textContent = "Start typing the text above!";
+      startHint.dataset.mode = mode;
+    }
 
     // The whole race area is the tap target, not just the box: a thumb aiming
     // at a 43px strip at the bottom of the screen is a worse deal than aiming
@@ -3642,6 +3979,19 @@
       raceInputLive = iCanType;
       raceInputArmed = inputArmed;
 
+      // Arm the idle-start clock the instant the race goes live for us, and tear
+      // it down the moment we can't type any more (race over, we finished, we
+      // dropped out). refreshStartHint() below reads raceStartAt to decide when
+      // the flashing nudge is due.
+      if (raceInputLive && raceStartAt === 0) {
+        raceStartAt = Date.now();
+        if (startIdleTimer) clearTimeout(startIdleTimer);
+        startIdleTimer = setTimeout(() => { startIdleTimer = null; refreshStartHint(); }, NO_START_NOTICE_MS);
+      } else if (!raceInputLive && raceStartAt !== 0) {
+        raceStartAt = 0;
+        if (startIdleTimer) { clearTimeout(startIdleTimer); startIdleTimer = null; }
+      }
+
       if (state.phase === "racing" || state.phase === "finished") {
         // Someone who finished (whether the race is still live or now in
         // results) keeps seeing their own completed text colored green;
@@ -3679,6 +4029,7 @@
         typeInput.focus();
       }
       refreshTapHint();
+      refreshStartHint(); // after refreshTapHint: it reads the tap hint's state
 
       // Nothing about the room's state disables this any more: if the race
       // being set up can't take you, the next one can, and if every slot is
@@ -6278,6 +6629,42 @@
 
     applyTrackModeUi(); // also paints the Live positions group (see above)
 
+    // Theme picker (Settings > Appearance). "dark" is the original look (the
+    // default); "light" is a plain light mode (see the html[data-theme="light"]
+    // block in the stylesheet). Purely cosmetic and client-only: it just sets
+    // data-theme on <html>, which the CSS keys off - no schema fields, no room
+    // messages, nothing the server ever hears about. Persisted per browser; the
+    // same key is read by the tiny inline <head> script that applies the saved
+    // theme before first paint (no flash).
+    const THEME_KEY = "typingRace.theme";
+    const THEMES = ["dark", "light"];
+    let theme = localStorage.getItem(THEME_KEY) || "dark";
+    if (!THEMES.includes(theme)) theme = "dark";
+    const themeBtns = Array.from(themeGroup.querySelectorAll(".segmented-btn"));
+
+    function applyThemeUi() {
+      // "dark" is the default and is represented by the ABSENCE of the
+      // attribute (it has no override rules of its own), matching the head
+      // script's convention so the two never disagree.
+      if (theme === "dark") delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = theme;
+      themeBtns.forEach((btn) => {
+        const active = btn.dataset.themeChoice === theme;
+        btn.dataset.active = active ? "1" : "0";
+        btn.setAttribute("aria-checked", active ? "true" : "false");
+      });
+    }
+    applyThemeUi();
+
+    themeBtns.forEach((btn) => {
+      btn.onclick = () => {
+        if (btn.dataset.themeChoice === theme) return;
+        theme = btn.dataset.themeChoice;
+        localStorage.setItem(THEME_KEY, theme);
+        applyThemeUi();
+      };
+    });
+
     // Sound cue toggle (Settings). On by default; persisted per browser.
     function applySoundToggleUi() {
       soundToggle.dataset.on = playSounds ? "1" : "0";
@@ -6368,6 +6755,7 @@
       absorbCorrectWords(quote);
       enforceErrorCap(quote);
       paintQuote(quote);
+      refreshStartHint(); // the first keystroke pulls the "start typing" nudge
       room.send("typeProgress", { input: committed + typeInput.value });
     }
 
