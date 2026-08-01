@@ -1203,8 +1203,9 @@
       }
 
       /* --- The race bottom bar --------------------------------------------
-         On a short layout (JS sets <html data-race-bar="1"> and moves #inputWrap
-         into #mobileBar - see placeInputBar), the input takes the Join button's
+         On a touch device or a short layout (JS sets <html data-race-bar="1">
+         and moves #inputWrap into #mobileBar - see placeInputBar), the input
+         takes the Join button's
          exact slot: #joinBtn hides and #inputWrap becomes that flex child, so it
          has the button's width AND position, with the chat toggle (#lobbyToggle)
          still beside it - pressing Join turns the button into the input. Only the
@@ -3192,24 +3193,36 @@
     }
 
     // --- The race bottom bar --------------------------------------------------
-    // When a racer's typing input is showing on a SHORT layout, the input is
-    // relocated into the mobile action bar - into the exact flex slot the Join
-    // button occupied - with the chat toggle still beside it, so the Join button
-    // visibly turns into the input (see the "race bottom bar" CSS, which hides
-    // #joinBtn and restyles #inputWrap as that slot). Only the LEAVE control
-    // lives inside the input; chat stays outside as #lobbyToggle.
+    // When a racer's typing input is showing on a touch device or a SHORT
+    // layout, the input is relocated into the mobile action bar - into the exact
+    // flex slot the Join button occupied - with the chat toggle still beside it,
+    // so the Join button visibly turns into the input (see the "race bottom bar"
+    // CSS, which hides #joinBtn and restyles #inputWrap as that slot). Only the
+    // LEAVE control lives inside the input; chat stays outside as #lobbyToggle.
     //
-    // The trigger is the LAYOUT height (a media query), not the keyboard-aware
-    // visual height, ON PURPOSE: the input element is MOVED in the DOM here, and
-    // a move blurs it (dropping the keyboard). A layout media query doesn't flip
-    // when the on-screen keyboard opens (that only shrinks the visual viewport),
-    // so the move happens on a real layout change or when the racer joins - both
-    // with the keyboard down - never mid-typing. On desktop (no keyboard) this is
-    // identical to the old visual-height check.
+    // For the height gate the trigger is the LAYOUT height (a media query), not
+    // the keyboard-aware visual height, ON PURPOSE: the input element is MOVED in
+    // the DOM here, and a move blurs it (dropping the keyboard). A layout media
+    // query doesn't flip when the on-screen keyboard opens (that only shrinks the
+    // visual viewport), so the move happens on a real layout change or when the
+    // racer joins - both with the keyboard down - never mid-typing. On desktop
+    // (no keyboard) this is identical to the old visual-height check. Touch
+    // devices bypass the height gate entirely and always merge (see placeInputBar
+    // for why that's both necessary and safe).
     const shortLayout = window.matchMedia("(max-height: 560px)");
     let raceInputShowing = false; // set by render(): is the racer's input box up?
     function placeInputBar() {
-      const merged = compactLayout.matches && raceInputShowing && shortLayout.matches;
+      // Touch devices ALWAYS merge, whatever the current layout height. A phone
+      // starts a race with plenty of height, but opening the on-screen keyboard
+      // then eats most of it - and that keyboard is a VISUAL-viewport change that
+      // never trips the layout-height `shortLayout` query, so a height gate alone
+      // would leave the phone stuck in the tall, separate-input shape with almost
+      // no room. The DOM-move-blurs-the-input worry the height gate guards against
+      // doesn't apply here: on touch `raceInputShowing` only flips on join/leave
+      // (keyboard-down moments) and `touchInput` never changes, so the merged
+      // state is constant for a whole racing session and never moves mid-typing.
+      const merged = compactLayout.matches && raceInputShowing &&
+                     (shortLayout.matches || touchInput.matches);
       document.documentElement.dataset.raceBar = merged ? "1" : "0";
       if (merged) {
         // Into the Join button's slot (before the chat toggle). Idempotent.

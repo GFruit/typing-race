@@ -3251,3 +3251,21 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   unchanged), and the CSS left-aligns it there instead of centring a clipped
   line. Verified with screenshots (wide centred bar + full hint; narrow one-icon
   bar + short left-aligned hint) and `node --check`.
+
+- 2026-08-01: Touch devices now ALWAYS merge the typing input into the bottom
+  bar, regardless of layout height. Reported from real-device testing: a phone
+  joins a race with plenty of vertical room, so the height gate (`shortLayout`,
+  `max-height:560px`) left it in the tall two-row shape - but then the on-screen
+  keyboard opens and eats most of the screen. That keyboard is a VISUAL-viewport
+  change and never trips the LAYOUT-height media query the merge keys off (kept as
+  layout height on purpose - see below), so the phone stayed stuck with the
+  separate input and almost no room. Fix is one line in `placeInputBar()`: `merged
+  = compactLayout && raceInputShowing && (shortLayout.matches || touchInput.matches)`.
+  Safe because the DOM-move-blurs-the-input hazard the height gate guards against
+  doesn't arise on touch: `raceInputShowing` only flips on join/leave (keyboard
+  down) and `touchInput` never changes, so the merged state is constant for a whole
+  racing session and never moves the input mid-typing - it's actually MORE stable
+  than the height gate (a phone rotation no longer toggles it). CSS needed no
+  change: the `html[data-race-bar="1"]` rules already live inside the compact
+  media query and gate only on the flag, not on height. `node --check` clean;
+  worth a real-device confirm that the keyboard stays up across the merge.
