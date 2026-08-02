@@ -347,15 +347,12 @@
        place of the little bar/arrow diagrams the track pickers draw). */
     .seg-emoji { font-size: 22px; line-height: 1; }
 
-    /* "Live positions" is nested under the Track display it depends on, using
-       the same indent + left rail as Volume under Sound cues: it only means
-       anything for the "All tracks" view, so the other two modes dim it out
-       rather than hiding it (a control that vanishes when you touch the one
-       above it is harder to find again than one that's visibly unavailable). */
-    #trackOrderField { transition: opacity .15s ease-out; }
-    #trackOrderField[data-enabled="0"] { opacity: .4; }
-    #trackOrderField[data-enabled="0"] .segmented-btn { cursor: not-allowed; }
-    #trackOrderField[data-enabled="0"] .segmented-btn:hover { background: transparent; color: #b4a487; }
+    /* "Live positions" (All tracks) and "Racer markers" (Shared) share one
+       nested slot under the Track display they depend on, using the same indent
+       + left rail as Volume under Sound cues. Each applies to only one track
+       mode, so the slot swaps to whichever fits the current choice and shows
+       nothing under "Hidden" - see applySubrowVisibility(). */
+    .settings-subrow[hidden] { display: none; }
 
     /* Volume, nested under the Sound cues toggle it depends on: the left rail
        and indent show the dependency, and the row dims and stops accepting
@@ -500,6 +497,11 @@
     }
     #leaderboard[data-mode="hidden"] { display: none; }
     #leaderboard[data-mode="shared"] > .racer-row { display: none; }
+    /* The per-racer tracks never give up height to a short arena: the quote
+       window above absorbs the squeeze down to its two-line floor, and past that
+       the whole "All tracks" view falls back to the single shared track (see
+       tracksTooTall / effectiveTrackMode) rather than the rows being crushed. */
+    #leaderboard[data-mode="default"] { flex-shrink: 0; }
 
     /* Live position ordering (Settings > Live positions), mode "slide": the
        rows keep a fixed place in the DOM and are moved into rank order with a
@@ -565,6 +567,26 @@
       margin-bottom: 3px; font-size: 26px; line-height: 1;
       filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5));
     }
+    /* "Emoji" marker variant (Settings > Racer markers): drop the caret bar and
+       sit the emoji directly ON the track instead of on a lollipop above it. The
+       .shared-caret element still positions by progress% (its left), so only the
+       bar is hidden and the emoji recentered onto the track. fillSharedTrack sets
+       a per-racer bar color inline, so hiding it here needs !important. */
+    #sharedTrack[data-marker="emoji"] .shared-caret { background: transparent !important; }
+    /* The track shrinks so the (unchanged) emoji overhangs it top and bottom,
+       the same "avatar bigger than its rail" look the per-racer "All tracks"
+       view uses (.racer-emoji on .racer-track). Caret mode keeps the full-height
+       track its lollipop is designed against. Compact gets its own height below. */
+    #sharedTrack[data-marker="emoji"] { height: 32px; }
+    #sharedTrack[data-marker="emoji"] .shared-caret-emoji {
+      bottom: auto; top: 50%; margin-bottom: 0;
+      font-size: 44px;
+      /* The baseline nudge (.racer-emoji uses -2px at 20px, ~-0.1em) has to be
+         em-based here: a fixed -2px is ~4% of this 44px glyph, far too little to
+         re-center it, so it sat low and its bottom overran the track edge. -0.1em
+         scales the correction to the size and self-adjusts for compact below. */
+      transform: translate(-50%, calc(-50% - 0.1em));
+    }
     /* The opacity transition is only ever exercised by mode "swap"'s label
        cross-fade (see #leaderboard[data-order="slide"] above); it costs
        nothing in the other modes, which never touch opacity. */
@@ -621,11 +643,36 @@
        the exact original reading layout. To revert the whole feature: delete
        this block, #ghostToggle above, the #quoteWrap/#ghostLayer wrapper in the
        markup, and the renderGhostCarets code. */
-    #quoteWrap { position: relative; width: 100%; max-width: 640px; }
+    /* flex 0/1000/auto: on desktop the window never GROWS past the quote's own
+       height (grow 0, so a short quote leaves the input directly beneath it and
+       the reading-ahead full quote stays put), but it gives up height before
+       anything else when the arena is short (a huge shrink factor, matching the
+       compact layout), down to a two-line floor. Only when it's actually
+       shrinking that far does JS flip data-windowed on and the clip/slide below
+       engage - see updateQuoteWindow; a roomy desktop stays exactly as before,
+       whole quote and lollipops overhanging freely. */
+    #quoteWrap {
+      position: relative; width: 100%; max-width: 640px;
+      flex: 0 1000 auto;
+      min-height: calc(2 * var(--quote-line, 34px) + var(--ghost-room, 0px));
+      padding-top: var(--ghost-room, 0px);
+    }
+    /* The windowing dress, applied only while the text is actually being read
+       through a window (data-windowed="1", set by updateQuoteWindow when the
+       quote can't show in full). Compact gets the same via its @media rules
+       below, so it's on there whether or not this fires. See #quoteWrap above. */
+    #quoteWrap[data-windowed="1"] { overflow-x: visible; overflow-y: clip; }
+    #quoteWrap[data-windowed="1"]:has(#quote[data-ghosts="1"]) { --ghost-room: 12px; margin-top: -6px; }
+    #quoteWrap[data-windowed="1"] #quoteTopMask {
+      display: block; position: absolute; top: 0; left: 0; right: 0;
+      height: var(--ghost-room, 0px); background: #16130d; z-index: 2; pointer-events: none;
+    }
+    html[data-theme="light"] #quoteWrap[data-windowed="1"] #quoteTopMask { background: var(--l-bg); }
     /* Sizes to the quote and is the ghost layer's containing block, so the two
-       share an origin. Untransformed unless the compact layout is windowing
-       the text (see updateQuoteWindow). */
+       share an origin. The slide transition makes a line advance read as a step
+       on both layouts; it's inert until updateQuoteWindow actually translates it. */
     #quoteScroll { position: relative; }
+    #quoteScroll, #ghostScroll { transition: transform .18s ease-out; }
     /* The ghost carets' scroller. Shares #quote's origin: on desktop it fills
        #quoteWrap; on the compact layout it starts at the content top (below the
        --ghost-room band) so a caret measured relative to #quote lands right. It
@@ -1162,6 +1209,10 @@
       .racer-emoji { font-size: 17px; }
       #sharedTrack { height: 38px; }
       .shared-caret-emoji { font-size: 22px; }
+      /* Emoji marker: keep the glyph large and shrink the track under it so it
+         overhangs, matching the desktop rule above. */
+      #sharedTrack[data-marker="emoji"] { height: 26px; }
+      #sharedTrack[data-marker="emoji"] .shared-caret-emoji { font-size: 34px; }
       #raceTimer { top: 10px; right: 12px; font-size: 11px; }
 
       #quote { font-size: 17px; letter-spacing: 0; }
@@ -1175,8 +1226,12 @@
          is left over (so a closed keyboard or fewer racers simply shows more
          lines) but never less than two, and the text slides up inside it a
          line at a time. See updateQuoteWindow for the line maths.
-         Nothing here applies on desktop, where the whole quote fits anyway and
-         being able to read ahead is worth having. */
+         Desktop uses the SAME window now, but only when it has to: it keeps the
+         whole quote (grow 0, reading ahead is worth having) until the arena is
+         too short to show every line - five racers on "All tracks" at a zoom
+         that would otherwise scroll the arena - and then windows down to the
+         same two-line floor before "All tracks" finally falls back to the shared
+         track. The rules here just retune the window for the compact layout. */
       /* grow 1 so spare height becomes extra readable lines; a very large
          shrink so that when height is SHORT this is what gives it up, down to
          its two-line floor, before the tracks give up anything. A deficit is
@@ -1794,6 +1849,14 @@
     html[data-theme="light"] #sharedTrackFill.afk { background: var(--l-line2); }
     html[data-theme="light"] .shared-caret.finished { background: var(--l-finished); }
     html[data-theme="light"] .shared-caret.afk { background: var(--l-line2); }
+    /* The base theme's black emoji shadow (drop-shadow(0 1px 2px rgba(0,0,0,.5)))
+       vanishes on the dark track/page, but on light theme's warm cream it reads as a
+       grey smudge that spills out of the short track and bleeds down into the top of
+       #quoteWrap (the typing area) - which is transparent there, so nothing hides it.
+       There's no clean background for it to sit on, so drop it entirely in light theme:
+       the colourful markers read fine on the pale tan track without a lift. */
+    html[data-theme="light"] .racer-emoji,
+    html[data-theme="light"] .shared-caret-emoji { filter: none; }
 
     /* --- Typing input / hints ---------------------------------------------- */
     html[data-theme="light"] #typeInput { background: var(--l-card); border-color: var(--l-line2); color: var(--l-ink); }
@@ -2052,6 +2115,31 @@
                       <rect x="2.4" y="1.2" width="1.7" height="11.6" rx=".85" transform="rotate(-34 3.25 7)"/>
                     </svg></span>
                     <span>Swap</span>
+                  </button>
+                </div>
+              </div>
+              <!-- Swaps into the same nested slot as "Live positions" when the
+                   Shared track is chosen (see applySubrowVisibility): only one of
+                   the two is relevant at a time, so the slot shows whichever fits
+                   the current Track display and nothing under "Hidden". -->
+              <div class="settings-field settings-subrow" id="sharedMarkerField" hidden>
+                <div class="settings-label">Racer markers</div>
+                <div class="settings-hint">Ride a caret with the emoji above it, or sit the emoji straight on the track.</div>
+                <div id="sharedMarkerGroup" class="segmented" role="radiogroup" aria-label="Racer markers">
+                  <button type="button" class="segmented-btn" data-marker="caret" role="radio" aria-checked="false">
+                    <span class="seg-glyph"><svg viewBox="0 0 26 14" aria-hidden="true">
+                      <rect x="0" y="10" width="26" height="3" rx="1.5"/>
+                      <rect x="12" y="4" width="2" height="9" rx="1"/>
+                      <circle cx="13" cy="3" r="3"/>
+                    </svg></span>
+                    <span>Caret</span>
+                  </button>
+                  <button type="button" class="segmented-btn" data-marker="emoji" role="radio" aria-checked="false">
+                    <span class="seg-glyph"><svg viewBox="0 0 26 14" aria-hidden="true">
+                      <rect x="0" y="9" width="26" height="3" rx="1.5"/>
+                      <circle cx="13" cy="7" r="4"/>
+                    </svg></span>
+                    <span>Emoji</span>
                   </button>
                 </div>
               </div>
@@ -3055,6 +3143,8 @@
     const trackOrderGroup = document.getElementById("trackOrderGroup");
     const trackOrderField = document.getElementById("trackOrderField");
     const trackOrderHint  = document.getElementById("trackOrderHint");
+    const sharedMarkerGroup = document.getElementById("sharedMarkerGroup");
+    const sharedMarkerField = document.getElementById("sharedMarkerField");
     const themeGroup  = document.getElementById("themeGroup");
     const quoteEl     = document.getElementById("quote");
     const quoteWrap   = document.getElementById("quoteWrap");    // the fixed window on compact layouts
@@ -3655,13 +3745,6 @@
     let followWindowLine = null;
 
     function updateQuoteWindow() {
-      if (!compactLayout.matches) {
-        quoteScroll.style.transform = "";
-        ghostScroll.style.transform = "";
-        quoteWrap.style.maxHeight = "";
-        followWindowLine = null;
-        return;
-      }
       const lineH = quoteLineHeight();
       quoteWrap.style.setProperty("--quote-line", lineH + "px");
 
@@ -3673,9 +3756,36 @@
       // Clear any snap from a previous call FIRST so the window is measured at
       // the natural height flex leaves it, not the height we last capped it to.
       quoteWrap.style.maxHeight = "";
-      const wcs = getComputedStyle(quoteWrap);
-      const padY = parseFloat(wcs.paddingTop || 0) + parseFloat(wcs.paddingBottom || 0);
-      const innerH = quoteWrap.clientHeight - padY;
+      let wcs = getComputedStyle(quoteWrap);
+      let padY = parseFloat(wcs.paddingTop || 0) + parseFloat(wcs.paddingBottom || 0);
+      let innerH = quoteWrap.clientHeight - padY;
+
+      // Compact always reads the text through the window. Desktop keeps the whole
+      // quote - reading ahead is worth having - and only windows when the arena
+      // is genuinely too short to show every line (five racers on "All tracks"
+      // at a zoom that would otherwise scroll the arena). The 2px slack stops a
+      // sub-pixel line height reading a just-fits quote as one line short.
+      // data-windowed drives the desktop clip/mask CSS; on compact its @media
+      // rules keep the window on regardless, so this only ever adds it there.
+      const windowing = compactLayout.matches || quoteEl.offsetHeight > innerH + 2;
+      const wantWin = windowing ? "1" : "0";
+      const wasWin = quoteWrap.dataset.windowed;
+      if (wasWin !== wantWin) quoteWrap.dataset.windowed = wantWin;
+      if (!windowing) {
+        quoteScroll.style.transform = "";
+        ghostScroll.style.transform = "";
+        followWindowLine = null;
+        return;
+      }
+      // Turning the desktop window ON adds the ghost-lollipop band's padding,
+      // which changes how many whole lines fit; re-measure once, only on the
+      // flip, so the steady state (and every compact keystroke) still costs one
+      // layout read.
+      if (wasWin !== "1") {
+        wcs = getComputedStyle(quoteWrap);
+        padY = parseFloat(wcs.paddingTop || 0) + parseFloat(wcs.paddingBottom || 0);
+        innerH = quoteWrap.clientHeight - padY;
+      }
       const visible = Math.max(1, Math.floor(innerH / lineH));
       // Snap the window down to a WHOLE number of lines. The leftover flex
       // height is almost never an exact multiple of the line box, so without
@@ -5747,8 +5857,10 @@
     // The "shared" track-display mode: one big track, colored by MY OWN
     // progress only (#sharedTrackFill - there's no single fill that could
     // show every racer's progress at once without their colors fighting over
-    // the same pixels), with every racer - including me - riding a caret +
-    // emoji marker on top so everyone else's position is still visible. No
+    // the same pixels), with every racer - including me - riding a marker on
+    // top (a caret + emoji lollipop, or just the emoji on the track, per the
+    // "Racer markers" setting - see the #sharedTrack[data-marker] CSS) so
+    // everyone else's position is still visible. No
     // names here - with everyone on one track there's no clean place to put
     // them (that's what the sidebar's stats column is for; see
     // augmentRacerRowsWithStats). Carets are kept per sessionId (see
@@ -7667,7 +7779,25 @@
       const line = parseFloat(getComputedStyle(quoteWrap).getPropertyValue("--quote-line")) || 29;
       const perTrack = measuredPerTrack || (compactLayout.matches ? 34 : 46);
       const need = count * perTrack + statusSlot.offsetHeight + inputWrap.offsetHeight + line * 2;
-      return need > arena + 4; // a few px of slack so it doesn't flip over nothing
+      if (compactLayout.matches) {
+        // The compact arena's padding and inter-block margins are tiny and the
+        // numbers below are tuned against that; leave it exactly as it was.
+        return need > arena + 4; // a few px of slack so it doesn't flip over nothing
+      }
+      // Desktop's arena is roomier but so is its chrome: 24px padding top and
+      // bottom, plus the margins under the status slot and tracks and above the
+      // input, add ~100px that clientHeight counts as available but content
+      // can't use. Ignoring it made the fit check think there was room when
+      // there wasn't, so "All tracks" kept the arena scrolling instead of
+      // dropping to the shared track. Count it, and compare against the real
+      // content box (clientHeight minus the arena's own padding).
+      const acs = getComputedStyle(arenaEl);
+      const padY = (parseFloat(acs.paddingTop) || 0) + (parseFloat(acs.paddingBottom) || 0);
+      const chrome =
+        (parseFloat(getComputedStyle(statusSlot).marginBottom) || 0) +
+        (parseFloat(getComputedStyle(leaderboard).marginBottom) || 0) +
+        (parseFloat(getComputedStyle(inputWrap).marginTop) || 0);
+      return need + chrome > (arena - padY) + 4;
     }
 
     // A viewport change (zoom, window resize, keyboard) carries no room state of
@@ -7765,7 +7895,9 @@
       });
       // The arena, on the other hand, shows whatever actually fits right now.
       leaderboard.dataset.mode = effectiveTrackMode();
+      applySubrowVisibility();
       applyTrackOrderUi();
+      applySharedMarkerUi();
     }
 
     trackModeBtns.forEach((btn) => {
@@ -7802,21 +7934,15 @@
     }
 
     function applyTrackOrderUi() {
-      // Only the multiple-tracks view has an order to change, so the other two
-      // dim this whole group out and say why, rather than leaving a control
-      // that silently does nothing.
-      const usable = trackMode === "default";
-      trackOrderField.dataset.enabled = usable ? "1" : "0";
-      trackOrderGroup.setAttribute("aria-disabled", usable ? "false" : "true");
+      // Only shown for "All tracks" now (see applySubrowVisibility), so it's
+      // always usable while visible - no dim/disabled state to manage.
       trackOrderBtns.forEach((btn) => {
         const active = btn.dataset.order === trackOrder;
         btn.dataset.active = active ? "1" : "0";
         btn.setAttribute("aria-checked", active ? "true" : "false");
-        btn.disabled = !usable;
       });
       trackOrderHint.textContent =
-        !usable ? "Only applies to the All tracks display."
-        : trackOrder === "slide" && reducedMotion.matches
+        trackOrder === "slide" && reducedMotion.matches
           ? "Off while your system asks for reduced motion."
           : "Reorder the tracks mid-race as racers overtake each other.";
     }
@@ -7838,7 +7964,44 @@
       if (room) render(room.state);
     });
 
-    applyTrackModeUi(); // also paints the Live positions group (see above)
+    // Racer markers (Settings): only for the "shared" track. "caret" rides each
+    // racer on a caret bar with its emoji on a lollipop above the track (the
+    // original); "emoji" drops the bar and sits the emoji straight on the track.
+    // Purely a display preference (see the #sharedTrack[data-marker] CSS and
+    // fillSharedTrack) - no schema fields, no room messages.
+    const SHARED_MARKER_KEY = "typingRace.sharedMarker";
+    let sharedMarker = localStorage.getItem(SHARED_MARKER_KEY) || "caret";
+    if (!["caret", "emoji"].includes(sharedMarker)) sharedMarker = "caret";
+    const sharedMarkerBtns = Array.from(sharedMarkerGroup.querySelectorAll(".segmented-btn"));
+
+    function applySharedMarkerUi() {
+      sharedTrack.dataset.marker = sharedMarker;
+      sharedMarkerBtns.forEach((btn) => {
+        const active = btn.dataset.marker === sharedMarker;
+        btn.dataset.active = active ? "1" : "0";
+        btn.setAttribute("aria-checked", active ? "true" : "false");
+      });
+    }
+
+    sharedMarkerBtns.forEach((btn) => {
+      btn.onclick = () => {
+        if (btn.dataset.marker === sharedMarker) return;
+        sharedMarker = btn.dataset.marker;
+        localStorage.setItem(SHARED_MARKER_KEY, sharedMarker);
+        applySharedMarkerUi();
+        if (room) render(room.state); // reflect immediately
+      };
+    });
+
+    // The nested sub-row under Track display shows only the control that applies
+    // to the current mode: "Live positions" for All tracks, "Racer markers" for
+    // Shared, nothing for Hidden.
+    function applySubrowVisibility() {
+      trackOrderField.hidden = trackMode !== "default";
+      sharedMarkerField.hidden = trackMode !== "shared";
+    }
+
+    applyTrackModeUi(); // also paints the sub-row controls (see above)
 
     // Theme picker (Settings > Appearance). "dark" is the original look (the
     // default); "light" is a plain light mode (see the html[data-theme="light"]

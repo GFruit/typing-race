@@ -2355,6 +2355,12 @@ The scaffold may instead generate the older `@colyseus/tools` style with
       of the same emoji hue (`getEmojiAccentColor`, reusing `getEmojiColor`'s
       sampled hue rather than resampling) so it reads clearly against the
       softer fill instead of blending into it.
+    - **Racer markers** (Settings, `typingRace.sharedMarker`, only shown while
+      the Shared track is chosen — see the 2026-08-02 entry): "Caret" (default)
+      is the caret-bar + emoji-lollipop above; "Emoji" drops the bar and sits
+      each emoji directly on the track. Pure CSS off `#sharedTrack[data-marker]`
+      — `fillSharedTrack` is identical for both; the emoji rule uses `!important`
+      to override the per-racer bar color it sets inline.
     - Both the fill and the caret update with NO CSS transition - they're set
       from the literal same progress value in the same code, but even a
       transition both nominally shared could let a visible gray sliver open
@@ -2486,11 +2492,12 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   - **Settings UI:** a "Live positions" segmented picker (Off / Slide / Swap)
     with its own SVG diagrams, nested under Track display using the same
     indent + left-rail idiom Volume already uses under Sound cues, since it
-    depends on it the same way. The other two track displays DIM it rather
-    than hiding it (a control that vanishes when you touch the one above it is
-    harder to find again than one that is visibly unavailable) and the hint
-    swaps to say why. The hint also says so when reduced motion is what's
-    holding slide back, rather than silently doing nothing.
+    depends on it the same way. It shares one nested slot with the Shared
+    track's "Racer markers" picker: the slot swaps to whichever control applies
+    to the current Track display and shows nothing under "Hidden" — see the
+    2026-08-02 entry. (This superseded the earlier behaviour where the other
+    modes dimmed Live positions in place.) The hint still says so when reduced
+    motion is what's holding slide back, rather than silently doing nothing.
   - Verified with three suites, all driving the real code sliced out of
     index.html: 27 checks on the engine under a fake clock (the gap, the
     hysteresis both ways, the cooldown boundary at 599/600ms, one-swap-only,
@@ -2720,9 +2727,13 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     proportion to (shrink x base size), and a merely larger factor still
     nibbled ~9px off the leaderboard and clipped a racer's row. Reading two
     lines instead of three is a better trade than losing a racer.
-  - **Desktop is untouched on purpose.** It has the height to show the whole
-    quote, and reading ahead is worth having; windowing it would be a
-    regression. Asserted: no clipping, no transform, whole quote visible.
+  - **Desktop was untouched at first, on purpose** - it has the height to show
+    the whole quote and reading ahead is worth having. That held until the "All
+    tracks" + big-WPM case could overflow a desktop arena too (see the
+    2026-08-02 entry below), at which point desktop got the SAME window, but only
+    when it has to: `grow 0` keeps the whole quote until the arena is genuinely
+    too short, and only then does JS flip `data-windowed` on to clip and slide.
+    A roomy desktop still shows the full quote with no clip or transform.
   - The compact spacing was re-tuned against the measured worst case (390x844,
     five racers, keyboard up: the arena content box is 387px and every pixel is
     spoken for), which is where the tighter track gap, label margin, status slot
@@ -3488,3 +3499,56 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   their line (see the entry above), so racers scrolled out of the chased window
   fade out and back in correctly with no extra work. Desktop and tall viewports
   (whole quote visible, `maxLine === 0`) are unaffected.
+- 2026-08-02: The desktop (PC / sidebar) layout can now compact instead of
+  scrolling. Reported case: the PC view with the sidebar, five racers on "All
+  tracks" and the big WPM readout, at a window/zoom where all of it (input,
+  quote, five tracks, WPM) no longer fit - the arena grew a scrollbar and the
+  bottom of the content was cut off. Desktop now uses the same quote WINDOW the
+  compact layout has, but only when it must, and the fallbacks fire in the order
+  the user asked for.
+  - `#quoteWrap` on desktop is `flex: 0 1000 auto` with a two-line `min-height`.
+    `grow 0` keeps the whole quote (and the input directly beneath it) whenever
+    there is room, so the roomy PC view is byte-for-byte what it was. The huge
+    shrink factor means that when the arena is short the quote - not the tracks
+    or the WPM readout - is what gives up height, down to a two-line floor.
+  - `updateQuoteWindow()` no longer early-returns on desktop. It measures whether
+    the quote can show in full; if not, it flips `#quoteWrap[data-windowed="1"]`
+    on (which is what turns on `overflow-y: clip`, the ghost-lollipop band and
+    its mask - all gated so a roomy desktop keeps `overflow: visible` and its
+    freely-overhanging lollipops), snaps the window to whole lines and slides it
+    exactly as compact does. Compact is unchanged: its `@media` rules keep the
+    window on regardless, and the desktop-gated CSS just re-asserts the same
+    values there.
+  - When even a two-line quote won't let five tracks fit, "All tracks" falls back
+    to the single shared track (the existing `tracksTooTall`/`effectiveTrackMode`
+    override). That check was under-counting desktop chrome (24px arena padding
+    top and bottom, plus the status-slot / tracks / input margins - ~100px that
+    `clientHeight` counts as available but content can't use), so it used to
+    leave the arena scrolling instead of dropping to the shared track; the
+    desktop branch now counts that chrome and compares against the real content
+    box. The compact branch is left exactly as it was tuned.
+  - Ordering matches the ask: PC <-> mobile only ever switches on a window/zoom
+    change (it is still purely the `compactLayout` media query - a join or leave
+    never triggers it). A join/leave only ever changes how many quote lines show
+    (min two) and, as a last resort, collapses "All tracks" to the shared track.
+- 2026-08-02: Shared-track "Racer markers" setting + swapping settings sub-row.
+  Client-only, no schema fields or room messages.
+  - **New setting** (`typingRace.sharedMarker`, default "caret"): a two-way
+    segmented picker under Track display with the same SVG-diagram idiom as Live
+    positions. "Caret" is the original (caret bar + emoji lollipop above the
+    track); "Emoji" drops the bar and sits each racer's emoji directly on the
+    track (44px desktop / 34px compact) while the track itself shrinks in this
+    mode (32px / 26px) so the glyph overhangs it top and bottom — the same
+    "avatar bigger than its rail" look the per-racer "All tracks" view uses.
+    Caret mode keeps the full-height track its lollipop is designed against. It's
+    purely presentational — `fillSharedTrack` is untouched and runs the same for
+    both markers; the whole difference is `#sharedTrack[data-marker]` CSS that
+    makes the caret bar transparent (with `!important`, since the racer's bar
+    color is set inline per-render), shrinks the track, and recenters/enlarges
+    the emoji onto it.
+  - **Swapping sub-row:** the nested slot under Track display now shows only the
+    control that applies to the current mode — "Live positions" for All tracks,
+    "Racer markers" for Shared, nothing for Hidden (`applySubrowVisibility`,
+    toggling each field's `hidden`). This replaced the old behaviour where the
+    other modes dimmed Live positions in place; `applyTrackOrderUi` lost its
+    dim/disable branch and the "Only applies to…" hint accordingly.
