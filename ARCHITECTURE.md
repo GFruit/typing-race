@@ -3579,3 +3579,26 @@ The scaffold may instead generate the older `@colyseus/tools` style with
      per-racer-track mode (the other modes rewrite the rows with live wpm via
      augmentRacerRowsWithStats each tick, so they still rebuild). Verified the
      inline script still parses (node --check).
+
+- 2026-08-02: Fixed the "alone in a lobby churns Disconnected/Connected" bug and
+  cleaned up its UX. Root cause: a lone, idle client generates no application
+  traffic (no other players → no state patches; no typing → no input), so the
+  socket carries only Colyseus protocol ping/pong, which a WS proxy (Render)
+  doesn't count as activity and idle-closes after ~a minute. Each drop
+  auto-rejoined (recoverConnection) and, still alone+idle, dropped again — a
+  repeating cycle. Three changes:
+  1. (C, root cause) Added an app-level keepalive: the client sends a no-op
+     "keepalive" message every 25s while connected, and RaceRoom has a no-op
+     "keepalive" handler. Real data on the socket keeps the proxy from
+     idle-closing it, so the drops stop at the source.
+  2. (A, the artifact) The "Disconnected — reload to rejoin." line was stale:
+     onLeave already auto-rejoins. Removed that state; onLeave now shows
+     "reconnecting…" and only a genuinely unreachable server (recovery join
+     itself throwing) lands on "failed", where reload/refocus really is the way
+     back.
+  3. (B, log spam) setConnectionStatus now updates its single line in place
+     whenever it's still the last line in the log (dropped the unused
+     `transient` flag), so a whole connecting→reconnecting→reconnected cycle —
+     and any repeat of it while nobody else has spoken — collapses into one
+     evolving line instead of accreting a Disconnected/Connected pair each time.
+     Client-only for A/B; server `tsc --noEmit` clean.

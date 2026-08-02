@@ -481,6 +481,15 @@ export class RaceRoom extends Room {
       player.emoji = emoji;
     },
 
+    // A no-op heartbeat. A lone, idle client fires this on a timer purely so the
+    // socket keeps carrying application-level traffic (see the client's
+    // KEEPALIVE_INTERVAL_MS): an otherwise-silent WebSocket - nobody else here
+    // to generate state patches, nobody typing to send input - can go minutes
+    // with only protocol ping/pong frames, which some proxies (e.g. Render)
+    // don't treat as activity and idle-close, dropping a healthy connection.
+    // There is nothing to do on receipt; being received is the entire point.
+    keepalive: () => {},
+
     sendChat: (client: Client, payload: { text?: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;

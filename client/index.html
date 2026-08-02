@@ -3020,15 +3020,16 @@
     // wording carries the severity on its own, and a log where one line shouts
     // trains you to ignore the ones that don't.
     //
-    // `transient` marks the states worth replacing in place rather than leaving
-    // behind as history - "Connecting…" resolving into "Connected." should be
-    // one line that changed, not two lines saying nearly the same thing.
+    // There is deliberately no "disconnected — reload to rejoin" state anymore:
+    // onLeave now auto-rejoins on its own (see recoverConnection), so a dropped
+    // socket is a "reconnecting…" that resolves without the user lifting a
+    // finger. Only a genuinely unreachable server (the recovery join itself
+    // throwing) lands on "failed", where a reload/refocus really is the way back.
     const CONNECTION_STATUS = {
-      connecting:   { text: "Connecting…", transient: true },
+      connecting:   { text: "Connecting…" },
       connected:    { text: "Connected." },
-      reconnecting: { text: "Connection lost — reconnecting…", transient: true },
+      reconnecting: { text: "Connection lost — reconnecting…" },
       reconnected:  { text: "Reconnected." },
-      disconnected: { text: "Disconnected — reload to rejoin." },
       failed:       { text: "Couldn't reach the server — reload to retry." },
     };
     let connectionStatusEntry = null;
@@ -3037,30 +3038,29 @@
       const status = CONNECTION_STATUS[kind];
       if (!status) return;
 
-      // Same reconciliation the sound line needs, for the same two reasons: the
-      // log is capped and trims from the FRONT, and a Switch Lobby resets it
-      // wholesale - either can drop our line without going through us, leaving
-      // a pointer to something nobody can see. Trust the log, not the pointer.
+      // The log is capped and trims from the FRONT, and a Switch Lobby resets
+      // it wholesale - either can drop our line without going through us,
+      // leaving a pointer to something nobody can see. Trust the log, not the
+      // pointer, and re-append below if it's gone.
       if (connectionStatusEntry && myVisibleChat.indexOf(connectionStatusEntry) === -1) connectionStatusEntry = null;
       if (connectionStatusEntry && connectionStatusEntry.statusKind === kind) return; // already says this
 
-      // Update in place ONLY while our line is still the last thing in the log
-      // and what it currently says was never meant to persist. That covers the
-      // pairs that are really one event resolving - connecting -> connected,
-      // reconnecting -> reconnected/disconnected - and nothing else: once other
-      // messages have arrived underneath, editing it would rewrite history up
-      // where the user isn't looking and show nothing where they are, so a new
-      // line is appended at the BOTTOM instead, arriving like any other message.
+      // The connection status is a single evolving fact, so keep updating our
+      // one line in place for as long as it's still the last thing in the log.
+      // That collapses a whole connecting -> reconnecting -> reconnected cycle
+      // into ONE line that changes - and, crucially, collapses REPEATED cycles
+      // too: a lone, idle client whose quiet socket keeps getting proxy-dropped
+      // and auto-rejoined (see recoverConnection / the keepalive) just watches
+      // that line flip, instead of accreting a fresh "Disconnected"/"Connected"
+      // pair every minute. Once other messages have arrived underneath, our line
+      // has become history where the user isn't looking, so we append a new one
+      // at the BOTTOM instead, arriving like any other message.
       const isLast = connectionStatusEntry === myVisibleChat[myVisibleChat.length - 1];
-      const wasTransient = connectionStatusEntry && connectionStatusEntry.transient;
-      if (connectionStatusEntry && isLast && wasTransient) {
+      if (connectionStatusEntry && isLast) {
         connectionStatusEntry.statusKind = kind;
         connectionStatusEntry.text = status.text;
-        connectionStatusEntry.transient = !!status.transient;
       } else {
-        connectionStatusEntry = {
-          local: true, statusKind: kind, text: status.text, transient: !!status.transient,
-        };
+        connectionStatusEntry = { local: true, statusKind: kind, text: status.text };
         myVisibleChat.push(connectionStatusEntry);
         while (myVisibleChat.length > CHAT_HISTORY_LIMIT_CLIENT) myVisibleChat.shift();
       }
@@ -4542,12 +4542,14 @@
         if (redirecting) return; // handled by the "redirect" listener above
         connected = false;
         joinBtn.disabled = true;
-        setConnectionStatus("disconnected");
-        // The SDK gave up reconnecting (the server-side session is gone). Don't
-        // leave the page stuck with dead buttons pointed at a dead room; try to
-        // re-join automatically so the site becomes usable again on its own. If
-        // even that fails (server truly unreachable) connect() lands on
-        // "failed" and refocusing the tab will retry (see visibilitychange).
+        // The SDK gave up its own reconnect (the server-side session is gone),
+        // but we DON'T dead-end the user on a "reload to rejoin": recover
+        // automatically with a fresh join so the site becomes usable again on
+        // its own, and keep the log reading as one continuous "reconnecting…"
+        // until it lands. If even the fresh join fails (server truly
+        // unreachable) connect() lands on "failed", where refocusing the tab
+        // retries (see visibilitychange).
+        setConnectionStatus("reconnecting");
         recoverConnection();
       });
     }
@@ -4678,6 +4680,22 @@
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible" && !connected) recoverConnection();
     });
+
+    // Application-level keepalive. A lone, idle client generates no traffic of
+    // its own - nobody else in the room to trigger state patches, and no typing
+    // to send input - so the socket falls silent but for Colyseus's protocol
+    // ping/pong. Some WebSocket proxies (e.g. Render's) don't count those
+    // control frames as activity and idle-close the connection after ~a minute,
+    // dropping a perfectly healthy session; that then churned as a repeating
+    // "reconnecting…/Connected." cycle (a fresh auto-rejoin each time - see
+    // recoverConnection). A tiny no-op message on a timer keeps real data
+    // flowing so the proxy leaves the socket alone. It does nothing server-side
+    // (see RaceRoom's "keepalive" handler); sending it is the whole point.
+    const KEEPALIVE_INTERVAL_MS = 25000; // comfortably under a typical ~60s proxy idle window
+    setInterval(() => {
+      if (!room || !connected) return;
+      try { room.send("keepalive"); } catch (e) { /* socket just died; onDrop/onLeave will handle it */ }
+    }, KEEPALIVE_INTERVAL_MS);
 
     // --- Render ---------------------------------------------------------------
     function render(state) {
