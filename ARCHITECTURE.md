@@ -3552,3 +3552,30 @@ The scaffold may instead generate the older `@colyseus/tools` style with
     toggling each field's `hidden`). This replaced the old behaviour where the
     other modes dimmed Live positions in place; `applyTrackOrderUi` lost its
     dim/disable branch and the "Only applies to…" hint accordingly.
+
+- 2026-08-02: Rendering performance pass (client-only, no behavior or schema
+  change - the UI is pixel-for-pixel the same). Two hot paths that ran on
+  every server patch (~20/s during a race, plus the 500ms wpm tick) were
+  doing full DOM teardown/rebuild each time:
+  1. `renderQuote` cleared `#quote` and recreated one `<span>` per character
+     (~200 nodes) on every call, whether or not MY colored text had actually
+     changed - so another racer moving, or a wpm tick, rebuilt the whole
+     quote. Now (a) memoized on a signature of quote/input/selection/
+     showCursor/blink-phase, so an identical repaint is skipped outright
+     (foreign progress and wpm ticks no longer touch the quote at all), and
+     (b) when it does repaint, spans are updated in place (text/class/
+     animation-delay only where they differ) instead of torn down and
+     recreated, so a keystroke only touches the couple of characters that
+     changed. The blink phase is computed once up front and baked into the
+     persistent caret span, so a settled caret keeps blinking via CSS with no
+     further repaints. updateQuoteWindow/positionSelfCaret still run on every
+     real repaint; resize re-aims the window on its own path, so memoizing is
+     safe. This addresses both the "characters on the racetrack" lag (foreign
+     repaints) and the typing lag (per-keystroke rebuild).
+  2. `fillNames` tore down and rebuilt the sidebar racer/spectator lists on
+     every patch even when the roster was unchanged. Added an optional
+     `peopleSignature` guard: identical rosters are left untouched. Passed for
+     the spectator list always, and the racer list only in the default
+     per-racer-track mode (the other modes rewrite the rows with live wpm via
+     augmentRacerRowsWithStats each tick, so they still rebuild). Verified the
+     inline script still parses (node --check).

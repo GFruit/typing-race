@@ -4768,14 +4768,19 @@
         if (em !== "default") rosterRacers.sort((a, b) => (a.place || Infinity) - (b.place || Infinity));
       }
 
-      fillNames(racersList, rosterRacers, "No racers yet");
+      // Memoize the racer list only when its rows are final here (the "default"
+      // per-racer-tracks mode, where no live stats go in the sidebar). In the
+      // other modes augmentRacerRowsWithStats rewrites the rows with each tick's
+      // wpm, so they must be rebuilt every time - pass no signature there.
+      fillNames(racersList, rosterRacers, "No racers yet",
+                em === "default" ? peopleSignature(rosterRacers) : null);
       // wpm/AFK/rank only goes in the sidebar when the arena isn't already
       // showing it inline (the "default" per-racer tracks) - never both, so
       // it's never shown twice. The space override counts: when it demotes the
       // arena to the shared track, the stats belong in the sidebar again.
       if (em !== "default") augmentRacerRowsWithStats(racersList, rosterRacers, resultsMode);
       fillWaitlist(waitlist);
-      fillNames(spectatorsList, spectators, "No one watching");
+      fillNames(spectatorsList, spectators, "No one watching", peopleSignature(spectators));
       racerCountEl.textContent = `${state.racerCount} / ${MAX_RACERS}`;
       spectatorCountEl.textContent = spectators.length;
       if (em === "shared") fillSharedTrack(trackEntries);
@@ -5118,8 +5123,15 @@
     // is false for anyone who isn't actually typing right now (spectating, or
     // viewing during "waiting"/"countdown"), so they see plain text with no
     // caret rather than one permanently sitting at the very first character.
+    //
+    // Signature of the last paint, so an identical repaint is a no-op. render()
+    // fires on every server patch (~20/s during a race, plus the 500ms wpm
+    // tick), but a foreign racer's progress or a wpm number doesn't change MY
+    // colored text at all - only my own typing, my selection, the quote itself,
+    // or the caret's blink phase do. Skipping the untouched repaints is what
+    // keeps the racetrack smooth while everyone else is moving.
+    let lastQuoteSig = null;
     function renderQuote(quote, input, selStart, selEnd, showCursor) {
-      quoteEl.innerHTML = "";
       const hasSelection = selStart != null && selEnd != null && selStart !== selEnd;
 
       // Anything typed past the end of the quote is drawn as its own trailing
@@ -5135,48 +5147,65 @@
       // disappeared read as the page having broken.
       const slots = showCursor && input.length >= total ? total + 1 : total;
 
+      // Blink phase computed once, up front, so the memo key below and the
+      // cursor span built in the loop agree on it (two Date.now() reads could
+      // straddle the threshold and disagree). Solid while actively typing; only
+      // starts blinking after a pause, like a native input caret. Anchored to
+      // time *since you stopped typing* so the first "off" always lands exactly
+      // one cycle past the idle threshold. Once blinking, the phase is baked
+      // into animation-delay and CSS carries it - so a settled caret needs no
+      // further repaints, which is why the blink flag (not the live elapsed
+      // time) is what the memo key tracks.
+      const idleMs = Date.now() - lastKeystrokeAt;
+      const blinking = showCursor && idleMs >= CURSOR_IDLE_BEFORE_BLINK_MS;
+      const blinkDelay = blinking ? `-${(idleMs - CURSOR_IDLE_BEFORE_BLINK_MS) % 1000}ms` : "";
+
+      const sig = quote + "\x1f" + input + "\x1f" + selStart + "\x1f" + selEnd +
+                  "\x1f" + (showCursor ? 1 : 0) + "\x1f" + (blinking ? 1 : 0);
+      if (sig === lastQuoteSig) return;
+      lastQuoteSig = sig;
+
       // The cursor span, captured so the gliding self-caret overlay can be
       // positioned on it after the loop (smooth-motion mode); plus whether the
       // caret is currently in its blinking (idle) phase, so the overlay matches.
       let cursorSpan = null;
       let cursorBlink = false;
+      // Update the spans in place rather than tearing the whole quote down and
+      // rebuilding it: at a fast typing pace only a couple of characters change
+      // per keystroke, and recreating every span was both the typing lag and,
+      // via the layout it dirtied, the racetrack lag. Reused spans also let the
+      // one persistent caret keep its own blink animation running untouched.
       for (let i = 0; i < slots; i++) {
-        const span = document.createElement("span");
+        let span = quoteEl.children[i];
+        if (!span) { span = document.createElement("span"); quoteEl.appendChild(span); }
         // Past the quote it's whatever was typed; past that again it's the bare
         // caret slot, which needs a space to give its box-shadow width to paint.
-        span.textContent = i < quote.length ? quote[i] : (i < input.length ? input[i] : " ");
+        const text = i < quote.length ? quote[i] : (i < input.length ? input[i] : " ");
+        if (span.textContent !== text) span.textContent = text;
+
+        let cls = "";
+        let animDelay = "";
         if (i < input.length) {
           // quote[i] is undefined out in the overflow, so this reads as "bad"
           // there without needing a special case.
-          span.className = input[i] === quote[i] ? "ok" : "bad";
+          cls = input[i] === quote[i] ? "ok" : "bad";
         } else if (showCursor && i === input.length) {
-          span.className = "cursor";
+          cls = "cursor";
           cursorSpan = span;
-          // Solid while actively typing; only start blinking after a pause,
-          // like a native input caret. The whole quote is rebuilt from
-          // scratch on every render (which fires on every server broadcast,
-          // not just your own keystrokes, e.g. the wpm tick every 500ms), so
-          // a fresh cursor span is created far more often than the blink's
-          // 1s cycle; recomputing the delay fresh each time (rather than
-          // leaving a new element to always restart at 0%) keeps the phase
-          // correct no matter how often it gets recreated. Anchored to time
-          // *since you stopped typing* (not absolute wall-clock time) so the
-          // very first "off" always lands exactly one cycle after crossing
-          // the idle threshold, consistently, instead of varying with
-          // whatever moment in real time you happened to stop at.
-          const idleMs = Date.now() - lastKeystrokeAt;
-          if (idleMs >= CURSOR_IDLE_BEFORE_BLINK_MS) {
-            span.classList.add("blinking");
-            const blinkElapsed = idleMs - CURSOR_IDLE_BEFORE_BLINK_MS;
-            span.style.animationDelay = `-${blinkElapsed % 1000}ms`;
+          if (blinking) {
+            cls = "cursor blinking";
+            animDelay = blinkDelay;
             cursorBlink = true;
           }
         }
         if (hasSelection && i >= selStart && i < selEnd) {
-          span.classList.add("selected");
+          cls = cls ? cls + " selected" : "selected";
         }
-        quoteEl.appendChild(span);
+        if (span.className !== cls) span.className = cls;
+        if (span.style.animationDelay !== animDelay) span.style.animationDelay = animDelay;
       }
+      // Drop any spans left over from a longer previous paint.
+      while (quoteEl.children.length > slots) quoteEl.removeChild(quoteEl.lastChild);
 
       // Every path that repaints the text comes through here, so this is the
       // one place the window has to be re-aimed from - the spans it measures
@@ -5286,13 +5315,36 @@
       renderQuote(quote, full, selStart, selEnd, true);
     }
 
+    // A stable fingerprint of a people list, so a roster that hasn't actually
+    // changed can be left alone instead of torn down and rebuilt (see
+    // fillNames' `sig`). Covers everything a row draws: identity, avatar, name,
+    // the "you" styling, and any tag.
+    function peopleSignature(people) {
+      let s = "";
+      for (const p of people) {
+        s += p.sessionId + "\x1f" + (p.emoji || "") + "\x1f" + p.name +
+             "\x1f" + (p.me ? 1 : 0) + "\x1f" + (p.tag || "") + "\x1e";
+      }
+      return s;
+    }
+
     // One roster group (Racers or Watching) in the sidebar. Rows are built to
     // look like a chat line - avatar, then the name in that avatar's color -
     // so the roster and the chat right below it read as one list of people
     // rather than two designs. The shared styling lives on .player-name /
     // .chat-msg-name (one declaration, both selectors); only the trailing
     // ": message" is chat-specific.
-    function fillNames(ul, people, emptyText) {
+    //
+    // `sig` (optional) is a peopleSignature: when it matches the one this list
+    // was last built from, the rebuild is skipped entirely. render() runs on
+    // every server patch - several a second during a race - and the roster is
+    // almost always identical across them, so skipping the untouched rebuilds
+    // keeps the sidebar from thrashing. Passed only where the rows are final as
+    // fillNames leaves them; a caller that post-processes the rows (see
+    // augmentRacerRowsWithStats) omits it so its rows are rebuilt each time.
+    function fillNames(ul, people, emptyText, sig) {
+      if (sig != null && ul._namesSig === sig) return;
+      ul._namesSig = sig;
       ul.innerHTML = "";
       if (people.length === 0) {
         const li = document.createElement("li");
