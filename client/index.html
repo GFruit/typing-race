@@ -415,6 +415,17 @@
 
     .arena {
       flex: 1; min-height: 0; overflow-y: auto;
+      /* overflow-y:auto would force the default overflow-x:visible to compute to
+         `auto` (CSS overflow spec: a non-visible axis promotes a visible one),
+         quietly making the arena a HORIZONTAL scroll container too. On a narrow
+         screen with the full-width shared track, the leader's caret emoji is
+         centred on the track's right edge at 100% and overhangs it by ~a dozen
+         px; with little side padding to absorb that, the overhang became a sliver
+         of horizontal overflow, which showed a scrollbar that in turn stole
+         enough height to trip a (millimetre) vertical one. `clip` clips that
+         sliver without being a scroll container, and - unlike `hidden` - does NOT
+         force overflow-y, so the genuine short-phone vertical scroll still works. */
+      overflow-x: clip;
       position: relative;
       padding: 24px;
       display: flex; flex-direction: column; align-items: center;
@@ -565,7 +576,11 @@
        anchors the absolutely-positioned emoji to the track's width. */
     .racer-track-wrap { position: relative; }
     .racer-track { background: #33291d; border-radius: 999px; height: 14px; overflow: hidden; }
-    .racer-fill { background: #e2603f; height: 100%; border-radius: 999px; transition: width .25s ease-out; }
+    /* The width/left MOVEMENT transitions live under the [data-smooth-carets]
+       gate below (the "Smooth motion" setting) rather than here, so turning the
+       setting off snaps these the same way the shared track and quote caret do.
+       Only the label cross-fade (opacity) stays unconditional - see .racer-name. */
+    .racer-fill { background: #e2603f; height: 100%; border-radius: 999px; }
     .racer-fill.finished { background: #5ec9c2; }
     /* The avatar IS the racer, sitting right at the front of its own colored
        trail. Its `left` is set per-render to the exact progress point (see
@@ -584,8 +599,10 @@
          baseline metrics), so a plain -50% leaves them sitting low on the
          track; the extra -2px nudges the glyph back to the true center. */
       transform: translate(-50%, calc(-50% - 2px));
-      /* opacity: see .racer-name - only mode "swap"'s label cross-fade uses it. */
-      transition: left .25s ease-out, opacity .15s ease;
+      /* opacity: see .racer-name - only mode "swap"'s label cross-fade uses it.
+         The `left` MOVEMENT transition is gated by [data-smooth-carets] below; the
+         opacity one stays here so the swap cross-fade works regardless. */
+      transition: opacity .15s ease;
       pointer-events: none; user-select: none;
       filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5));
     }
@@ -619,8 +636,23 @@
     #quoteTopMask { display: none; }
     .ghost-caret {
       position: absolute; width: 2px; border-radius: 2px; background: #5ec9c2;
-      transition: left .18s ease-out, top .18s ease-out;
+      /* Movement transition is gated by [data-smooth-carets] below. It only ever
+         fires because renderGhostCarets now REUSES one element per racer (keyed
+         by sessionId) and moves it, rather than rebuilding the layer each frame -
+         a freshly-created element has nothing to animate from. */
     }
+    /* My own live caret on the quote text. In smooth mode this overlay replaces
+       the per-character box-shadow caret (which can't animate between spans, as
+       each render rebuilds them): it's one persistent element that glides to the
+       measured cursor position. Hidden by default; positionSelfCaret adds `.on`
+       and the box-shadow is suppressed only while smooth mode is active (see the
+       gate below). Mirrors .ghost-caret's look so my caret and the pack match. */
+    #selfCaret {
+      position: absolute; width: 2px; border-radius: 2px; background: #5ec9c2;
+      display: none; pointer-events: none; z-index: 1;
+    }
+    @keyframes self-caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+    #selfCaret.blinking { animation: self-caret-blink 1s step-end infinite; }
     .ghost-caret-emoji {
       position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
       margin-bottom: 1px; font-size: 15px; line-height: 1;
@@ -653,7 +685,11 @@
        JS adds the "blinking" class after CURSOR_IDLE_BEFORE_BLINK_MS of no
        keystrokes (see renderQuote). Blinks the shadow itself, not the span's
        opacity, so the character underneath stays fully readable throughout. */
-    #quote span.cursor { box-shadow: -2px 0 0 0 #5ec9c2; }
+    /* Only in non-smooth mode: smooth mode replaces this with the gliding
+       #selfCaret overlay (see the Smooth motion block). Gated at the source -
+       rather than overridden afterwards - so it never fights the theme rules'
+       specificity and leave a second, dead caret behind. */
+    html:not([data-smooth-carets="1"]) #quote span.cursor { box-shadow: -2px 0 0 0 #5ec9c2; }
     @keyframes caret-blink {
       0%, 49% { box-shadow: -2px 0 0 0 #5ec9c2; }
       50%, 100% { box-shadow: -2px 0 0 0 transparent; }
@@ -663,7 +699,46 @@
        phase is synced to wall-clock time via a negative animation-delay set
        in JS rather than left to restart at 0% every rebuild, which produced
        short/uneven blinks. */
-    #quote span.cursor.blinking { animation: caret-blink 1s step-end infinite; }
+    html:not([data-smooth-carets="1"]) #quote span.cursor.blinking { animation: caret-blink 1s step-end infinite; }
+
+    /* --- Smooth motion (the "Smooth caret motion" setting) --------------------
+       One toggle drives every caret and progress marker. When on
+       (data-smooth-carets="1" on <html>, the default), the movement transitions
+       below are enabled and my quote caret becomes the gliding #selfCaret
+       overlay instead of the per-character box-shadow; when off, everything
+       snaps to its new position each frame - the original behaviour for the
+       shared track and quote caret, and now matched by the per-racer tracks and
+       ghost carets too. Only movement (width/left/top/transform) is gated;
+       label cross-fades and blinking are untouched. */
+    /* Everything driven by the SERVER (other racers' progress and carets)
+       updates in discrete steps - bots every ~200ms, humans per keystroke. A
+       transition SHORTER than that gap finishes and then waits, which reads as
+       move-pause-move. Matching the duration to the step and easing LINEAR keeps
+       the marker still gliding when the next value lands, so the motion is
+       continuous rather than stuttered. */
+    html[data-smooth-carets="1"] .racer-fill { transition: width .2s linear; }
+    html[data-smooth-carets="1"] .racer-emoji { transition: left .2s linear, opacity .15s ease; }
+    html[data-smooth-carets="1"] .ghost-caret { transition: left .2s linear, top .2s linear; }
+    /* The shared fill (scaleX) and my own caret on it (left%) both interpolate
+       linearly in progress under an identical transition, so they stay
+       pixel-locked while animating - the same reason the CSS previously snapped
+       both was to avoid two MISMATCHED transitions drifting apart. */
+    html[data-smooth-carets="1"] #sharedTrackFill { transition: transform .2s linear; }
+    html[data-smooth-carets="1"] .shared-caret { transition: left .2s linear; }
+    /* My own quote caret is driven by LOCAL keystrokes (no round-trip), so a
+       short ease-out gives a responsive trailing glide without feeling laggy. */
+    html[data-smooth-carets="1"] #selfCaret { transition: left .11s ease-out, top .11s ease-out; }
+    html[data-smooth-carets="1"] #selfCaret.on { display: block; }
+    /* A system reduced-motion request wins: snap everything, matching how the
+       "Slide" leaderboard order already bows out under reduced motion. */
+    @media (prefers-reduced-motion: reduce) {
+      html[data-smooth-carets="1"] .racer-fill,
+      html[data-smooth-carets="1"] .racer-emoji,
+      html[data-smooth-carets="1"] .ghost-caret,
+      html[data-smooth-carets="1"] #sharedTrackFill,
+      html[data-smooth-carets="1"] .shared-caret,
+      html[data-smooth-carets="1"] #selfCaret { transition: none; }
+    }
     /* Mirrors whatever's selected in the input box (e.g. Ctrl+A) onto the
        race text, so the two stay visually in sync. No border-radius: the
        highlight is drawn per character, so rounded corners would leave a
@@ -1696,15 +1771,18 @@
     html[data-theme="light"] #quote[data-placeholder="1"] { color: var(--l-faint); }
     html[data-theme="light"] #quote span.ok { color: var(--l-ok); }
     html[data-theme="light"] #quote span.bad { color: var(--l-bad); }
-    html[data-theme="light"] #quote span.cursor { box-shadow: -2px 0 0 0 var(--l-cyan); }
+    /* Both gated off in smooth mode, matching the base rules - the #selfCaret
+       overlay is the only caret there, in either theme. */
+    html[data-theme="light"]:not([data-smooth-carets="1"]) #quote span.cursor { box-shadow: -2px 0 0 0 var(--l-cyan); }
     html[data-theme="light"] #quote span.selected { background: rgba(14, 156, 150, .16); }
     /* The blink keyframe hard-codes the dark theme's cyan, so give light its own. */
     @keyframes caret-blink-light {
       0%, 49% { box-shadow: -2px 0 0 0 #0e9c96; }
       50%, 100% { box-shadow: -2px 0 0 0 transparent; }
     }
-    html[data-theme="light"] #quote span.cursor.blinking { animation-name: caret-blink-light; }
+    html[data-theme="light"]:not([data-smooth-carets="1"]) #quote span.cursor.blinking { animation-name: caret-blink-light; }
     html[data-theme="light"] .ghost-caret { background: var(--l-cyan); }
+    html[data-theme="light"] #selfCaret { background: var(--l-cyan); }
 
     /* --- Leaderboard tracks (terracotta fills stay base) ------------------- */
     html[data-theme="light"] .racer-track { background: var(--l-line); }
@@ -1985,6 +2063,13 @@
                 <!-- EXPERIMENTAL: toggles other racers' live carets on the text -->
                 <button id="ghostToggle" class="switch" type="button" role="switch" aria-label="Show racers on text"></button>
               </div>
+              <div class="settings-row settings-row-toggle" data-switch="smoothCaretToggle">
+                <div class="settings-text">
+                  <div class="settings-label">Smooth caret motion</div>
+                  <div class="settings-hint">Carets and race tracks glide instead of jumping.</div>
+                </div>
+                <button id="smoothCaretToggle" class="switch" type="button" role="switch" aria-label="Smooth caret motion"></button>
+              </div>
               <div class="settings-row settings-row-toggle" data-switch="wpmToggle">
                 <div class="settings-text">
                   <div class="settings-label">Large WPM display</div>
@@ -2099,6 +2184,11 @@
              positions still line up. -->
         <div id="ghostScroll">
           <div id="ghostLayer"></div>
+          <!-- My own gliding caret (smooth-motion mode). Sibling of #ghostLayer
+               so renderGhostCarets clearing that layer never touches it, and so
+               it works even when "Show racers on text" is off. Shares the same
+               scroller, so it follows the compact layout's windowing. -->
+          <div id="selfCaret"></div>
         </div>
       </div>
       <div id="inputWrap">
@@ -2972,6 +3062,8 @@
     const ghostScroll = document.getElementById("ghostScroll");  // ghost carets' scroller, slid in lock-step
     const ghostLayer  = document.getElementById("ghostLayer");   // experimental: other racers' carets
     const ghostToggle = document.getElementById("ghostToggle");  // experimental: toggle for the above
+    const selfCaret   = document.getElementById("selfCaret");    // my own gliding caret (smooth-motion mode)
+    const smoothCaretToggle = document.getElementById("smoothCaretToggle");
     const soundToggle = document.getElementById("soundToggle");
     const soundVolumeRow = document.getElementById("soundVolumeRow");
     const soundVolumeSlider = document.getElementById("soundVolumeSlider");
@@ -3426,6 +3518,7 @@
       // have to be redrawn whenever the text reflows under them. The window
       // "resize" event doesn't fire for a visual-viewport-only change.
       if (room) renderGhostCarets(room.state);
+      reflowSelfCaret();
       // The window's own height just changed with the shell, so how many lines
       // it can show did too.
       updateQuoteWindow();
@@ -3522,6 +3615,7 @@
         // A height change alone (no keystroke, no keyboard toggle) changes how
         // many whole lines fit, so re-snap the quote window to that new count.
         updateQuoteWindow();
+        reflowSelfCaret();
         // A width change can make the start prompt start/stop fitting its box;
         // re-measure it (only meaningful while one is up).
         const shMode = startHint.dataset.mode;
@@ -3554,31 +3648,22 @@
     // Losing the lines above is deliberate and costs nothing: the word lock
     // means you can never go back into text you've already typed, so there is
     // nothing up there to return to.
+    // The top line the spectator-chase window last settled on (see
+    // spectatorFollowLine). null while I'm not chasing, so every fresh
+    // spectating stint re-seeds its own starting line rather than inheriting a
+    // stale one from a previous race.
+    let followWindowLine = null;
+
     function updateQuoteWindow() {
       if (!compactLayout.matches) {
         quoteScroll.style.transform = "";
         ghostScroll.style.transform = "";
         quoteWrap.style.maxHeight = "";
+        followWindowLine = null;
         return;
       }
       const lineH = quoteLineHeight();
       quoteWrap.style.setProperty("--quote-line", lineH + "px");
-      // Anchor the window on the START of the still-editable text
-      // (committed.length), NOT the caret. Everything you can still act on lives
-      // in the input box, which begins exactly there - including an uncorrected
-      // mistake you've typed a few characters past. Anchoring on the caret
-      // instead could push that mistake up onto the line that just scrolled off,
-      // hiding the very thing you have to go back and fix. The editable run is
-      // only ever about a line and a half (the error-tail cap stops you before
-      // it can grow past that), so the mistake stays on the top visible line
-      // while the caret stays in view just below it. In ordinary typing
-      // committed.length sits on the caret's own line anyway, so the view reads
-      // the same - it only diverges to show the earlier line when the box has
-      // actually spilled onto the next one, which is exactly when you want it.
-      // Clamped to the last span so finishing the quote doesn't snap to the top.
-      const anchorIdx = Math.min(committed.length, quoteEl.children.length - 1);
-      const span = quoteEl.children[anchorIdx < 0 ? 0 : anchorIdx];
-      if (!span) { quoteScroll.style.transform = ""; ghostScroll.style.transform = ""; quoteWrap.style.maxHeight = ""; return; }
 
       const totalLines = Math.max(1, Math.round(quoteEl.offsetHeight / lineH));
       // clientHeight includes the padding that reserves room for a first-line
@@ -3602,10 +3687,112 @@
       // so the final lines fill the window instead of the current line sitting
       // alone at the top with blank space under it.
       const maxLine = Math.max(0, totalLines - visible);
-      const line = Math.max(0, Math.min(Math.round(span.offsetTop / lineH), maxLine));
-      const shift = line === 0 ? "" : `translateY(${-line * lineH}px)`;
+
+      // Two very different jobs share this window:
+      //  - A racer typing anchors on their OWN still-editable text, reading
+      //    downward into what they're about to type.
+      //  - A spectator (or a racer who has finished and is now just watching)
+      //    can't keep the window moving by typing, so on a screen too short for
+      //    the whole quote the racers would simply type off the bottom and
+      //    vanish. Instead the window CHASES the pack. See spectatorFollowLine.
+      const line = spectatorFollowActive()
+        ? spectatorFollowLine(lineH, visible, maxLine)
+        : typingAnchorLine(lineH, maxLine);
+
+      const shift = line <= 0 ? "" : `translateY(${-line * lineH}px)`;
       quoteScroll.style.transform = shift;
       ghostScroll.style.transform = shift;
+    }
+
+    // The window's top line while I'm the one typing: anchored on the START of my
+    // still-editable text (committed.length), NOT the caret. Everything I can
+    // still act on lives in the input box, which begins exactly there - including
+    // an uncorrected mistake I've typed a few characters past. Anchoring on the
+    // caret instead could push that mistake up onto the line that just scrolled
+    // off, hiding the very thing I have to go back and fix. The editable run is
+    // only ever about a line and a half (the error-tail cap stops it growing past
+    // that), so the mistake stays on the top visible line while the caret stays
+    // in view just below it. Clamped to the last span so finishing the quote
+    // doesn't snap to the top.
+    function typingAnchorLine(lineH, maxLine) {
+      followWindowLine = null; // a fresh spectating stint re-seeds its own window
+      const anchorIdx = Math.min(committed.length, quoteEl.children.length - 1);
+      const span = quoteEl.children[anchorIdx < 0 ? 0 : anchorIdx];
+      if (!span) return 0;
+      return Math.max(0, Math.min(Math.round(span.offsetTop / lineH), maxLine));
+    }
+
+    // True when the window should chase the racers instead of tracking my typing:
+    // the "Show racers on text" overlay is on (that's what draws them on the
+    // quote at all), a race is live, and I'm not the one typing in it - a pure
+    // spectator, or a racer who already finished. Gated on the overlay because
+    // with it off there is nothing moving on the text to follow.
+    function spectatorFollowActive() {
+      return showGhosts && !raceInputLive &&
+             !!room && !!room.state && room.state.phase === "racing";
+    }
+
+    // The window's top line while spectating, chasing the field down the quote.
+    // Normally follows the front runner, pinned near the BOTTOM of the window so
+    // the racers chasing them - always further UP the text, since everyone types
+    // the same quote - stay visible above. While following one runner it only
+    // ever scrolls forward. When that runner reaches the end and the new front
+    // runner is someone further back, it does NOT snap backward as long as an
+    // active racer is still on screen: it holds the current view so they can run
+    // it out, and only jumps back to the next fastest once the view has emptied.
+    // That repeats down the field - follow the leader, hold at the finish if
+    // someone else is still visible, else jump to the next and follow them out.
+    function spectatorFollowLine(lineH, visible, maxLine) {
+      const state = room.state;
+      const len = (state.quote || "").length || 1;
+      const kids = quoteEl.children;
+      // A racer's TRUE line (clamped to the last real line, NOT to maxLine): the
+      // bottom-anchor maths below subtracts visible-1 from it, so capping it at
+      // maxLine here would stop the window ever reaching the foot of the quote.
+      // Window tops are clamped to maxLine separately, where they're chosen.
+      const lastLine = maxLine + visible - 1; // = totalLines - 1
+      const lineOfIdx = (idx) => {
+        const i = Math.max(0, Math.min(idx, kids.length - 1));
+        const span = kids[i];
+        return span ? Math.max(0, Math.min(Math.round(span.offsetTop / lineH), lastLine)) : 0;
+      };
+      const lineOf = (p) =>
+        lineOfIdx(Math.max(0, Math.min(len, Math.round((p.progress || 0) * len))));
+
+      const racers = [];
+      state.players.forEach((p) => { if (p.status === "racing") racers.push(p); });
+      if (racers.length === 0) {
+        // No one on the track: keep the last view, or sit at the top.
+        return followWindowLine == null ? 0 : Math.min(followWindowLine, maxLine);
+      }
+      racers.sort((a, b) => (b.progress || 0) - (a.progress || 0));
+      const front = racers.find((p) => !p.finished); // frontmost still racing
+
+      const cur = followWindowLine;
+      let top;
+      if (!front) {
+        // Everyone still in the race has finished: hold the last view rather
+        // than snapping anywhere.
+        top = cur == null ? Math.min(lineOf(racers[0]), maxLine) : Math.min(cur, maxLine);
+      } else {
+        // Keep the front runner one line UP from the bottom edge, so the line
+        // they're about to reach stays visible below them (rather than pinning
+        // them flush to the last line with nothing ahead in view). The margin
+        // shrinks to 0 when the window is only a single line tall, and near the
+        // end of the quote the clamp to maxLine quietly reclaims it - there's no
+        // next line left to show, so the runner just settles onto the last line.
+        const frontLine = lineOf(front);
+        const bottomMargin = Math.min(1, visible - 1);
+        const desired = Math.max(0, Math.min(frontLine - (visible - 1) + bottomMargin, maxLine));
+        const frontVisible = cur != null && frontLine >= cur && frontLine < cur + visible;
+        // desired < cur means the window would jump BACKWARD, which only happens
+        // when the runner we were following left the front (finished/left) and
+        // the next one is behind the current view. Hold if they're still on
+        // screen; otherwise let it jump back to catch them.
+        top = (cur != null && desired < cur && frontVisible) ? cur : desired;
+      }
+      followWindowLine = top;
+      return top;
     }
 
     // The rendered line box, which is what a line of text actually occupies.
@@ -4838,6 +5025,11 @@
       // disappeared read as the page having broken.
       const slots = showCursor && input.length >= total ? total + 1 : total;
 
+      // The cursor span, captured so the gliding self-caret overlay can be
+      // positioned on it after the loop (smooth-motion mode); plus whether the
+      // caret is currently in its blinking (idle) phase, so the overlay matches.
+      let cursorSpan = null;
+      let cursorBlink = false;
       for (let i = 0; i < slots; i++) {
         const span = document.createElement("span");
         // Past the quote it's whatever was typed; past that again it's the bare
@@ -4849,6 +5041,7 @@
           span.className = input[i] === quote[i] ? "ok" : "bad";
         } else if (showCursor && i === input.length) {
           span.className = "cursor";
+          cursorSpan = span;
           // Solid while actively typing; only start blinking after a pause,
           // like a native input caret. The whole quote is rebuilt from
           // scratch on every render (which fires on every server broadcast,
@@ -4866,6 +5059,7 @@
             span.classList.add("blinking");
             const blinkElapsed = idleMs - CURSOR_IDLE_BEFORE_BLINK_MS;
             span.style.animationDelay = `-${blinkElapsed % 1000}ms`;
+            cursorBlink = true;
           }
         }
         if (hasSelection && i >= selStart && i < selEnd) {
@@ -4878,6 +5072,91 @@
       // one place the window has to be re-aimed from - the spans it measures
       // were just rebuilt.
       updateQuoteWindow();
+
+      // Slide my own caret to the cursor span (smooth-motion mode only; a no-op
+      // otherwise). After updateQuoteWindow so the scroller's transform is
+      // already applied and the measured position is final.
+      positionSelfCaret(cursorSpan, cursorBlink);
+    }
+
+    // Positions the gliding self-caret overlay on the given cursor span. The CSS
+    // `left`/`top` transition (gated by the smooth-motion setting) does the
+    // actual gliding; here we just set the target each render, reusing the one
+    // persistent #selfCaret element so it animates from its previous spot rather
+    // than jumping. Passing a null span (or smooth mode off) hides it - the
+    // box-shadow caret takes over there.
+    //
+    // `blink` says whether the caret is in its idle blinking phase. Unlike the
+    // per-character box-shadow caret (a fresh span each render, so it re-seeks
+    // its blink phase via animation-delay every time), #selfCaret PERSISTS - so
+    // the blink animation must only be (re)started when the phase actually
+    // CHANGES. Restarting it every render (which is what re-adding the class /
+    // re-setting the delay did) reset the animation several times a second,
+    // which is what made the caret flicker far faster than 1s. Here we just
+    // toggle the class on the rising/falling edge and let the animation run.
+    function positionSelfCaret(cursorSpan, blink) {
+      if (!selfCaret) return;
+      if (!smoothCaret || !cursorSpan) { selfCaret.classList.remove("on", "blinking"); selfCaretLastTop = undefined; return; }
+      placeSelfCaretOn(cursorSpan, false);
+      // Toggle only on change: the animation starts fresh (solid, then blinks
+      // ~500ms later) the moment you go idle, and is cleared the instant you
+      // type again - exactly the old behaviour, at the old 1s rate.
+      selfCaret.classList.toggle("blinking", !!blink);
+      selfCaret.classList.add("on");
+    }
+
+    // Re-measure and reposition the self-caret against whatever cursor span is
+    // currently in the DOM, without touching its blink phase. For layout shifts
+    // (resize, keyboard, window scroll) that move the text without rebuilding it,
+    // so renderQuote - the usual driver - doesn't run. Always snaps: a reflow is
+    // a layout jump, not caret travel.
+    function reflowSelfCaret() {
+      if (!selfCaret || !smoothCaret) { if (selfCaret) selfCaret.classList.remove("on"); return; }
+      const span = quoteEl.querySelector("span.cursor");
+      if (!span) { selfCaret.classList.remove("on"); return; }
+      placeSelfCaretOn(span, true);
+      selfCaret.classList.add("on");
+    }
+
+    // Measures `span` and moves #selfCaret onto it. Same-line moves glide (the
+    // CSS transition). A LINE CHANGE drops onto the new line at its left edge
+    // INSTANTLY (no diagonal sweep across the text), then glides forward to the
+    // real x - so the vertical jump is instant but forward motion stays
+    // continuous, with none of the dead pause a full snap left before the next
+    // update. `forceSnap` snaps straight to the final spot (layout reflows, and
+    // first placement).
+    let selfCaretLastTop;
+    function placeSelfCaretOn(span, forceSnap) {
+      const quoteRect = quoteEl.getBoundingClientRect();
+      const r = span.getBoundingClientRect();
+      const fontPx = parseFloat(getComputedStyle(quoteEl).fontSize) || 20;
+      const glyphH = fontPx * 1.15;
+      const left = r.left - quoteRect.left;
+      const top = (r.top - quoteRect.top) + (r.height - glyphH) / 2;
+      const lineChanged = selfCaretLastTop !== undefined && Math.abs(selfCaretLastTop - top) > 1;
+      selfCaret.style.height = glyphH + "px";
+      if (forceSnap || selfCaretLastTop === undefined) {
+        selfCaret.style.transition = "none";
+        selfCaret.style.left = left + "px";
+        selfCaret.style.top = top + "px";
+        void selfCaret.offsetWidth;
+        selfCaret.style.transition = "";
+      } else if (lineChanged) {
+        // Enter the new line one glyph behind the target instantly, then glide
+        // that glyph forward - so a wrap moves like a normal one-character
+        // advance (no diagonal, no dead pause). Clamped to the line's left edge
+        // so it never starts in the margin. See the ghost-caret twin.
+        selfCaret.style.transition = "none";
+        selfCaret.style.left = Math.max(0, left - r.width) + "px";
+        selfCaret.style.top = top + "px";
+        void selfCaret.offsetWidth;
+        selfCaret.style.transition = "";
+        selfCaret.style.left = left + "px"; // glides forward onto the new line
+      } else {
+        selfCaret.style.left = left + "px";
+        selfCaret.style.top = top + "px";
+      }
+      selfCaretLastTop = top;
     }
 
     // The input box only ever holds the current word, so its selection range
@@ -5332,7 +5611,10 @@
       row.wpmSpan.textContent = person.afk ? "AFK" : `${person.wpm} wpm`;
       row.el.className = "racer-row" + (person.afk ? " afk" : "");
       row.fill.className = "racer-fill" + (person.finished ? " finished" : "") + (person.afk ? " afk" : "");
-      row.fill.style.width = `${Math.round(person.progress * 100)}%`;
+      // Unrounded so the fill edge tracks the avatar (which uses the raw
+      // percentage) exactly and glides in fine steps rather than snapping by
+      // whole percent - matters most in smooth mode, harmless otherwise.
+      row.fill.style.width = `${person.progress * 100}%`;
       // Tint the track with a soft version of the racer's emoji palette, so
       // it reads as "their" color. AFK clears the inline color so the gray
       // .afk class shows through; otherwise fall back to the default fill
@@ -5362,29 +5644,43 @@
       const domOrder = sliding ? baseOrder : racers;
       const rankById = new Map(racers.map((p, i) => [p.sessionId, i]));
 
-      const laidOut = [];
-      const seen = new Set();
-      domOrder.forEach((person) => {
-        seen.add(person.sessionId);
+      // Drop rows for racers who are gone.
+      const wanted = new Set(domOrder.map((p) => p.sessionId));
+      for (const [sessionId, row] of leaderboardRows) {
+        if (!wanted.has(sessionId)) {
+          row.el.remove();
+          leaderboardRows.delete(sessionId);
+        }
+      }
+
+      // Make sure a row object exists for everyone before we touch the DOM order.
+      const laidOut = domOrder.map((person) => {
         let row = leaderboardRows.get(person.sessionId);
         if (!row) {
           row = newLeaderboardRow();
           leaderboardRows.set(person.sessionId, row);
         }
-        // Re-append in order so results are visually ranked top to bottom.
-        container.appendChild(row.el);
-        const rank = rankById.has(person.sessionId) ? rankById.get(person.sessionId) : laidOut.length;
-        paintRowLabel(row, person, rank, resultsMode);
-        row.labelShown = person.sessionId;
-        paintRowStats(row, person);
-        laidOut.push({ row, rank });
+        const rank = rankById.has(person.sessionId) ? rankById.get(person.sessionId) : 0;
+        return { person, row, rank };
       });
-      for (const [sessionId, row] of leaderboardRows) {
-        if (!seen.has(sessionId)) {
-          row.el.remove();
-          leaderboardRows.delete(sessionId);
-        }
-      }
+
+      // Only reorder the DOM when the row order has ACTUALLY changed (a new
+      // racer, someone left, or a live-position swap). Re-appending every row
+      // every frame - the old approach - re-inserts each node, which resets its
+      // in-flight width/left transition, so the "All tracks" fills snapped
+      // instead of gliding. Comparing first means a settled list is left
+      // untouched and keeps animating. #sharedTrack (a non-row sibling, hidden
+      // here) is filtered out and, since we only ever append rows, stays first.
+      const desiredEls = laidOut.map((item) => item.row.el);
+      const currentEls = Array.from(container.children).filter((el) => el.classList.contains("racer-row"));
+      const sameOrder = currentEls.length === desiredEls.length && desiredEls.every((el, i) => el === currentEls[i]);
+      if (!sameOrder) desiredEls.forEach((el) => container.appendChild(el));
+
+      laidOut.forEach((item) => {
+        paintRowLabel(item.row, item.person, item.rank, resultsMode);
+        item.row.labelShown = item.person.sessionId;
+        paintRowStats(item.row, item.person);
+      });
 
       // Row pitch is measured rather than assumed: it's the row height plus
       // #leaderboard's gap, and both come from CSS. offsetTop is unaffected by
@@ -5482,8 +5778,11 @@
         if (!caret) {
           caret = buildSharedCaret();
           sharedTrackCarets.set(person.sessionId, caret);
+          // Append only on creation: stacking order is decided by z-index below,
+          // not DOM order, so there's no need to re-append every frame - and
+          // re-inserting a node can interrupt its in-flight `left` transition.
+          sharedTrack.appendChild(caret.el);
         }
-        sharedTrack.appendChild(caret.el);
 
         caret.el.className = "shared-caret" + (person.finished ? " finished" : "") + (person.afk ? " afk" : "");
         caret.el.style.left = `${(person.progress || 0) * 100}%`;
@@ -7891,63 +8190,158 @@
       showGhosts = !showGhosts;
       localStorage.setItem(GHOST_KEY, showGhosts ? "1" : "0");
       applyGhostToggleUi();
+      // The toggle changes the quote's line-height AND whether the window chases
+      // the pack (spectatorFollowActive), so re-aim the window before redrawing
+      // the carets, which measure their visibility against it.
+      updateQuoteWindow();
       if (room) renderGhostCarets(room.state); // clear or draw immediately
     };
 
+    // --- Smooth caret motion (Settings) ----------------------------------------
+    // One toggle for every caret and progress marker: my quote caret, other
+    // racers' live carets, the per-racer tracks, and the shared track + its
+    // carets. It just flips data-smooth-carets on <html>; the CSS gate does the
+    // rest (see the "Smooth motion" block). On by default. Persisted per browser.
+    const SMOOTH_CARET_KEY = "typingRace.smoothCaret";
+    let smoothCaret = localStorage.getItem(SMOOTH_CARET_KEY);
+    smoothCaret = smoothCaret === null ? true : smoothCaret === "1"; // default on
+
+    function applySmoothCaretUi() {
+      smoothCaretToggle.dataset.on = smoothCaret ? "1" : "0";
+      smoothCaretToggle.setAttribute("aria-checked", smoothCaret ? "true" : "false");
+      document.documentElement.dataset.smoothCarets = smoothCaret ? "1" : "0";
+    }
+    applySmoothCaretUi();
+
+    smoothCaretToggle.onclick = () => {
+      smoothCaret = !smoothCaret;
+      localStorage.setItem(SMOOTH_CARET_KEY, smoothCaret ? "1" : "0");
+      applySmoothCaretUi();
+      // Repaint so my quote caret swaps between the box-shadow and the gliding
+      // #selfCaret overlay right away, rather than at the next keystroke/tick.
+      if (room) render(room.state);
+      else positionSelfCaret(null);
+    };
+
+    // Live carets are kept per sessionId (not rebuilt each frame) so the CSS
+    // `left`/`top` transition has a previous position to glide from in
+    // smooth-motion mode - a freshly-created element would pop in already at its
+    // destination with nothing to animate from. Mirrors sharedTrackCarets.
+    const ghostCarets = new Map(); // sessionId -> { el, emoji }
+
+    function buildGhostCaret() {
+      const el = document.createElement("div");
+      el.className = "ghost-caret";
+      const emoji = document.createElement("span");
+      emoji.className = "ghost-caret-emoji";
+      el.appendChild(emoji);
+      return { el, emoji };
+    }
+
+    function clearGhostCarets() {
+      for (const [, caret] of ghostCarets) caret.el.remove();
+      ghostCarets.clear();
+    }
+
     function renderGhostCarets(state) {
-      ghostLayer.innerHTML = "";
-      if (!showGhosts || !state || state.phase !== "racing") return;
+      if (!showGhosts || !state || state.phase !== "racing") { clearGhostCarets(); return; }
       const len = (state.quote || "").length;
       // Char spans are 1:1 with the quote; bail if they're not there yet.
-      if (len === 0 || quoteEl.children.length < len) return;
+      if (len === 0 || quoteEl.children.length < len) { clearGhostCarets(); return; }
 
       const quoteRect = quoteEl.getBoundingClientRect();
       const fontPx = parseFloat(getComputedStyle(quoteEl).fontSize) || 20;
       const glyphH = fontPx * 1.15;
 
-      // Group racers by caret index so several at the same spot land directly
-      // on top of one another (two racers with the same emoji look like one)
-      // instead of stacking into a vertical tower.
-      const byIndex = new Map();
+      // The visible window inside #quoteWrap, in viewport coords. On the compact
+      // layout the window clips to a WHOLE number of lines (see
+      // updateQuoteWindow), so a line only partly in view is pushed out entirely
+      // - and a ghost caret riding on it must vanish with its line rather than
+      // linger as a sliver poking past the clip. winTop sits below the masked
+      // ghost-lollipop band; winBottom is the clip edge. On desktop the wrap has
+      // no height cap, so this spans the whole quote and hides nothing.
+      const wrapRect = quoteWrap.getBoundingClientRect();
+      const ghostRoom = parseFloat(getComputedStyle(quoteWrap).getPropertyValue("--ghost-room")) || 0;
+      const winTop = wrapRect.top + ghostRoom;
+      const winBottom = wrapRect.bottom;
+
+      const seen = new Set();
       state.players.forEach((p, sessionId) => {
-        if (sessionId === room.sessionId) return; // you already have your own cursor
+        if (sessionId === room.sessionId) return; // you already have your own caret
         if (p.status !== "racing") return;
         let idx = Math.round((p.progress || 0) * len);
         idx = Math.max(0, Math.min(len, idx));
-        if (!byIndex.has(idx)) byIndex.set(idx, []);
-        byIndex.get(idx).push(p);
-      });
-
-      byIndex.forEach((players, idx) => {
-        // The char the caret sits before, or the last char's right edge once
-        // the racer has finished (idx === len).
+        // The char the caret sits before, or the last char's right edge once the
+        // racer has finished (idx === len). No per-racer offset: same-index
+        // carets land directly on top of one another, so two racers sharing an
+        // emoji read as a single marker rather than a vertical tower.
         const span = quoteEl.children[idx < len ? idx : len - 1];
         const r = span.getBoundingClientRect();
         const x = (idx < len ? r.left : r.right) - quoteRect.left;
         const caretTop = (r.top - quoteRect.top) + (r.height - glyphH) / 2;
+        // Show the caret only while its whole text line is inside the window. The
+        // 1px slack absorbs sub-pixel rounding at the clip edges. Off-window
+        // carets are still positioned below (so they reappear in the right spot
+        // without gliding from a stale one) but hidden via display.
+        const lineVisible = r.top >= winTop - 1 && r.bottom <= winBottom + 1;
 
-        players.forEach((p) => {
-          const caret = document.createElement("div");
-          caret.className = "ghost-caret";
-          caret.style.left = x + "px";
-          caret.style.top = caretTop + "px";
-          caret.style.height = glyphH + "px";
-          const color = getEmojiColor(p.emoji);
-          if (color) caret.style.background = color;
-
-          const emoji = document.createElement("span");
-          emoji.className = "ghost-caret-emoji";
-          emoji.textContent = p.emoji || "🚀";
-          // No per-racer offset: same-index emojis sit directly on top of one
-          // another, so two racers sharing an emoji read as a single marker.
-          caret.appendChild(emoji);
-          ghostLayer.appendChild(caret);
-        });
+        seen.add(sessionId);
+        let caret = ghostCarets.get(sessionId);
+        let isNew = false;
+        if (!caret) {
+          caret = buildGhostCaret();
+          ghostCarets.set(sessionId, caret);
+          // Append only on creation - re-inserting a node every frame can
+          // interrupt its in-flight left/top transition (they don't overlap, so
+          // DOM order doesn't matter).
+          ghostLayer.appendChild(caret.el);
+          isNew = true;
+        }
+        caret.el.style.height = glyphH + "px";
+        const lineChanged = caret.lastTop !== undefined && Math.abs(caret.lastTop - caretTop) > 1;
+        if (isNew) {
+          // First placement: snap straight to the final spot, nothing to glide
+          // from.
+          caret.el.style.transition = "none";
+          caret.el.style.left = x + "px";
+          caret.el.style.top = caretTop + "px";
+          void caret.el.offsetWidth;
+          caret.el.style.transition = "";
+        } else if (lineChanged) {
+          // A line break is a jump, not travel: gliding diagonally from the end
+          // of one line to the start of the next cuts across the text. But a FULL
+          // snap parked the caret on the new line's first glyph (x=0) with
+          // nothing to glide toward until the next update (~200ms for bots),
+          // reading as a pause - the wrap erases the small trailing distance
+          // that keeps the caret gliding mid-line. So drop onto the new line one
+          // glyph behind the target INSTANTLY, then glide that last glyph
+          // forward: the vertical jump is instant and the wrap moves like any
+          // other one-character advance, with no diagonal and no pause. Clamped
+          // to the line's left edge (>= 0) so it never starts out in the margin
+          // when the racer wrapped right to the first character.
+          caret.el.style.transition = "none";
+          caret.el.style.left = Math.max(0, x - r.width) + "px";
+          caret.el.style.top = caretTop + "px";
+          void caret.el.offsetWidth;
+          caret.el.style.transition = "";
+          caret.el.style.left = x + "px"; // glides forward onto the new line
+        } else {
+          caret.el.style.left = x + "px";
+          caret.el.style.top = caretTop + "px";
+        }
+        caret.lastTop = caretTop;
+        caret.el.style.display = lineVisible ? "" : "none";
+        const color = getEmojiColor(p.emoji);
+        if (color) caret.el.style.background = color;
+        caret.emoji.textContent = p.emoji || "🚀";
       });
+      for (const [sessionId, caret] of ghostCarets) {
+        if (!seen.has(sessionId)) { caret.el.remove(); ghostCarets.delete(sessionId); }
+      }
     }
 
     // Text layout (and thus caret positions) can shift on resize; recompute.
-    window.addEventListener("resize", () => { if (room) renderGhostCarets(room.state); });
+    window.addEventListener("resize", () => { if (room) renderGhostCarets(room.state); reflowSelfCaret(); });
     // --- end experimental block ------------------------------------------------
 
     // Primes --kb-inset (and the ghost-caret redraw that hangs off it) now that

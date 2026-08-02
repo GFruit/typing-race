@@ -3398,3 +3398,93 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   belt-and-suspenders against a last-column glyph spilling a pixel. The
   zoom->height mapping is approximate (depends on the physical screen), so the
   430/300 thresholds may want nudging after a real-device check. CSS-only.
+- 2026-08-02: Added a "Smooth caret motion" setting (Settings > toggle, on by
+  default, persisted as `typingRace.smoothCaret`). It flips
+  `data-smooth-carets` on `<html>`; a single CSS gate under that attribute owns
+  every caret/progress transition, so one switch drives all of them. What it
+  now smooths (all previously either snapping or, for ghost carets, only
+  *nominally* transitioned): (1) my own quote caret - the per-character
+  box-shadow caret can't animate between spans (each render rebuilds them), so
+  in smooth mode it's suppressed and replaced by a new persistent `#selfCaret`
+  overlay that glides to the measured cursor position (positionSelfCaret, called
+  from renderQuote; reflowSelfCaret keeps it aligned on resize/keyboard/window
+  scroll without touching its blink phase). It lives in `#ghostScroll` as a
+  sibling of `#ghostLayer` so it follows the compact-layout windowing and works
+  even when "Show racers on text" is off; blink mirrors the box-shadow caret's
+  wall-clock-phased delay. (2) Other racers' live carets - renderGhostCarets was
+  rebuilding `#ghostLayer` every frame, so the CSS `left/top` transition never
+  had a prior position to animate from; it now REUSES one element per sessionId
+  (ghostCarets Map, mirroring sharedTrackCarets) and moves it. (3) Per-racer
+  tracks - the `.racer-fill` width / `.racer-emoji` left transitions moved out
+  of the base rules and under the gate (label-fade opacity stays unconditional),
+  so turning the setting off snaps them too. (4) The shared track - added
+  matching `transform`/`left` transitions to `#sharedTrackFill` and
+  `.shared-caret`; they stay pixel-locked while animating because both
+  interpolate linearly in progress under an identical transition (the old reason
+  for snapping both was to avoid two *mismatched* transitions drifting). A
+  system `prefers-reduced-motion: reduce` nulls all of these even with the
+  setting on. Client-only; no server/state changes. Not device-tested yet -
+  worth a two-tab check that my caret + shared fill stay locked during fast
+  typing and that ghost carets glide.
+- 2026-08-02: Smooth-caret follow-ups from testing. (a) Single caret / correct
+  blink: the box-shadow caret is now gated at its source
+  (`html:not([data-smooth-carets="1"])`, both themes) instead of being
+  overridden afterwards, so the light theme's own cursor rules can't win a
+  specificity tie and leave a second, dead caret. #selfCaret's blink no longer
+  re-seeks its animation-delay every render (that reset the animation several
+  times a second = fast flicker on a PERSISTENT element); it just toggles the
+  `blinking` class on the idle<->typing edge, back to the old 1s rate. (b)
+  Smoothness cadence: bots update progress every 200ms server-side, so the old
+  sub-200ms transitions finished and waited (stutter). All server-driven markers
+  (per-racer fill/avatar, ghost carets, shared fill+carets) are now `.2s linear`
+  to bridge the gap; the own quote caret stays `.11s ease-out` (local, no
+  round-trip). Per-racer fill width is now unrounded so it tracks its avatar. (c)
+  "All tracks" wasn't gliding because fillLeaderboard re-appended every row every
+  frame, re-inserting each node and resetting its in-flight transition; it now
+  reorders the DOM only when the row order actually changed (a
+  filter+compare against the current order, skipping the hidden #sharedTrack
+  sibling). Ghost/shared carets likewise append only on creation. (d) Line
+  changes snap instead of gliding: a caret sliding diagonally from end-of-line to
+  start-of-next cut across the text. Both ghost carets and #selfCaret detect a
+  `top` change and kill the transition for that one update (reflow, then restore)
+  so within-line moves still glide but line breaks are instant.
+- 2026-08-02: Line-wrap pause fix. Fully snapping a caret on a line change left
+  it parked with no motion until the next update (~200ms for bots), reading as a
+  brief pause. Both ghost carets and #selfCaret now drop onto the new line at its
+  left edge instantly (x=0, since the quote is left-aligned) and then glide
+  FORWARD to the real x - vertical jump instant, horizontal motion continuous, no
+  backward diagonal and no dead pause.
+- 2026-08-02: Ghost carets now hide with their line. The compact quote window
+  clips to a whole number of lines, so a line only partly in view is pushed out
+  entirely - but a ghost caret riding on it still leaked past the clip as a
+  sliver at the very bottom. renderGhostCarets now measures the window
+  (#quoteWrap's rect, below the masked ghost-lollipop band, down to the clip
+  edge) and shows a caret only while its whole text line fits inside; off-window
+  carets are still positioned (so they reappear in the right spot) but
+  `display:none`. Desktop has no height cap, so nothing is hidden there.
+- 2026-08-02: Spectator quote-chase (compact layout, client-only). The compact
+  quote window used to anchor only on the local player's own typing position
+  (`committed.length`), so a spectator - who never types - had it frozen at the
+  top line, and any racer who typed past the visible lines just vanished off the
+  bottom. `updateQuoteWindow()` now splits into two jobs: `typingAnchorLine()`
+  keeps the old behavior for whoever is actually typing, and `spectatorFollowLine()`
+  makes the window CHASE the pack for anyone who isn't (a pure spectator, or a
+  racer who already finished and is now watching). It only engages when the "Show
+  racers on text" overlay is on (that's what draws racers on the quote at all), a
+  race is live, and the screen is too short to show the whole quote. The chase
+  keeps the front runner one line UP from the bottom edge of the window (so the
+  line they're about to reach stays visible below them; the margin collapses at
+  the very end of the quote, where the clamp to `maxLine` reclaims it) - since
+  everyone types the same text, chasers are always further UP it, so anchoring
+  near the bottom keeps them visible above. While following one runner the
+  window only scrolls forward.
+  When the runner it's following reaches the end, it does NOT snap backward to
+  the new front runner as long as an active racer is still on screen: it holds
+  the current view (a persisted `followWindowLine`) so they can run it out, and
+  only jumps back to the next fastest once the view has emptied - repeating down
+  the field. A subtlety worth noting: a racer's TRUE line (for the bottom-anchor
+  maths) is clamped to the last real line, not to the window's `maxLine`, or the
+  window could never reach the foot of the quote. Ghost carets already hide with
+  their line (see the entry above), so racers scrolled out of the chased window
+  fade out and back in correctly with no extra work. Desktop and tall viewports
+  (whole quote visible, `maxLine === 0`) are unaffected.
