@@ -313,9 +313,21 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "";
 const BOT_MAX_TOTAL = 40;      // most bots one spawn call may add at once
 const BOT_MIN_WPM = 10;
 const BOT_MAX_WPM = 250;
-// Each bot's own speed is jittered this fraction around the requested average,
-// so a spawned field doesn't move in lockstep.
+// Each bulk-spawned bot's own speed is jittered this fraction around the
+// requested average, so a spawned field doesn't move in lockstep. This is a
+// one-time, between-bot spread applied at spawn; it is NOT the same as a custom
+// bot's `variance` (see below).
 const BOT_WPM_VARIANCE = 0.15;
+// A personalised ("custom") bot carries its own `variance`: how much its speed
+// wobbles OVER THE COURSE of a race, as a fraction of its target wpm (0 = types
+// at a perfectly steady rate; higher = more fluctuation). Capped below 1 so the
+// instantaneous rate always stays positive and progress stays monotonic (see
+// tickBots' wobble integral). Bulk bots use 0 here - steady during the race,
+// exactly as before.
+const BOT_MAX_VARIANCE = 0.9;
+// Period of that speed wobble. Each custom bot gets a random phase so no two
+// wobble in lockstep; the amplitude is its `variance`.
+const BOT_WOBBLE_PERIOD_MS = 4000;
 // Longest random "reaction time" before a bot starts typing at race start, so
 // they don't all leave the line on the same frame.
 const BOT_MAX_START_DELAY_MS = 1200;
@@ -340,7 +352,10 @@ export class RaceRoom extends Room {
   // "which players are simulated" and each one's target speed are bookkeeping
   // clients never need. `botTicker` drives their typing during a live race.
   private botSessions = new Set<string>();
-  private botSim = new Map<string, { wpm: number; startDelayMs: number }>();
+  // Per-bot simulated typing: target `wpm`, a reaction `startDelayMs`, and a
+  // `variance`/`phase` pair that drives the in-race speed wobble (see tickBots).
+  // variance is 0 for bulk bots (steady) and admin-chosen for custom bots.
+  private botSim = new Map<string, { wpm: number; variance: number; phase: number; startDelayMs: number }>();
   private botTicker: Delayed | null = null;
   private nextBotId = 1;
   // Admin testing switch (see the "setAfkKick" handler and client's Testing
@@ -660,6 +675,46 @@ export class RaceRoom extends Room {
       });
     },
 
+    // Add ONE personalised bot with an exact `wpm` and its own `variance` (how
+    // much its speed wobbles over the race - see BOT_MAX_VARIANCE). `asSpectator`
+    // drops it straight into Watching; otherwise it takes a racer slot with the
+    // same cap/waitlist logic real opt-in and bulk spawn use. Acked on the shared
+    // "botResult" channel the panel shows.
+    spawnCustomBot: (client: Client, payload: { key?: string; wpm?: number; variance?: number; asSpectator?: boolean }) => {
+      if (!this.isAdmin(payload?.key)) {
+        client.send("botResult", { ok: false, message: "Unauthorized (bad or missing admin key)." });
+        return;
+      }
+      const wpm = clampInt(payload?.wpm, BOT_MIN_WPM, BOT_MAX_WPM);
+      const variance = Math.max(0, Math.min(BOT_MAX_VARIANCE, Number(payload?.variance) || 0));
+      const p = this.makeCustomBotPlayer(wpm, variance);
+
+      let placement: string;
+      if (payload?.asSpectator) {
+        p.status = "watching";
+        placement = "watching";
+      } else if (this.countCommittedSlots() < MAX_RACERS) {
+        // Free committed slot: racing or queued, same as a real opt-in / bulk spawn.
+        p.status = this.acceptsNewRacers() ? "racing" : "queued";
+        p.slotOrder = this.nextSlotOrder++;
+        placement = p.status;
+      } else {
+        p.status = "waitlist";
+        p.waitlistOrder = this.nextWaitlistOrder++;
+        placement = `waitlisted (room cap is ${MAX_RACERS})`;
+      }
+      this.registerBot(p);
+      // Same re-evaluation any real opt-in / bulk spawn triggers (may start the
+      // countdown if this bot took a racer slot in a waiting room).
+      this.onRosterChanged();
+
+      const variancePct = Math.round(variance * 100);
+      client.send("botResult", {
+        ok: true,
+        message: `Added bot "${p.name}" (${wpm} WPM, ${variancePct}% variance), ${placement}.`,
+      });
+    },
+
     // Remove every bot from the room and let the phase re-settle (a countdown
     // that only bots were feeding cancels itself back to "waiting").
     clearBots: (client: Client, payload: { key?: string }) => {
@@ -703,18 +758,41 @@ export class RaceRoom extends Room {
     return this.botSessions.has(sessionId);
   }
 
-  /** Builds a bot Player (name/emoji/ids) and its per-bot simulated speed. Does NOT add it to state; see registerBot. */
+  /**
+   * Bulk-spawn bot: jitters its speed around the requested average so the field
+   * doesn't move in lockstep, and types at a steady rate during the race
+   * (variance 0). Does NOT add it to state; see registerBot.
+   */
   private makeBotPlayer(avgWpm: number): Player {
+    const jitter = 1 + (Math.random() * 2 - 1) * BOT_WPM_VARIANCE;
+    return this.buildBot(avgWpm * jitter, 0);
+  }
+
+  /**
+   * Personalised ("custom") bot: types at the exact requested `wpm` (no
+   * between-bot jitter - the admin picked it precisely), with its speed wobbling
+   * by `variance` over the race (see BOT_MAX_VARIANCE / tickBots). Does NOT add
+   * it to state; see registerBot.
+   */
+  private makeCustomBotPlayer(wpm: number, variance: number): Player {
+    return this.buildBot(wpm, variance);
+  }
+
+  /** Shared core: builds a bot Player (name/emoji/ids) and registers its per-bot sim. */
+  private buildBot(wpm: number, variance: number): Player {
     const id = `bot:${this.roomId}:${this.nextBotId++}`;
     const p = new Player();
     p.name = randomBotName();
     p.emoji = randomEmoji();
     p.clientId = id;
-    // Jitter each bot's speed around the requested average so the field doesn't
-    // move in lockstep, then keep it in the sane band.
-    const jitter = 1 + (Math.random() * 2 - 1) * BOT_WPM_VARIANCE;
-    const wpm = Math.max(BOT_MIN_WPM, Math.min(BOT_MAX_WPM, Math.round(avgWpm * jitter)));
-    this.botSim.set(id, { wpm, startDelayMs: Math.random() * BOT_MAX_START_DELAY_MS });
+    const clampedWpm = Math.max(BOT_MIN_WPM, Math.min(BOT_MAX_WPM, Math.round(wpm)));
+    const clampedVariance = Math.max(0, Math.min(BOT_MAX_VARIANCE, Number(variance) || 0));
+    this.botSim.set(id, {
+      wpm: clampedWpm,
+      variance: clampedVariance,
+      phase: Math.random() * Math.PI * 2,
+      startDelayMs: Math.random() * BOT_MAX_START_DELAY_MS,
+    });
     return p;
   }
 
@@ -844,8 +922,18 @@ export class RaceRoom extends Room {
       if (!sim) return; // not a bot, or a bot with no sim entry (shouldn't happen)
 
       const typingMs = Math.max(0, elapsedMs - sim.startDelayMs);
-      // wpm * 5 chars per word, per minute of actual typing.
-      const targetChars = Math.floor((sim.wpm * 5 * typingMs) / 60000);
+      // Chars typed so far = the integral of the bot's instantaneous rate over
+      // its typing time. The rate is baseRate * (1 + variance*sin(w*t + phase)),
+      // i.e. its steady wpm modulated by a slow wobble; integrating keeps this a
+      // clean, monotonic function of elapsed time (so it self-corrects across a
+      // skipped tick and a reconnecting spectator sees a consistent position).
+      // With variance 0 this collapses to the old linear wpm*5*t/60000.
+      const baseRate = (sim.wpm * 5) / 60000; // chars per ms
+      const w = (2 * Math.PI) / BOT_WOBBLE_PERIOD_MS;
+      const wobble = sim.variance > 0
+        ? -(sim.variance / w) * (Math.cos(w * typingMs + sim.phase) - Math.cos(sim.phase))
+        : 0;
+      const targetChars = Math.floor(baseRate * (typingMs + wobble));
       const correctChars = Math.max(0, Math.min(quoteLength, targetChars));
 
       this.correctCharsBySession.set(sessionId, correctChars);

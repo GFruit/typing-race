@@ -3602,3 +3602,19 @@ The scaffold may instead generate the older `@colyseus/tools` style with
      and any repeat of it while nobody else has spoken — collapses into one
      evolving line instead of accreting a Disconnected/Connected pair each time.
      Client-only for A/B; server `tsc --noEmit` clean.
+- 2026-08-02: Extended the admin Testing panel with a **custom bot** option
+  alongside the existing bulk spawn (see the 2026-08-01 bot-tool entry). New
+  `spawnCustomBot` handler adds ONE bot with an exact `wpm` and its own
+  `variance`, placed as a racer (same cap/waitlist logic as bulk) or a spectator.
+  For a single bot, `variance` means intra-race speed wobble (0 = perfectly
+  steady) rather than the bulk spawn's between-bot field spread — the two
+  "variance"s are each the natural meaning in their context, documented at the
+  constants. The wobble is driven in `tickBots` as the integral of a sinusoidally
+  modulated rate (`baseRate*(1 + variance*sin(w*t + phase))`, random per-bot
+  phase), which keeps the char count a clean, monotonic function of elapsed time —
+  preserving the tick self-correction and reconnect-consistency the linear model
+  had. `BOT_MAX_VARIANCE = 0.9` keeps the instantaneous rate positive so progress
+  never goes backwards; bulk bots pass variance 0, so their behaviour is
+  unchanged. Client: a "Custom bot" sub-section (WPM, Variance %, Role dropdown,
+  Add bot) under the bulk controls, sharing the existing `botResult` line; variance
+  is sent as a 0..1 fraction. `tsc --noEmit` clean.

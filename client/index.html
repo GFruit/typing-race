@@ -1744,6 +1744,14 @@
     .test-buttons button:hover { filter: brightness(1.08); }
     .test-buttons button.secondary { background: #4a3b29; color: #ece4d6; }
     .test-buttons button.secondary:hover { background: #574733; }
+    /* Divider heading between the bulk spawn and the single custom-bot controls. */
+    .test-subhead {
+      margin-top: 16px; padding-top: 12px; border-top: 1px solid #34291b;
+      font-weight: 600; color: #ece4d6; font-size: 13px;
+    }
+    /* The Role dropdown reuses .test-input; a select ignores text-align, so give
+       it a little left padding and let it size to its content. */
+    select.test-input { text-align: left; padding-right: 6px; }
     #adminResult { min-height: 1.2em; margin-top: 10px; color: #b4a487; font-size: 12px; line-height: 1.35; }
     #adminResult.err { color: #f87171; }
     #adminResult.ok { color: #a7c585; }
@@ -1941,6 +1949,7 @@
     }
     html[data-theme="light"] #soundVolumeSlider::-moz-range-thumb { background: #fff; }
     html[data-theme="light"] .test-input { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-ink); }
+    html[data-theme="light"] .test-subhead { border-top-color: var(--l-line); color: var(--l-ink); }
     html[data-theme="light"] #adminResult { color: var(--l-soft); }
 
     /* --- Emoji picker ------------------------------------------------------- */
@@ -2210,6 +2219,31 @@
                   <button id="adminSpawnBtn" type="button">Spawn</button>
                   <button id="adminClearBtn" type="button" class="secondary">Clear bots</button>
                 </div>
+
+                <!-- Personalised single bot: exact WPM + its own variance (how
+                     much its speed wobbles over the race), added as a racer or a
+                     spectator. Shares the result line below with the bulk spawn. -->
+                <div class="test-subhead">Custom bot</div>
+                <div class="settings-hint">Add one bot with an exact speed. Variance is how much its pace wobbles mid-race (0% = perfectly steady).</div>
+                <div class="test-row">
+                  <label class="settings-label" for="adminCustomWpm">WPM</label>
+                  <input id="adminCustomWpm" class="test-input" type="number" min="10" max="250" step="5" value="90" />
+                </div>
+                <div class="test-row">
+                  <label class="settings-label" for="adminCustomVariance">Variance %</label>
+                  <input id="adminCustomVariance" class="test-input" type="number" min="0" max="90" step="5" value="20" />
+                </div>
+                <div class="test-row">
+                  <label class="settings-label" for="adminCustomRole">Role</label>
+                  <select id="adminCustomRole" class="test-input">
+                    <option value="racer">Racer</option>
+                    <option value="spectator">Spectator</option>
+                  </select>
+                </div>
+                <div class="test-buttons">
+                  <button id="adminCustomBtn" type="button">Add bot</button>
+                </div>
+
                 <div id="adminResult" aria-live="polite"></div>
               </div>
               <div class="settings-row settings-row-toggle" data-switch="adminAfkToggle">
@@ -4075,6 +4109,18 @@
         if (!room || !connected) { setAdminResult("Not connected to a room yet.", "err"); return; }
         setAdminResult("Clearing…", "");
         room.send("clearBots", { key: adminKey });
+      });
+
+      // Single personalised bot: exact WPM + its own variance (sent as a 0..1
+      // fraction; the server clamps it), placed as a racer or spectator.
+      const customBtn = document.getElementById("adminCustomBtn");
+      customBtn.addEventListener("click", () => {
+        if (!room || !connected) { setAdminResult("Not connected to a room yet.", "err"); return; }
+        const wpm = num("adminCustomWpm", 10, 250);
+        const variance = num("adminCustomVariance", 0, 90) / 100;
+        const asSpectator = document.getElementById("adminCustomRole").value === "spectator";
+        setAdminResult("Adding bot…", "");
+        room.send("spawnCustomBot", { key: adminKey, wpm, variance, asSpectator });
       });
 
       // "Disable AFK kick" switch: reflects the stored preference on open, and
