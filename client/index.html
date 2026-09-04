@@ -435,17 +435,21 @@
       min-height: 74px; margin-bottom: 16px;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
     }
+    /* Top-of-arena status line for the idle ("Waiting for racers…") and
+       results ("Next race in…") phases. Deliberately shares #bigReadout's
+       caption type system - uppercase, letter-spaced, muted - rather than a
+       rounded chip, so idle -> countdown ("Race starts in") -> live WPM reads
+       as one evolving readout instead of a pill that becomes a big number. */
     #phaseBanner {
-      display: inline-block; font-weight: 650; font-size: 13px;
-      padding: 5px 12px; border-radius: 999px;
-      background: #33291d; color: #b4a487;
+      display: inline-block; font-weight: 650; font-size: 12px;
+      letter-spacing: .12em; text-transform: uppercase; color: #8c7a5f;
     }
-    #phaseBanner[data-phase="racing"] { background: #331409; color: #a7c585; }
+    #phaseBanner[data-phase="racing"] { color: #a7c585; }
 
     /* Three dots trailing "Waiting for racers", pulsing in sequence so an idle
        lobby reads as live rather than frozen. currentColor keeps them matched
        to whatever the banner text is. */
-    #phaseBanner .dots { display: inline-flex; align-items: center; gap: 3px; margin-left: 5px; }
+    #phaseBanner .dots { display: inline-flex; align-items: center; vertical-align: middle; gap: 3px; margin-left: 6px; }
     #phaseBanner .dots i {
       width: 3px; height: 3px; border-radius: 50%; background: currentColor;
       opacity: .25; animation: dotPulse 1.4s infinite ease-in-out;
@@ -876,15 +880,85 @@
       display: flex; flex-direction: column; gap: 0;
       padding: 0; background: #1c1710; border-left: 1px solid #33291d;
     }
+    /* --- Primary action: the "Join Race" button ---------------------------
+       The one real CTA in the sidebar, so it's dressed up: a lit terracotta
+       gradient with a glossy top edge, a slow idle glow that quietly breathes
+       while it's the thing to click, a light-sweep on hover, and a real press.
+       All of the shine is scoped to this primary state - the muted "Spectate /
+       Leave" (data-racing) and disabled states stay flat and calm. Kept flush
+       (border-radius: 0) so it still reads as the top of the sidebar. */
     .btn {
-      position: relative; /* anchors #joinBtnBadge */
+      position: relative; /* anchors #joinBtnBadge + clips the sheen */
+      overflow: hidden;
       display: block; width: 100%; padding: 14px;
       border: 0; border-radius: 0; font-size: 15px; font-weight: 650;
-      cursor: pointer; background: #e2603f; color: #331409; transition: opacity .15s;
+      letter-spacing: .01em; cursor: pointer; color: #2a0f06;
+      background: linear-gradient(180deg, #f07a58 0%, #e2603f 48%, #d0512e 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 244, 236, .38),
+        inset 0 -1px 0 rgba(90, 24, 8, .28),
+        0 6px 20px -10px rgba(226, 96, 63, .75);
+      transition: box-shadow .2s ease, transform .08s ease, filter .2s ease;
+      animation: cta-breathe 3.4s ease-in-out infinite;
     }
-    .btn:hover { opacity: .9; }
-    .btn[data-racing="1"] { background: #4a3b29; color: #ece4d6; }
-    .btn:disabled { opacity: .5; cursor: default; }
+    /* Keep the label + queue badge riding above the moving sheen. */
+    .btn > span { position: relative; z-index: 1; }
+    /* The travelling light-sweep: parked off the left edge, slid across on
+       hover / focus (see the :hover rule that (re)triggers the animation). */
+    .btn::before {
+      content: ""; position: absolute; top: 0; bottom: 0; left: -60%;
+      width: 45%; z-index: 0; pointer-events: none; transform: skewX(-18deg);
+      background: linear-gradient(100deg,
+        transparent 0%, rgba(255, 250, 245, .5) 50%, transparent 100%);
+    }
+    .btn:not([data-racing="1"]):not(:disabled):hover {
+      filter: brightness(1.05);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 244, 236, .5),
+        inset 0 -1px 0 rgba(90, 24, 8, .28),
+        0 10px 26px -8px rgba(226, 96, 63, .95);
+    }
+    .btn:not([data-racing="1"]):not(:disabled):hover::before {
+      animation: cta-sweep .7s ease-out;
+    }
+    .btn:not([data-racing="1"]):not(:disabled):active {
+      transform: translateY(1px); filter: brightness(.98);
+      box-shadow:
+        inset 0 1px 2px rgba(90, 24, 8, .38),
+        0 3px 10px -8px rgba(226, 96, 63, .7);
+    }
+    /* Match the rest of the site's teal focus ring (see #usernameDisplay); a
+       negative offset tucks it just inside the flush edges. */
+    .btn:focus-visible { outline: 2px solid #5ec9c2; outline-offset: -2px; }
+    @keyframes cta-sweep { from { left: -60%; } to { left: 120%; } }
+    /* A low-amplitude glow pulse - just enough to read as "alive" without
+       nagging. Only the colored outer shadow moves. */
+    @keyframes cta-breathe {
+      0%, 100% { box-shadow:
+        inset 0 1px 0 rgba(255, 244, 236, .38),
+        inset 0 -1px 0 rgba(90, 24, 8, .28),
+        0 6px 20px -10px rgba(226, 96, 63, .7); }
+      50% { box-shadow:
+        inset 0 1px 0 rgba(255, 244, 236, .38),
+        inset 0 -1px 0 rgba(90, 24, 8, .28),
+        0 9px 26px -9px rgba(226, 96, 63, 1); }
+    }
+    /* Muted "Spectate / Leave Queue" state - flat, no gradient, no pulse. */
+    .btn[data-racing="1"] {
+      background: #4a3b29; color: #ece4d6; animation: none;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+    }
+    .btn[data-racing="1"]::before { display: none; }
+    .btn[data-racing="1"]:hover { filter: brightness(1.12); }
+    .btn:disabled {
+      opacity: .5; cursor: default; animation: none;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
+    }
+    .btn:disabled::before { display: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .btn { animation: none; }
+      .btn::before { display: none; }
+    }
     /* Race-queue position, pinned to the button's right edge. Absolute rather
        than a flex sibling so it can't shift the label off center - the label
        reads the same whether or not a position is showing. Empty (and so
@@ -1828,8 +1902,8 @@
     html[data-theme="light"] .seg-glyph svg { fill: var(--l-line2); }
 
     /* --- Arena: banner, readout, quote ------------------------------------- */
-    html[data-theme="light"] #phaseBanner { background: var(--l-line); color: var(--l-soft); }
-    html[data-theme="light"] #phaseBanner[data-phase="racing"] { background: #f6e3d7; color: #b0491f; }
+    html[data-theme="light"] #phaseBanner { color: var(--l-faint); }
+    html[data-theme="light"] #phaseBanner[data-phase="racing"] { color: #b0491f; }
     html[data-theme="light"] #bigReadout .readout-cap { color: var(--l-faint); }
     html[data-theme="light"] #bigReadout .readout-number { color: var(--l-ok); }
     html[data-theme="light"] #bigReadout[data-mode="countdown"] .readout-number { color: var(--l-count); }
