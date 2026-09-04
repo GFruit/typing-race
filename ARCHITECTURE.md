@@ -195,6 +195,10 @@ The scaffold may instead generate the older `@colyseus/tools` style with
 - [x] **Step 6: Mobile.** A compact layout for phones (client-only, no server
       or schema changes). The wide layout is deliberately untouched - see the
       Status log entry for the breakpoint and what it rearranges.
+- [x] **Auto-continue (opt-in back-to-back racing).** Finishing a race now
+      returns you to spectating by default (re-opt-in per race, no pressure);
+      an opt-in "Auto-continue" toggle under the Join button keeps power users
+      in for seamless back-to-back races. See Status log.
 
 ## Status log
 - 2026-07-21: Project bootstrapped. Chose Colyseus 0.17 + plain HTML/JS client.
@@ -3683,3 +3687,42 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   racer's documented "nothing left to point at". Exact match only: an earlier
   mistake or overtyping leaves `full !== quote`, so the caret stays to show the
   attempt isn't done (preserving renderQuote's park-at-end slot).
+- 2026-09-04: Auto-continue (opt-in back-to-back racing). Racing used to be
+  "sticky": a finished racer kept `status === "racing"` through `resetToWaiting`
+  and was auto-entered into every subsequent race until they explicitly clicked
+  Spectate - which meant a casual player was swept into the next countdown within
+  ~5s of results, no fresh consent. Flipped the DEFAULT to opt-in-per-race: a new
+  `demoteFinishedRacers()` runs once at the instant the results countdown ends
+  (in `startResultsCountdown`, before the merge/reset fork so both paths see the
+  same settled roster), turning just-finished racers back to `"watching"`. It
+  skips bots (they exist to populate the field) and anyone with auto-continue on.
+  Auto-continue is a per-player preference the CLIENT owns (localStorage
+  `typingRace.autoContinue`, OFF by default) and is the source of truth: sent as
+  a new `autoRace` join option on every connect/redirect (so it survives room
+  swaps) AND live via a new `setAutoRace` message when toggled, cached server-side
+  in an ephemeral `autoRaceSessions` set (not synced - nobody else needs to see
+  it; cleared in `onLeave`). `"queued"` players are untouched (they explicitly
+  asked for the next race - `promoteQueuedRacers` still promotes them). With
+  everyone's auto-continue off and nobody queued, the room simply settles back to
+  `"waiting"` and sits there, no countdown, until someone opts in. AFK is the
+  backstop for a solo auto-continuer who walks away (mid-race idle -> `"watching"`
+  breaks the loop). UI: a slim `#autoContinueBtn` switch (repeat icon + label +
+  a state pip) directly under the Join CTA in the sidebar - visible, not buried
+  in Settings; muted when off, a quiet terracotta echo of the CTA when on (one
+  icon spin on flip, motion-safe), themed for light too, disabled with the
+  connection like the Join button. `tsc --noEmit` clean; client script parses
+  clean. Worth a two-tab confirm: finish a race with it off (you drop to Watching,
+  Join Race pops back) vs on (you roll straight into the next race).
+- 2026-09-04: Replaced generic `guest-####` default names with random two-word
+  names (e.g. `SwiftFalcon`). Client picks one adjective + one noun from two
+  curated wordlists (`NAME_ADJECTIVES` ~130, `NAME_NOUNS` ~150, ~19k combos) in
+  `loadOrCreateUsername`; both lists are deliberately wholesome so every pairing
+  is inoffensive, and short enough that PascalCase stays under the 20-char cap.
+  Collisions in a single room are statistically negligible (<1% even in a busy
+  lobby). Server name handling unchanged (still trims/caps/falls back to "guest").
+- 2026-09-04: Added a "roll a new name" refresh icon (`#regenName`) at the right
+  edge of the Settings name field, mirroring the avatar button on the left. Click
+  rolls a fresh `generateRandomName()` into the input (avoids repeating the
+  current value) with one motion-safe spin; it fills the field rather than saving
+  immediately, so it commits like any name edit - on Enter or when Settings
+  closes. Refactored the first-visit generator to share `generateRandomName()`.

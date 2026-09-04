@@ -294,6 +294,23 @@
       font-variant-numeric: tabular-nums;
     }
     #nameCount[data-full="1"] { color: #b4a487; }
+    /* "Roll a new name" button on the field's right edge, mirroring the avatar
+       button on the left: just the glyph at rest, a hover highlight says it's
+       clickable. Muted like the counter until hovered. */
+    #regenName {
+      flex-shrink: 0; width: 28px; height: 28px; padding: 0; display: grid; place-items: center;
+      color: #6b5940; cursor: pointer;
+      background: transparent; border: 0; border-radius: 8px;
+      transition: background .12s ease-out, color .12s ease-out;
+    }
+    #regenName:hover { background: #33291d; color: #ece4d6; }
+    #regenName:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 1px; }
+    #regenName svg { display: block; }
+    /* One quiet spin each time you roll a new name. Motion-safe only. */
+    @keyframes regen-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: no-preference) {
+      #regenName.spinning svg { animation: regen-spin .45s ease-out; }
+    }
 
     /* On/off slider switch (Large WPM display, Show racers on text, Sound cues). */
     .switch {
@@ -986,6 +1003,49 @@
     /* The swap icon only stands in for the text at the full-screen tier; the
        text label carries it everywhere else. */
     .switch-lobby-icon { display: none; }
+
+    /* --- Auto-continue toggle ---------------------------------------------
+       A slim opt-in strip directly under the Join CTA. Deliberately quiet when
+       off - a hairline-separated row in the sidebar's own tone - so it never
+       competes with the button above it. When ON it picks up a restrained
+       terracotta echo of that CTA (lit icon + a small glowing pip on the
+       right), so "I'm set to keep racing" reads at a glance without shouting.
+       Whole thing is one clickable switch. */
+    .auto-continue {
+      flex-shrink: 0;
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; padding: 9px 16px;
+      border: 0; border-bottom: 1px solid #33291d;
+      background: #241c14; color: #9a8b73;
+      font-size: 12px; font-weight: 600; letter-spacing: .015em;
+      cursor: pointer; text-align: left;
+      transition: background .18s ease, color .18s ease;
+    }
+    .auto-continue:hover:not(:disabled) { background: #2b2218; color: #c9bba2; }
+    .auto-continue:focus-visible { outline: 2px solid #5ec9c2; outline-offset: -2px; }
+    .auto-continue:disabled { opacity: .4; cursor: default; }
+    .auto-continue .ac-icon {
+      flex-shrink: 0; opacity: .8;
+      transition: color .18s ease, opacity .18s ease, transform .4s ease;
+    }
+    .auto-continue .ac-label { flex: 1; }
+    /* The state pip: a small dot, dim when off and lit when on. */
+    .auto-continue .ac-pip {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+      background: #4a3b29;
+      transition: background .18s ease, box-shadow .18s ease;
+    }
+    /* ON: the quiet terracotta accent. */
+    .auto-continue[aria-checked="true"] { color: #eaa588; background: #2c1e15; }
+    .auto-continue[aria-checked="true"] .ac-icon { color: #ef7d5a; opacity: 1; }
+    .auto-continue[aria-checked="true"] .ac-pip {
+      background: #ef7d5a; box-shadow: 0 0 6px 1px rgba(239, 125, 90, .55);
+    }
+    /* Flipping it on gives the "repeat" icon one quiet spin - literal for a
+       beat, then still. Reversed when switching off. Motion-safe only. */
+    @media (prefers-reduced-motion: no-preference) {
+      .auto-continue[aria-checked="true"] .ac-icon { transform: rotate(360deg); }
+    }
 
     /* Roster block: "Racers" (in join order, matching the race tracks) then
        "Watching". Sized by its contents - it never steals height from the
@@ -1794,6 +1854,7 @@
        as the element having jammed. Nothing here fires on a mouse. */
     @media (hover: none) {
       #settingsBtn:hover, #emojiBtn:hover, #settingsAvatar:hover { transform: none; }
+      #regenName:hover { background: transparent; color: #6b5940; }
       .settings-row-toggle:hover { background: transparent; }
     }
 
@@ -1885,6 +1946,19 @@
       background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft);
     }
     html[data-theme="light"] .switch-lobby-btn:hover { background: var(--l-line); color: var(--l-ink); }
+
+    /* Auto-continue toggle, light theme: quiet when off, warm terracotta when
+       on (the accent isn't a token, so it's stated directly to match dark). */
+    html[data-theme="light"] .auto-continue {
+      background: var(--l-shell); color: var(--l-soft); border-bottom-color: var(--l-line);
+    }
+    html[data-theme="light"] .auto-continue:hover:not(:disabled) { background: var(--l-inset); color: var(--l-ink); }
+    html[data-theme="light"] .auto-continue .ac-pip { background: var(--l-line2); }
+    html[data-theme="light"] .auto-continue[aria-checked="true"] { color: #c65a34; background: #fbeee3; }
+    html[data-theme="light"] .auto-continue[aria-checked="true"] .ac-icon { color: #d0512e; }
+    html[data-theme="light"] .auto-continue[aria-checked="true"] .ac-pip {
+      background: #d0512e; box-shadow: 0 0 6px 1px rgba(208, 81, 46, .4);
+    }
 
     /* --- Switches / segmented pickers ------------------------------------- */
     html[data-theme="light"] .switch { background: var(--l-line2); }
@@ -2018,6 +2092,8 @@
     html[data-theme="light"] #settingsUsername { color: var(--l-ink); }
     html[data-theme="light"] #settingsUsername::placeholder { color: var(--l-faint); }
     html[data-theme="light"] #nameCount { color: var(--l-faint); }
+    html[data-theme="light"] #regenName { color: var(--l-faint); }
+    html[data-theme="light"] #regenName:hover { background: var(--l-inset); color: var(--l-ink); }
     html[data-theme="light"] #soundVolumeValue { color: var(--l-soft); }
     html[data-theme="light"] #soundVolumeSlider {
       background: linear-gradient(#e2603f, #e2603f) 0 / var(--pct, 70%) 100% no-repeat, var(--l-line2);
@@ -2127,6 +2203,14 @@
                   <button id="settingsAvatar" type="button" title="Change your racer avatar" aria-label="Change your racer avatar">🚀</button>
                   <input id="settingsUsername" type="text" maxlength="20" autocomplete="off" spellcheck="false" placeholder="guest" />
                   <span id="nameCount" aria-hidden="true">0/20</span>
+                  <button id="regenName" type="button" title="Roll a new random name" aria-label="Roll a new random name">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <polyline points="23 4 23 10 17 10"/>
+                      <polyline points="1 20 1 14 7 14"/>
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -2459,6 +2543,26 @@
            self-contained sheet. On desktop it reproduces the sidebar's own
            flex column exactly, so the layout is unchanged. -->
       <div class="sidebar-scroll">
+      <!-- Auto-continue: keep me in for back-to-back races instead of dropping
+           back to spectating when each one ends. A per-player preference
+           (localStorage, re-sent to the server on every join and toggle), OFF
+           by default so a casual racer is never swept into the next race
+           without opting back in. Sits right under the Join CTA it modifies. A
+           real switch (role=switch/aria-checked) so it reads as a toggle, not a
+           one-shot button. -->
+      <button id="autoContinueBtn" class="auto-continue" type="button" role="switch"
+              aria-checked="false" aria-label="Auto-continue racing" disabled
+              title="Automatically join the next race instead of dropping to spectating when a race ends">
+        <svg class="ac-icon" viewBox="0 0 24 24" width="15" height="15" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="17 1 21 5 17 9"/>
+          <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+          <polyline points="7 23 3 19 7 15"/>
+          <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+        </svg>
+        <span class="ac-label">Auto-continue</span>
+        <span class="ac-pip" aria-hidden="true"></span>
+      </button>
       <div class="lobby-row">
         <!-- Tiny-sheet (full-screen overlay) only: closes the sheet. It's the
              sole dismiss control at that size, since the overlay covers both
@@ -2589,14 +2693,74 @@
     const LOCK_AT_COUNTDOWN_SECONDS = 3;
 
     // Username: persisted in localStorage so it survives reloads, editable
-    // any time via the header. First visit gets a random guest name (and
+    // any time via the header. First visit gets a random two-word name (and
     // that same name sticks around on future visits) until the user changes it.
     const USERNAME_KEY = "typingRace.username";
+
+    // Randomly generated names combine one word from each list, e.g.
+    // "Misty Flint". Both lists are deliberately wholesome and neutral so that
+    // EVERY adjective+noun pairing is inoffensive - keep it that way when
+    // adding words. The lists are also big enough (~130 x ~150 = ~19k combos)
+    // that two people landing on the same name in one room is vanishingly rare
+    // (well under 1% even in a crowded lobby). Kept short so "Adjective Noun"
+    // never exceeds the 20-char username cap.
+    const NAME_ADJECTIVES = [
+      "Swift", "Nimble", "Rapid", "Brisk", "Quick", "Fleet", "Speedy", "Zippy",
+      "Turbo", "Blazing", "Racing", "Dashing", "Darting", "Bounding", "Soaring",
+      "Gliding", "Whirling", "Bustling", "Bright", "Shining", "Radiant",
+      "Gleaming", "Glowing", "Sunny", "Golden", "Silver", "Crimson", "Scarlet",
+      "Azure", "Cobalt", "Indigo", "Violet", "Amber", "Jade", "Emerald",
+      "Coral", "Ivory", "Pearly", "Rosy", "Sunlit", "Starlit", "Moonlit",
+      "Cosmic", "Stellar", "Lunar", "Solar", "Astral", "Electric", "Magnetic",
+      "Kinetic", "Sonic", "Atomic", "Frosty", "Icy", "Snowy", "Misty",
+      "Breezy", "Stormy", "Fiery", "Smoky", "Bold", "Brave", "Daring",
+      "Valiant", "Gallant", "Mighty", "Noble", "Regal", "Grand", "Epic",
+      "Prime", "Heroic", "Fearless", "Dauntless", "Stalwart", "Steadfast",
+      "Loyal", "Trusty", "Merry", "Jolly", "Cheery", "Chipper", "Jovial",
+      "Lively", "Spry", "Perky", "Feisty", "Plucky", "Peppy", "Bubbly",
+      "Sprightly", "Jaunty", "Buoyant", "Witty", "Clever", "Canny", "Sharp",
+      "Keen", "Wise", "Sage", "Astute", "Curious", "Eager", "Crafty",
+      "Quirky", "Snappy", "Dapper", "Calm", "Serene", "Tranquil", "Placid",
+      "Mellow", "Gentle", "Cozy", "Snug", "Velvet", "Silken", "Downy",
+      "Fluffy", "Dreamy", "Quiet", "Humble", "Tidy", "Neat", "Dandy",
+      "Verdant", "Lush", "Mossy", "Leafy", "Dewy", "Alpine", "Rustic",
+    ];
+    const NAME_NOUNS = [
+      "Falcon", "Hawk", "Eagle", "Owl", "Raven", "Robin", "Sparrow", "Finch",
+      "Heron", "Crane", "Swan", "Lark", "Wren", "Kestrel", "Osprey", "Condor",
+      "Magpie", "Starling", "Swallow", "Puffin", "Toucan", "Pelican", "Ibis",
+      "Egret", "Fox", "Wolf", "Otter", "Beaver", "Badger", "Marten", "Lynx",
+      "Puma", "Cougar", "Panther", "Leopard", "Cheetah", "Jaguar", "Tiger",
+      "Lion", "Bear", "Bison", "Moose", "Elk", "Stag", "Ibex", "Gazelle",
+      "Antelope", "Mustang", "Stallion", "Bobcat", "Ocelot", "Ferret",
+      "Marmot", "Meerkat", "Hare", "Rabbit", "Squirrel", "Chipmunk", "Raccoon",
+      "Koala", "Panda", "Wombat", "Hedgehog", "Dolphin", "Orca", "Whale",
+      "Seal", "Marlin", "Salmon", "Trout", "Manta", "Nautilus", "Narwhal",
+      "Seahorse", "Starfish", "Urchin", "Gecko", "Iguana", "Cobra", "Viper",
+      "Python", "Mamba", "Dragon", "Griffin", "Phoenix", "Pegasus", "Hydra",
+      "Sphinx", "Wyvern", "Kraken", "Golem", "Comet", "Meteor", "Nova",
+      "Quasar", "Nebula", "Galaxy", "Cosmos", "Aurora", "Eclipse", "Zenith",
+      "Orbit", "Pulsar", "Halo", "Vertex", "Vortex", "Cyclone", "Tempest",
+      "Typhoon", "Blizzard", "Thunder", "Ember", "Cinder", "Blaze", "Spark",
+      "Glacier", "Summit", "Canyon", "Mesa", "Ridge", "Meadow", "Grove",
+      "Willow", "Cedar", "Birch", "Maple", "Aspen", "Alder", "Cypress",
+      "Juniper", "Fern", "Ivy", "Lotus", "Lily", "Poppy", "Daisy", "Clover",
+      "Opal", "Onyx", "Topaz", "Garnet", "Beryl", "Pearl", "Quartz", "Flint",
+      "Slate", "Jasper", "Agate", "Citrine",
+    ];
+
+    function randomFrom(list) {
+      return list[Math.floor(Math.random() * list.length)];
+    }
+
+    function generateRandomName() {
+      return randomFrom(NAME_ADJECTIVES) + " " + randomFrom(NAME_NOUNS);
+    }
 
     function loadOrCreateUsername() {
       const saved = localStorage.getItem(USERNAME_KEY);
       if (saved) return saved;
-      const generated = "guest-" + Math.floor(1000 + Math.random() * 9000);
+      const generated = generateRandomName();
       localStorage.setItem(USERNAME_KEY, generated);
       return generated;
     }
@@ -2647,6 +2811,18 @@
     const SOUND_VOLUME_KEY = "typingRace.soundVolume";
     let soundVolume = parseInt(localStorage.getItem(SOUND_VOLUME_KEY), 10);
     if (!Number.isFinite(soundVolume) || soundVolume < 0 || soundVolume > 100) soundVolume = 100;
+
+    // Auto-continue: when on, the server keeps me in every race back-to-back
+    // instead of dropping me to spectating when one ends (see RaceRoom's
+    // demoteFinishedRacers / autoRaceSessions). OFF by default - finishing a
+    // race returns you to spectating and you re-opt-in, so a casual player is
+    // never swept into the next race without a fresh "yes". The preference
+    // lives here (localStorage) and is the source of truth: it's sent to the
+    // server as a join option on every (re)connect/redirect AND live via the
+    // "setAutoRace" message whenever toggled. Declared up here so the join
+    // paths below can read it; the toggle UI is wired further down.
+    const AUTO_CONTINUE_KEY = "typingRace.autoContinue";
+    let autoContinue = localStorage.getItem(AUTO_CONTINUE_KEY) === "1";
 
     // The white noise every click is carved out of, and which the keep-alive
     // below also runs on. Declared up here, above every consumer, rather than
@@ -3254,6 +3430,7 @@
     const readoutBottom = document.getElementById("readoutBottom");
     const wpmToggle   = document.getElementById("wpmToggle");
     const warmupToggle = document.getElementById("warmupToggle");
+    const autoContinueBtn = document.getElementById("autoContinueBtn");
     const raceTimer   = document.getElementById("raceTimer");
     const statusSlot  = document.getElementById("statusSlot");
     const leaderboard = document.getElementById("leaderboard");
@@ -3290,6 +3467,7 @@
     const settingsClose  = document.getElementById("settingsClose");
     const settingsAvatar = document.getElementById("settingsAvatar");
     const nameCount      = document.getElementById("nameCount");
+    const regenName      = document.getElementById("regenName");
     const usernameDisplay = document.getElementById("usernameDisplay");
     const switchLobbyBtn = document.getElementById("switchLobbyBtn");
     const chatMessages = document.getElementById("chatMessages");        // scroll container
@@ -4593,6 +4771,7 @@
       sessionStorage.setItem(ROOM_ID_KEY, room.roomId);
       connected = true;
       joinBtn.disabled = false;
+      autoContinueBtn.disabled = false;
       switching = false; // we've landed in a room; allow Switch Lobby again
 
       // A newly attached room runs its OWN independent quoteId sequence, not
@@ -4651,7 +4830,7 @@
         if (redirecting) return;
         redirecting = true;
         try {
-          const options = { name: myName, resumeRacing: !!payload.resumeRacing, clientId: myClientId, emoji: myEmoji || undefined };
+          const options = { name: myName, resumeRacing: !!payload.resumeRacing, clientId: myClientId, emoji: myEmoji || undefined, autoRace: autoContinue };
           const nextRoom = payload.roomId
             ? await client.joinById(payload.roomId, options)
             : await client.create("race_room", options);
@@ -4720,7 +4899,7 @@
           redirecting = false;
           connected = false;
           try {
-            attachRoom(await client.joinOrCreate("race_room", { name: myName, clientId: myClientId, emoji: myEmoji || undefined }));
+            attachRoom(await client.joinOrCreate("race_room", { name: myName, clientId: myClientId, emoji: myEmoji || undefined, autoRace: autoContinue }));
           } catch (e2) {
             setConnectionStatus("failed");
             console.error(e2);
@@ -4743,12 +4922,14 @@
         if (redirecting) return;
         connected = false;
         joinBtn.disabled = true;
+        autoContinueBtn.disabled = true;
         setConnectionStatus("reconnecting");
       });
 
       room.onReconnect(() => {
         connected = true;
         joinBtn.disabled = false;
+        autoContinueBtn.disabled = false;
         setConnectionStatus("reconnected");
       });
 
@@ -4756,6 +4937,7 @@
         if (redirecting) return; // handled by the "redirect" listener above
         connected = false;
         joinBtn.disabled = true;
+        autoContinueBtn.disabled = true;
         // The SDK gave up its own reconnect (the server-side session is gone),
         // but we DON'T dead-end the user on a "reload to rejoin": recover
         // automatically with a fresh join so the site becomes usable again on
@@ -4770,7 +4952,7 @@
 
     async function connect() {
       setConnectionStatus("connecting");
-      const opts = { name: myName, clientId: myClientId, emoji: myEmoji || undefined };
+      const opts = { name: myName, clientId: myClientId, emoji: myEmoji || undefined, autoRace: autoContinue };
       try {
         const savedToken = sessionStorage.getItem(RECONNECT_TOKEN_KEY);
         const savedRoomId = sessionStorage.getItem(ROOM_ID_KEY);
@@ -5385,6 +5567,7 @@
       // disables it now - a state patch arriving around one mustn't re-enable
       // a button that leads nowhere (room.onLeave disables it).
       joinBtn.disabled = !connected;
+      autoContinueBtn.disabled = !connected;
 
       // Re-fit the roster's density (see syncSidebarDensity) so the chat keeps
       // its floor when the sidebar is crowded. Guarded on the headcounts that
@@ -8015,6 +8198,25 @@
     }
     settingsUsername.addEventListener("input", updateNameCount);
 
+    // The refresh icon rolls a fresh adjective+noun into the field. It fills the
+    // input rather than saving straight away, so it behaves like typing a name:
+    // committed on Enter or when Settings closes (see saveUsernameFromField).
+    regenName.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const current = settingsUsername.value.trim();
+      let next = generateRandomName();
+      for (let i = 0; i < 5 && next === current; i++) next = generateRandomName();
+      settingsUsername.value = next;
+      updateNameCount();
+      // Restart the one-shot spin even on rapid re-clicks (motion-safe via CSS).
+      regenName.classList.remove("spinning");
+      void regenName.offsetWidth;
+      regenName.classList.add("spinning");
+      settingsUsername.focus();
+      settingsUsername.select();
+    });
+    regenName.addEventListener("animationend", () => regenName.classList.remove("spinning"));
+
     function openSettings(focusName) {
       settingsUsername.value = myName; // reflect the current name each open
       updateNameCount();
@@ -8124,6 +8326,22 @@
       localStorage.setItem(WARMUP_KEY, warmupEnabled ? "1" : "0");
       applyWarmupToggleUi();
       if (room) render(room.state); // reflect immediately (enable/disable the box)
+    };
+
+    // Auto-continue toggle (see AUTO_CONTINUE_KEY up top). Reflects the flag on
+    // the switch and, when flipped, both persists it and tells the server live
+    // via "setAutoRace" so it takes effect from the very next race boundary -
+    // no reconnect needed (the join-option carry is only for room swaps). The
+    // disabled state tracks the connection, mirroring the Join button.
+    function applyAutoContinueUi() {
+      autoContinueBtn.setAttribute("aria-checked", autoContinue ? "true" : "false");
+    }
+    applyAutoContinueUi();
+    autoContinueBtn.onclick = () => {
+      autoContinue = !autoContinue;
+      localStorage.setItem(AUTO_CONTINUE_KEY, autoContinue ? "1" : "0");
+      applyAutoContinueUi();
+      if (room) room.send("setAutoRace", { on: autoContinue });
     };
 
     // Track display picker (Settings): "default" (a stacked track per racer,

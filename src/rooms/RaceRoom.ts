@@ -398,6 +398,14 @@ export class RaceRoom extends Room {
   // held seats reaches clients through state.racerCount (see
   // countCommittedSlots/updateRacerCount); this bookkeeping doesn't.
   private slotReservations = new Map<string, number>();
+  // Who has "auto-continue" on: their sessionId sits here while they want to be
+  // kept in every race back-to-back, instead of dropping to spectating once a
+  // race ends (the default - see demoteFinishedRacers). Purely a per-player
+  // preference the client owns (localStorage) and re-asserts on every join and
+  // whenever it's toggled (the "setAutoRace" message); server-only and
+  // ephemeral, since nobody else needs to see it - it only ever decides that
+  // one player's own post-race status. Cleaned up in onLeave.
+  private autoRaceSessions = new Set<string>();
 
   onCreate(options: any) {
     this.state.phase = "waiting";
@@ -473,6 +481,17 @@ export class RaceRoom extends Room {
       // the moment you opt in, so that's the moment the order is fixed.
       player.slotOrder = this.nextSlotOrder++;
       this.onRosterChanged();
+    },
+
+    // Toggle "auto-continue" for this client (see autoRaceSessions): when on,
+    // the player is kept racing back-to-back rather than dropped to spectating
+    // when a race ends. Pure preference - it changes nothing about the current
+    // race and only takes effect at the next race boundary (demoteFinishedRacers),
+    // so there's no phase gate and no roster re-eval to do here. Idempotent.
+    setAutoRace: (client: Client, payload: { on?: boolean }) => {
+      if (!this.state.players.has(client.sessionId)) return; // unknown client
+      if (payload?.on) this.autoRaceSessions.add(client.sessionId);
+      else this.autoRaceSessions.delete(client.sessionId);
     },
 
     // Lets a client rename itself at any time, including mid-race; it's a
@@ -955,8 +974,14 @@ export class RaceRoom extends Room {
     if (anyFinishedNow && this.allRacersFinished()) this.endRace();
   }
 
-  onJoin(client: Client, options: { name?: string; resumeRacing?: boolean; clientId?: string; emoji?: string }) {
+  onJoin(client: Client, options: { name?: string; resumeRacing?: boolean; clientId?: string; emoji?: string; autoRace?: boolean }) {
     const player = new Player();
+    // Re-assert this client's auto-continue preference for the room it's
+    // landing in: the flag lives client-side (localStorage) and is sent on
+    // every join, including a merge/Switch Lobby redirect, so it carries across
+    // room swaps that the server-only autoRaceSessions set otherwise wouldn't.
+    if (options?.autoRace) this.autoRaceSessions.add(client.sessionId);
+    else this.autoRaceSessions.delete(client.sessionId);
     player.name = (options?.name || "guest").toString().slice(0, 20);
     // Honor a client-remembered avatar if it's one of ours (a returning
     // visitor sends back whatever they had last time, including a random
@@ -1092,6 +1117,9 @@ export class RaceRoom extends Room {
       this.postSystemMessage(`${player.name} left the lobby.`, player.clientId, true);
     }
     this.state.players.delete(client.sessionId);
+    // Forget their auto-continue preference for this room; a returning client
+    // re-asserts it on its next join (see onJoin).
+    this.autoRaceSessions.delete(client.sessionId);
     console.log(`[RaceRoom] left, ${this.state.players.size} online`);
     this.onRosterChanged();
   }
@@ -1517,6 +1545,16 @@ export class RaceRoom extends Room {
     this.countdownTimer = this.clock.setInterval(() => {
       this.state.countdown--;
       if (this.state.countdown <= 0) {
+        // The results are done, so this is the moment the last race's racers
+        // decide whether they're in the next one. By default they're not:
+        // finishing returns you to spectating and you re-opt-in for the next
+        // race, so a casual player is never swept into back-to-back races
+        // without a fresh "yes". The exception is auto-continue (see
+        // autoRaceSessions) and bots, who stay in. Done here - before the
+        // merge/reset fork below - so both paths see the same settled roster:
+        // demoted players are carried into a merge target as spectators, not
+        // racers, exactly as they'd sit here.
+        this.demoteFinishedRacers();
         // Try to fold this room's whole roster into another waiting room
         // first (see attemptMerge()); only fall back to resetting in place
         // if there's nowhere suitable to merge into. A successful merge
@@ -1524,15 +1562,39 @@ export class RaceRoom extends Room {
         // autoDispose finish the job, so there's nothing further to do on
         // this room afterward.
         if (!this.attemptMerge()) {
-          // Anyone still holding a slot - last race's racers who didn't
-          // switch to spectating, plus anyone who queued during the race or
-          // its results - is now in the next race, and resetToWaiting's own
-          // roster re-evaluation is what starts it. This is what makes it an
-          // *auto* next race.
+          // Whoever's still holding a slot after the demotion above - the
+          // auto-continue racers and bots kept in, plus anyone who queued
+          // during the race or its results - is now in the next race, and
+          // resetToWaiting's own roster re-evaluation is what starts it. If
+          // nobody is (everyone raced with auto-continue off), the room simply
+          // settles back to "waiting" and sits there, no countdown, until
+          // someone opts in - which is the whole point: no pressure.
           this.resetToWaiting();
         }
       }
     }, 1000);
+  }
+
+  /**
+   * The default post-race behavior: turn the just-finished racers back into
+   * spectators so racing is opt-in per race rather than sticky. Skips bots
+   * (they exist to keep the field populated - see the bot tools) and anyone
+   * with auto-continue on (see autoRaceSessions / the "setAutoRace" message),
+   * who are deliberately kept in for seamless back-to-back races. Only touches
+   * "racing" - "queued" players explicitly asked for the next race, so they're
+   * promoted normally by resetToWaiting's promoteQueuedRacers().
+   *
+   * Called once, at the instant the results countdown ends (see
+   * startResultsCountdown), before the merge/reset fork - so a demoted player
+   * is carried into any merge target as a spectator, matching how they'd sit
+   * if the room reset in place instead.
+   */
+  private demoteFinishedRacers() {
+    this.state.players.forEach((p, sessionId) => {
+      if (p.status !== "racing") return;
+      if (this.isBot(sessionId) || this.autoRaceSessions.has(sessionId)) return;
+      p.status = "watching";
+    });
   }
 
   /**
