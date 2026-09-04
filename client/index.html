@@ -548,10 +548,10 @@
        see fillSharedTrack) - there's no single fill that could show every
        racer's progress at once without their colors fighting over the same
        pixels. Every racer, including me, also rides a caret+emoji marker on
-       top so everyone else's position is still visible. Deliberately taller
-       than .racer-track (14px) per the ask for "significantly bigger". */
+       top so everyone else's position is still visible. Height matches
+       .racer-track (14px) so it reads at the same scale as "All tracks". */
     #sharedTrack {
-      display: none; position: relative; width: 100%; height: 48px;
+      display: none; position: relative; width: 100%; height: 14px;
     }
     #leaderboard[data-mode="shared"] #sharedTrack { display: block; }
     /* Square, not pill-shaped, to match the carets riding on it - those are
@@ -594,14 +594,13 @@
        bar is hidden and the emoji recentered onto the track. fillSharedTrack sets
        a per-racer bar color inline, so hiding it here needs !important. */
     #sharedTrack[data-marker="emoji"] .shared-caret { background: transparent !important; }
-    /* The track shrinks so the (unchanged) emoji overhangs it top and bottom,
-       the same "avatar bigger than its rail" look the per-racer "All tracks"
-       view uses (.racer-emoji on .racer-track). Caret mode keeps the full-height
-       track its lollipop is designed against. Compact gets its own height below. */
-    #sharedTrack[data-marker="emoji"] { height: 32px; }
+    /* The emoji rides directly ON the track and overhangs it top and bottom,
+       exactly like the per-racer "All tracks" view (.racer-emoji on
+       .racer-track): a 20px glyph on the 14px rail. Compact matches below. */
+    #sharedTrack[data-marker="emoji"] { height: 14px; }
     #sharedTrack[data-marker="emoji"] .shared-caret-emoji {
       bottom: auto; top: 50%; margin-bottom: 0;
-      font-size: 44px;
+      font-size: 20px;
       /* The baseline nudge (.racer-emoji uses -2px at 20px, ~-0.1em) has to be
          em-based here: a fixed -2px is ~4% of this 44px glyph, far too little to
          re-center it, so it sat low and its bottom overran the track edge. -0.1em
@@ -1345,12 +1344,12 @@
       .racer-name { font-size: 12px; margin-bottom: 3px; }
       .racer-track { height: 11px; }
       .racer-emoji { font-size: 17px; }
-      #sharedTrack { height: 38px; }
+      #sharedTrack { height: 11px; }
       .shared-caret-emoji { font-size: 22px; }
-      /* Emoji marker: keep the glyph large and shrink the track under it so it
-         overhangs, matching the desktop rule above. */
-      #sharedTrack[data-marker="emoji"] { height: 26px; }
-      #sharedTrack[data-marker="emoji"] .shared-caret-emoji { font-size: 34px; }
+      /* Emoji marker: track matches the compact per-racer track (11px) with the
+         glyph riding on it at .racer-emoji's compact size, matching desktop. */
+      #sharedTrack[data-marker="emoji"] { height: 11px; }
+      #sharedTrack[data-marker="emoji"] .shared-caret-emoji { font-size: 17px; }
       #raceTimer { top: 10px; right: 12px; font-size: 11px; }
 
       #quote { font-size: 17px; letter-spacing: 0; }
@@ -5170,7 +5169,7 @@
       // row per racer (see effectiveTrackMode/tracksTooTall). Measured here, on
       // the live layout, and cached so a later resize can re-check cheaply.
       lastTrackCount = trackEntries.length;
-      lowTrackHeight = trackMode === "default" && tracksTooTall(lastTrackCount);
+      lowTrackHeight = trackMode === "default" && tracksTooTall(lastTrackCount, lowTrackHeight);
       const em = effectiveTrackMode();
       leaderboard.dataset.mode = em;
 
@@ -5215,6 +5214,24 @@
         // rather than the constant fallback.
         if (lastTrackCount > 0 && leaderboard.scrollHeight > 0) {
           measuredPerTrack = leaderboard.scrollHeight / lastTrackCount;
+          // The fit decision at the top of render ran BEFORE these tracks
+          // existed, so the very first "All tracks" render (e.g. right after
+          // Join Race, before any per-track height was ever measured) tests the
+          // constant fallback, not the truth. If the freshly learned height now
+          // overflows, re-decide and re-render into the shared track in this same
+          // tick rather than leaving the per-racer tracks up until some later
+          // state change corrects them - that lag was the ~1s flash on join.
+          // Guarded so it happens at most once: the re-render takes the shared
+          // branch, which never re-measures, so it can't loop.
+          if (!refitting) {
+            const nowLow = tracksTooTall(lastTrackCount, lowTrackHeight);
+            if (nowLow !== lowTrackHeight) {
+              lowTrackHeight = nowLow;
+              refitting = true;
+              try { render(state); } finally { refitting = false; }
+              return;
+            }
+          }
         }
       }
 
@@ -5583,6 +5600,21 @@
       // race without scrolling (see refreshRaceChrome). Last, so it measures the
       // arena in its final rendered state for this patch.
       refreshRaceChrome();
+
+      // refreshRaceChrome (and the join reflow that got us here) may have moved
+      // the arena height AFTER the fit was decided at the top of this render.
+      // Re-check once on the next frame against the settled layout so a wrong
+      // track design can't linger until the next patch (see scheduleTrackFitRecheck)
+      // - but only when a STRUCTURAL input to the fit changed (the phase, the
+      // track count, the breakpoint, the header's presence). The ~20 progress
+      // patches a second during a race don't touch any of these, so they skip the
+      // recheck and its forced layout read; only the transitions that can actually
+      // move the arena (joining, the countdown/results/race boundaries) trigger it.
+      const fitSig = `${state.phase}|${lastTrackCount}|${compactLayout.matches ? 1 : 0}|${document.body.dataset.raceFs}`;
+      if (fitSig !== lastFitSig) {
+        lastFitSig = fitSig;
+        scheduleTrackFitRecheck();
+      }
     }
 
     function formatTime(totalSeconds) {
@@ -8369,6 +8401,8 @@
     let lowTrackHeight = false;   // is the arena currently too short for the tracks?
     let lastTrackCount = 0;       // racers in the last render, for resize re-checks
     let measuredPerTrack = 0;     // learned from a real render; 0 => use a constant
+    let refitting = false;        // guards the one synchronous re-render in render()
+    let lastFitSig = "";          // structural inputs to the fit, for the next-frame recheck
 
     function effectiveTrackMode() {
       return (trackMode === "default" && lowTrackHeight) ? "shared" : trackMode;
@@ -8379,41 +8413,74 @@
     // input? Measured off the live layout (arena height, the real heights of
     // those pieces, and a per-track height learned from an actual render) so it
     // holds at any zoom on either platform, rather than hard-coding a breakpoint.
-    function tracksTooTall(count) {
+    function tracksTooTall(count, currentlyLow) {
       const arena = arenaEl ? arenaEl.clientHeight : 0;
       if (!arena || !count) return false;
       const line = parseFloat(getComputedStyle(quoteWrap).getPropertyValue("--quote-line")) || 29;
       const perTrack = measuredPerTrack || (compactLayout.matches ? 34 : 46);
-      const need = count * perTrack + statusSlot.offsetHeight + inputWrap.offsetHeight + line * 2;
+      let need = count * perTrack + statusSlot.offsetHeight + inputWrap.offsetHeight + line * 2;
+      let avail;
       if (compactLayout.matches) {
         // The compact arena's padding and inter-block margins are tiny and the
-        // numbers below are tuned against that; leave it exactly as it was.
-        return need > arena + 4; // a few px of slack so it doesn't flip over nothing
+        // numbers here are tuned against that; keep the base comparison as it
+        // was (the +4 slack lives in the threshold below).
+        avail = arena;
+      } else {
+        // Desktop's arena is roomier but so is its chrome: 24px padding top and
+        // bottom, plus the margins under the status slot and tracks and above the
+        // input, add ~100px that clientHeight counts as available but content
+        // can't use. Ignoring it made the fit check think there was room when
+        // there wasn't, so "All tracks" kept the arena scrolling instead of
+        // dropping to the shared track. Count it, and compare against the real
+        // content box (clientHeight minus the arena's own padding).
+        const acs = getComputedStyle(arenaEl);
+        const padY = (parseFloat(acs.paddingTop) || 0) + (parseFloat(acs.paddingBottom) || 0);
+        need +=
+          (parseFloat(getComputedStyle(statusSlot).marginBottom) || 0) +
+          (parseFloat(getComputedStyle(leaderboard).marginBottom) || 0) +
+          (parseFloat(getComputedStyle(inputWrap).marginTop) || 0);
+        avail = arena - padY;
       }
-      // Desktop's arena is roomier but so is its chrome: 24px padding top and
-      // bottom, plus the margins under the status slot and tracks and above the
-      // input, add ~100px that clientHeight counts as available but content
-      // can't use. Ignoring it made the fit check think there was room when
-      // there wasn't, so "All tracks" kept the arena scrolling instead of
-      // dropping to the shared track. Count it, and compare against the real
-      // content box (clientHeight minus the arena's own padding).
-      const acs = getComputedStyle(arenaEl);
-      const padY = (parseFloat(acs.paddingTop) || 0) + (parseFloat(acs.paddingBottom) || 0);
-      const chrome =
-        (parseFloat(getComputedStyle(statusSlot).marginBottom) || 0) +
-        (parseFloat(getComputedStyle(leaderboard).marginBottom) || 0) +
-        (parseFloat(getComputedStyle(inputWrap).marginTop) || 0);
-      return need + chrome > (arena - padY) + 4;
+      // Hysteresis. The fit is otherwise decided against a single threshold, so a
+      // layout sitting right on it - most easily ONE track at extreme zoom - flips
+      // between the per-racer and shared designs as tiny per-render height changes
+      // (a phase's status text, the quote window settling) nudge `need` back and
+      // forth across it, most visibly at each race boundary. So use a deadband:
+      // once demoted to the shared track, keep it until there's a clear half-row
+      // of room to restore the per-racer tracks; while showing them, demote only
+      // on a clear overflow (+4, as before). Whichever design is up holds through
+      // the wobble between.
+      if (currentlyLow) return need > avail - Math.max(8, perTrack * 0.5);
+      return need > avail + 4;
     }
 
     // A viewport change (zoom, window resize, keyboard) carries no room state of
     // its own, so re-measure the fit and re-render only if the override flipped.
     function refreshTrackFit() {
       if (!room) return;
-      const low = trackMode === "default" && tracksTooTall(lastTrackCount);
+      const low = trackMode === "default" && tracksTooTall(lastTrackCount, lowTrackHeight);
       if (low === lowTrackHeight) return;
       lowTrackHeight = low;
       render(room.state);
+    }
+
+    // The fit decision is made at the top of render(), against the layout as it
+    // stands BEFORE this render's own tail settles it - the header toggling in
+    // refreshRaceChrome, the arena reflowing as you join a race, a measurement
+    // that only becomes exact once the tracks are in the DOM. When that after-the-
+    // fact settle changes the answer, nothing re-checks until the next server
+    // patch, so the wrong track design lingers for up to ~1s (the per-racer
+    // tracks flashing in on Join Race before collapsing to the shared one). This
+    // re-checks once on the next frame, when layout has fully settled, and
+    // re-renders only on an actual flip (hysteresis keeps it from thrashing).
+    // Coalesced, so the ~20 render()s a second during a race cost one check.
+    let trackFitRaf = 0;
+    function scheduleTrackFitRecheck() {
+      if (trackFitRaf || trackMode !== "default") return;
+      trackFitRaf = requestAnimationFrame(() => {
+        trackFitRaf = 0;
+        refreshTrackFit();
+      });
     }
 
     // --- Full-screen race on very short viewports -----------------------------
