@@ -3618,3 +3618,68 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   unchanged. Client: a "Custom bot" sub-section (WPM, Variance %, Role dropdown,
   Add bot) under the bulk controls, sharing the existing `botResult` line; variance
   is sent as a 0..1 fraction. `tsc --noEmit` clean.
+- 2026-09-04: Chat composer now hides while the race is live for you. In
+  `render()`, `chatForm.dataset.hidden` tracks `iCanType` (racing this player,
+  phase `"racing"`, not finished) — the same condition that auto-focuses the
+  typing box on desktop — and CSS `#chatForm[data-hidden="1"] { display:none }`
+  removes it. Keeps a stray keystroke from landing in chat while the typing box
+  owns the keyboard; hiding a focused `#chatInput` blurs it (ending composing).
+  The message log stays visible; the composer returns on results, dropping to
+  spectate, or the next lobby. Chat stays available through waiting/countdown.
+  Paired with it: the instant a race ends for you (`raceInputWasLive && !iCanType`,
+  tracked across patches), the reappeared chat composer is auto-focused on desktop
+  so you can talk straight away without clicking in - same guards as the typing
+  auto-focus (never on touch, never while a settings/emoji popover owns a field).
+  Extended to full type-anywhere-to-chat: a document `keydown` listener means
+  that whenever you're not racing (`!raceInputLive`), a plain printable keystroke
+  aimed at nothing (activeElement is the body or the idle race box) focuses
+  `#chatInput` and the same keystroke lands there - so idle time behaves as if the
+  chat box were always focused, without holding focus and fighting clicks. Skips
+  touch, modifier combos, non-character keys (Enter/Tab/arrows keep their meaning),
+  a hidden composer, and any deliberately focused field/button (settings name,
+  emoji search, Join/Space-to-activate). No preventDefault/re-inject, so the char
+  is neither dropped nor doubled.
+  Fix: clicking the Join button used to leave it focused, and the first guard
+  ("hijack only when focus is on body or the race box") treated a focused button
+  as deliberate and stood down - so after joining, keystrokes fell on the button
+  and never reached chat. The guard now skips only real text fields (INPUT/
+  TEXTAREA/contenteditable) and preserves Space for a focused button/link (so it
+  still activates); every other printable char routes to chat even when a button
+  holds focus.
+- 2026-09-04: Escape now backs you out of the race (keyboard counterpart to the
+  Join button's Spectate/Leave state and the in-input Leave control). A
+  capture-phase `keydown` on `document` sends `setStatus {racing:false}` when
+  `joinBtn.dataset.racing === "1"` (any opted-in state - live race, reserved
+  next-race slot, or race queue; the server allows backing out of all three,
+  mid-race included). Capture phase + a guard on emoji/settings/sheet being open
+  means a single Escape either closes an open popover (its own bubble-phase
+  handlers) or leaves the race, never both.
+- 2026-09-04: Warm-up typing (opt-in Setting, OFF by default) + clear the chat
+  draft at the gun. New "Warm-up typing" toggle in Settings (`warmupToggle`,
+  `typingRace.warmup`). When on, render() computes `warmupLive = warmupEnabled &&
+  phase === "countdown" && inputArmed` and sets the module flag `raceInputWarmup`.
+  During warm-up the race box is enabled + auto-focused on desktop, the chat
+  composer hides, and the quote paints against local input - but nothing is sent:
+  `beforeinput` and `sendProgress` allow typing when `raceInputWarmup` yet
+  `sendProgress` returns before `room.send` (the server ignores pre-race input
+  regardless), and the caret-blink interval paints during warm-up too. The box is
+  wiped whenever warm-up ends (`warmupWasLive && !warmupLive`) - the gun, a
+  cancelled countdown, or toggling it off - so the real attempt always starts at
+  char 0 and no residue lingers; guarded so it never touches a mid-race reconnect's
+  resumed `committed`. type-anywhere-to-chat also stands down during warm-up.
+  Separately: when a race goes live for you (`iCanType && !raceInputWasLive`), any
+  half-typed chat message is cleared so it can't resurface after the race. With
+  warm-up OFF (default) the countdown behaves as before - keystrokes go to chat.
+  Follow-up fix: the warm-up branch of `sendProgress` returned early, before the
+  two lines the live path runs after painting - so during practice the caret
+  blinked immediately (stale `lastKeystrokeAt`) and the "Type the text above as
+  soon as the race starts!" line lingered until the next countdown tick. The
+  branch now stamps `lastKeystrokeAt = Date.now()` (caret stays solid while typing,
+  blinks only after idle, exactly like a live race) and calls `refreshStartHint()`
+  (the get-ready line clears on the first practice keystroke).
+- 2026-09-04: Caret vanishes on completion. `paintQuote` now passes
+  `showCursor = !(full === quote)`, so once the whole quote is typed correctly
+  the caret disappears (warm-up and live race alike) - matching the finished
+  racer's documented "nothing left to point at". Exact match only: an earlier
+  mistake or overtyping leaves `full !== quote`, so the caret stays to show the
+  attempt isn't done (preserving renderQuote's park-at-end slot).

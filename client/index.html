@@ -1050,6 +1050,10 @@
        them, status lines never leave this tab. */
     .chat-msg-system, .chat-msg-status { color: #8c7a5f; font-style: italic; }
     #chatForm { display: flex; gap: 8px; padding-right: 16px; }
+    /* While the race is live and the typing box owns the keyboard, the chat
+       composer stands down (see render()) so a keystroke can't land in the
+       wrong field. The message log above stays visible. */
+    #chatForm[data-hidden="1"] { display: none; }
     #chatInput {
       flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px;
       background: #16130d; border: 1px solid #4a3b29; color: #ece4d6;
@@ -2174,6 +2178,13 @@
                 </div>
                 <button id="wpmToggle" class="switch" type="button" role="switch" aria-label="Large WPM display"></button>
               </div>
+              <div class="settings-row settings-row-toggle" data-switch="warmupToggle">
+                <div class="settings-text">
+                  <div class="settings-label">Warm-up typing</div>
+                  <div class="settings-hint">Practice the text during the countdown; it clears when the race starts.</div>
+                </div>
+                <button id="warmupToggle" class="switch" type="button" role="switch" aria-label="Warm-up typing"></button>
+              </div>
             </div>
 
             <div class="settings-group">
@@ -3168,6 +3179,7 @@
     const readoutTop    = document.getElementById("readoutTop");
     const readoutBottom = document.getElementById("readoutBottom");
     const wpmToggle   = document.getElementById("wpmToggle");
+    const warmupToggle = document.getElementById("warmupToggle");
     const raceTimer   = document.getElementById("raceTimer");
     const statusSlot  = document.getElementById("statusSlot");
     const leaderboard = document.getElementById("leaderboard");
@@ -3254,8 +3266,45 @@
     // width. Only an actual touch device - where focusing an input does not
     // raise a keyboard, because only a tap can - takes the hands-off path.
     // A touchscreen laptop reports its mouse as the primary pointer and so
-    // correctly reads as non-touch here.
+    // SHOULD read as non-touch here - but that isn't reliable. On hybrid
+    // Windows devices the browser answers this query for the pointer it thinks
+    // is CURRENT, not a fixed one, and its first synchronous read on load can
+    // be stale and self-correct later without firing a `change` event (the same
+    // hazard placeJoinButton documents). The bug that surfaced: a PC user
+    // working entirely with a mouse would, the moment the typing box blurred
+    // (clicking the sidebar, holding the mouse down on the arena), be shown the
+    // phone-only "Tap anywhere to type" hint - the query had quietly flipped to
+    // coarse behind their back.
     const touchInput = window.matchMedia("(hover: none) and (pointer: coarse)");
+
+    // So the media query is only the FALLBACK. Once we've actually seen which
+    // device a pointer event came from, that answer wins: a real mouse event
+    // means desktop behaviour (auto-focus, no tap hint) no matter what the
+    // query later claims, and a real touch/pen event means the hands-off path.
+    // A genuine touch-only device never fires a mouse event, so it stays on the
+    // fallback and behaves exactly as before. `isTouchMode()` is the single
+    // question the focus/keyboard/hint logic below asks - never `touchInput`
+    // directly - so the whole app tracks the pointer actually in use.
+    let pointerKind = null; // "mouse" | "touch" | null (nothing observed yet)
+    function isTouchMode() {
+      if (pointerKind === "mouse") return false;
+      if (pointerKind === "touch") return true;
+      return touchInput.matches;
+    }
+    // Latch the pointer kind from real events and, when it changes, re-run the
+    // touch-dependent UI: render() re-applies focus/keyboard/box state from the
+    // room's current state, and refreshTapHint covers the pre-connect case.
+    // pointerdown catches the click that triggered the bug; pointermove catches
+    // a mouse that's only being moved, so we switch to desktop mode before the
+    // first click even lands.
+    function notePointer(e) {
+      const kind = e.pointerType === "mouse" ? "mouse" : "touch";
+      if (kind === pointerKind) return;
+      pointerKind = kind;
+      if (room) render(room.state); else refreshTapHint();
+    }
+    window.addEventListener("pointerdown", notePointer, { capture: true, passive: true });
+    window.addEventListener("pointermove", notePointer, { capture: true, passive: true });
 
     // "May I type right now" and "is the box waiting for the race to start",
     // both written by render() from the room's actual phase. On desktop these
@@ -3265,6 +3314,11 @@
     // are what the typing guards read instead.
     let raceInputLive = false;
     let raceInputArmed = false;
+    // Warm-up typing is active right now: a racer practicing against the quote
+    // during the countdown (opt-in Setting - see warmupEnabled). Read by the
+    // typing guards (beforeinput/sendProgress) and the type-anywhere handler so
+    // countdown keystrokes land in the race box, painted locally but never sent.
+    let raceInputWarmup = false;
 
     // The race went live for us at this wall-clock time (0 when it isn't). Once
     // it's been idle this long with nothing typed, the "Start typing" nudge
@@ -3454,7 +3508,7 @@
     let composingBlurTimer = null;
     function setComposing(on) {
       if (composingBlurTimer) { clearTimeout(composingBlurTimer); composingBlurTimer = null; }
-      const next = on && touchInput.matches ? "1" : "0";
+      const next = on && isTouchMode() ? "1" : "0";
       const prev = sidebarEl.dataset.composing;
       if (prev === next) return;
       sidebarEl.dataset.composing = next;
@@ -3478,6 +3532,40 @@
         composingBlurTimer = null;
         setComposing(false);
       }, 150);
+    });
+
+    // Type-anywhere-to-chat: whenever you're not the one racing, a printable
+    // keystroke that isn't aimed at any control drops straight into the chat
+    // composer and starts the message there - so idle time (waiting, countdown,
+    // spectating, results) behaves as if the chat box were always focused,
+    // without literally holding focus and fighting every click. The keydown's
+    // own character then lands in the freshly focused input on its own, so we
+    // neither preventDefault nor re-inject it (either would drop or double it).
+    document.addEventListener("keydown", (e) => {
+      // Touch never auto-focuses anything (a keyboard with no tap behind it is
+      // worse than useless), and a real keyboard drives the race box while
+      // racing OR warming up during the countdown - those keystrokes are the
+      // race's, not chat's.
+      if (isTouchMode() || raceInputLive || raceInputWarmup) return;
+      // Not a plain character: modifiers are shortcuts, and Enter/Backspace/Tab/
+      // arrows (key.length !== 1) must keep their normal meaning.
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return;
+      // The composer has to actually be available (it's hidden mid-race).
+      if (chatForm.dataset.hidden === "1") return;
+      const el = document.activeElement;
+      // Another text field already owns the keyboard - the chat box itself, or a
+      // popover's field (settings name, emoji search) - so never hijack from one.
+      const tag = el && el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (el && el.isContentEditable)) return;
+      // Space (and only Space) still activates a focused button/link/toggle - in
+      // particular the Join button keeps focus after a click, and Space is how a
+      // keyboard user works it - so leave that one key to it. Every other
+      // printable char, even on a focused button, is fair game for chat: buttons
+      // do nothing with letters, so routing them to the composer is exactly what
+      // "type anywhere to chat" should do (this is what let a click on Join
+      // swallow your next keystrokes instead of starting a chat message).
+      if (e.key === " " && el && el !== document.body) return;
+      chatInput.focus();
     });
 
     lobbyToggle.onclick = () => setSheetOpen(!sheetOpen);
@@ -3568,7 +3656,7 @@
       // (keyboard-down moments) and `touchInput` never changes, so the merged
       // state is constant for a whole racing session and never moves mid-typing.
       const merged = compactLayout.matches && raceInputShowing &&
-                     (shortLayout.matches || touchInput.matches);
+                     (shortLayout.matches || isTouchMode());
       document.documentElement.dataset.raceBar = merged ? "1" : "0";
       if (merged) {
         // Into the Join button's slot (before the chat toggle). Idempotent.
@@ -3963,7 +4051,7 @@
     // nothing to tap for there - the next race isn't up yet, and prompting for
     // one would be asking the racer to do something pointless.
     function refreshTapHint() {
-      const show = touchInput.matches &&
+      const show = isTouchMode() &&
                    raceInputArmed &&
                    document.activeElement !== typeInput;
       tapHintWrap.dataset.hint = show ? "1" : "0";
@@ -4023,7 +4111,7 @@
     // anything with a keyboard has already been auto-focused, and a click there
     // is as likely to be someone selecting the text to read it.
     arenaEl.addEventListener("click", (e) => {
-      if (!touchInput.matches || typeInput.disabled) return;
+      if (!isTouchMode() || typeInput.disabled) return;
       if (e.target === typeInput) return; // the box handles its own
       typeInput.focus();
     });
@@ -4157,6 +4245,12 @@
     // second already ticked, and the phase seen on the previous patch.
     let lastTickSecond = null;
     let lastPhase = null;
+    // Was the typing box live for us on the previous patch? Drives the auto-focus
+    // of the chat composer the instant a race ends for us (see render()).
+    let raceInputWasLive = false;
+    // Was warm-up typing active on the previous patch? Used to wipe the practice
+    // text exactly once, on the countdown->racing handoff (see render()).
+    let warmupWasLive = false;
 
     // Word-at-a-time typing: `committed` is everything already locked in (always
     // an exact prefix of the quote, ending right after a space); `typeInput`
@@ -4383,14 +4477,14 @@
       // Desktop is deliberately excluded: focus there is render()'s to give
       // back to the typing box mid-race, and taking it for the chat instead
       // would change how sending a message behaves while racing.
-      if (touchInput.matches) chatInput.focus();
+      if (isTouchMode()) chatInput.focus();
     });
 
     // Tapping Send moves focus to the button, which blurs the input and drops
     // the keyboard before submit even runs. Buttons don't need focus to be
     // activated, so decline it and let the field keep it.
     chatForm.addEventListener("pointerdown", (e) => {
-      if (!touchInput.matches) return;
+      if (!isTouchMode()) return;
       if (e.target.closest(".btn-send") && document.activeElement === chatInput) {
         e.preventDefault();
       }
@@ -5066,6 +5160,14 @@
       // zero effect before then, and the server ignores typeProgress outside
       // "racing" regardless.
       const inputArmed = iAmRacing && state.phase !== "finished" && !(me && me.finished);
+      // Warm-up typing (opt-in Setting): during the countdown a racer may type
+      // along with the quote as practice. It's purely local - sendProgress sends
+      // nothing before the race is live, and the box is wiped at the gun below -
+      // so it never touches the server or anyone's start position. Only during
+      // "countdown" (never "waiting", where there's nothing imminent to warm up
+      // for), and only for someone actually in the race being set up.
+      const warmupLive = warmupEnabled && state.phase === "countdown" && inputArmed;
+      raceInputWarmup = warmupLive;
       // Touch devices only. A browser will not open the on-screen keyboard
       // without a real tap, and the race starts on a server event, so there is
       // no gesture to open it with at that moment. What CAN be done is never
@@ -5075,7 +5177,7 @@
       // countdown, which turns "tap the box before every race" into "tap it
       // once when you join". The guards in beforeinput/sendProgress are what
       // keep it inert while it's parked like this.
-      const keyboardParked = touchInput.matches && iAmRacing && !inputArmed;
+      const keyboardParked = isTouchMode() && iAmRacing && !inputArmed;
       const showInputBox = inputArmed || keyboardParked;
       typeInput.dataset.visible = showInputBox ? "1" : "0";
       inputWrap.dataset.visible = showInputBox ? "1" : "0";
@@ -5086,16 +5188,35 @@
       // Join button, not the input - so the DOM move here never drops it.)
       raceInputShowing = showInputBox;
       placeInputBar();
-      // `disabled` is what blocks typing outside a live race on desktop, and
-      // that is left exactly as it was. It cannot be used on touch: disabling
-      // a focused element blurs it and drops the keyboard, which is the whole
-      // thing being avoided here.
-      typeInput.disabled = touchInput.matches ? !showInputBox : !iCanType;
+      // `disabled` is what blocks typing outside a live race on desktop. It
+      // cannot be used on touch: disabling a focused element blurs it and drops
+      // the keyboard, which is the whole thing being avoided here. Warm-up needs
+      // the box actually typeable during the countdown, so on desktop it's
+      // enabled for iCanType OR warmupLive (touch keeps its own showInputBox
+      // rule - the box is already enabled there to hold the keyboard, and
+      // beforeinput/sendProgress gate what warm-up does with it).
+      typeInput.disabled = isTouchMode() ? !showInputBox : !(iCanType || warmupLive);
       // Read by the guards and by refreshTapHint, so that "may I type right
       // now" is answered by the race's actual state rather than by the
       // element's `disabled` flag, which no longer means that on touch.
       raceInputLive = iCanType;
       raceInputArmed = inputArmed;
+
+      // Warm-up just ended - the countdown reached the gun (now "racing"), was
+      // cancelled back to "waiting", or the racer toggled the Setting off. Wipe
+      // the practice text either way, so the real attempt starts from char 0 and
+      // no residue lingers in a now-inert box. Nothing was ever sent (the server
+      // ignores pre-race input), so clearing keeps client and server agreeing at
+      // 0. Guarded on warmupWasLive so it fires only after an actual warm-up -
+      // never on the ordinary countdown->racing edge (the box was empty) or a
+      // mid-race reconnect (whose resumed `committed` must survive).
+      if (warmupWasLive && !warmupLive) {
+        typeInput.value = "";
+        committed = "";
+        typedThisRace = false;
+        resetErrorState();
+      }
+      warmupWasLive = warmupLive;
 
       // Arm the idle-start clock the instant the race goes live for us, and tear
       // it down the moment we can't type any more (race over, we finished, we
@@ -5120,8 +5241,14 @@
         } else {
           renderQuote(state.quote, "", null, null, false);
         }
+      } else if (warmupLive) {
+        // Warm-up practice during the countdown: color the quote against the
+        // local box exactly like a live race. It's all cosmetic and local (see
+        // sendProgress) and gets wiped at the gun.
+        quoteEl.dataset.placeholder = "0";
+        paintQuote(state.quote);
       } else {
-        // "waiting" or "countdown": no one's typing yet, plain text only.
+        // "waiting" or "countdown" (no warm-up): no one's typing yet, plain text.
         quoteEl.dataset.placeholder = "0";
         renderQuote(state.quote, "", null, null, false);
       }
@@ -5143,9 +5270,36 @@
       // telling the racer what to do about that. A narrow desktop window has a
       // real keyboard and must still auto-focus: having to click into the box
       // every time the countdown ends makes the race unplayable.
-      if (iCanType && !inPopover && !touchInput.matches && document.activeElement !== typeInput) {
+      // Warm-up gets the same auto-focus as a live race, so countdown keystrokes
+      // land in the box being practiced in rather than nowhere.
+      if ((iCanType || warmupLive) && !inPopover && !isTouchMode() && document.activeElement !== typeInput) {
         typeInput.focus();
       }
+      // With the race live (or a warm-up underway), the typing box owns the
+      // keyboard, so the chat composer stands down - hiding it keeps a stray
+      // keystroke from landing in the wrong field. Setting display:none on a
+      // focused #chatInput blurs it, which fires its blur handler and ends any
+      // composing state. The message log above stays put; the composer returns
+      // the moment the box no longer owns the keyboard (results, dropping to
+      // spectate, next lobby, or a countdown with warm-up off).
+      chatForm.dataset.hidden = (iCanType || warmupLive) ? "1" : "0";
+      // The race just went live for us: the composer is about to hide, so drop
+      // any half-typed chat message rather than leaving it to resurface after
+      // the race (or be sent then). Only on the gun edge (was not live, now is),
+      // so a draft written while merely waiting survives until the race starts.
+      if (iCanType && !raceInputWasLive && chatInput.value !== "") {
+        chatInput.value = "";
+      }
+      // The instant the race ends for us (typing box was live, now isn't), hand
+      // focus to the chat composer that just reappeared - so you can talk about
+      // the race without clicking into the box first. Same guards as the typing
+      // auto-focus above: never on touch (a keyboard with no tap behind it is
+      // worse than useless), and never while a popover owns a text field.
+      if (raceInputWasLive && !iCanType && !inPopover && !isTouchMode() &&
+          chatForm.dataset.hidden !== "1") {
+        chatInput.focus();
+      }
+      raceInputWasLive = iCanType;
       refreshTapHint();
       refreshStartHint(); // after refreshTapHint: it reads the tap hint's state
 
@@ -5376,7 +5530,13 @@
     function paintQuote(quote) {
       const full = committed + typeInput.value;
       const [selStart, selEnd] = currentSelectionRange();
-      renderQuote(quote, full, selStart, selEnd, true);
+      // Drop the caret once the whole quote has been typed correctly - you've
+      // reached the end, so there's nothing left to point at (same as a finished
+      // racer). This is an EXACT match only: sitting at the end with an earlier
+      // mistake, or overtyping past it, leaves `full !== quote`, so the caret
+      // stays to show the attempt isn't actually done.
+      const done = full === quote;
+      renderQuote(quote, full, selStart, selEnd, !done);
     }
 
     // A stable fingerprint of a people list, so a roster that hasn't actually
@@ -6107,7 +6267,7 @@
       // up, and if the join can't seat us it drops it again. This runs AFTER
       // setSheetOpen, whose modal-close hands focus back to the opener button -
       // focusing here last is what wins and keeps the keyboard tied to the input.
-      if (touchInput.matches && !iAmIn && joinSeatsNow) {
+      if (isTouchMode() && !iAmIn && joinSeatsNow) {
         raceInputShowing = true;
         inputWrap.dataset.visible = "1";
         typeInput.dataset.visible = "1";
@@ -6116,6 +6276,25 @@
         typeInput.focus();
       }
     };
+
+    // Escape backs you out of the race - the keyboard counterpart to the Join
+    // button's "Spectate"/"Leave" state and the in-input Leave control. Works
+    // from any opted-in state (a live race, a reserved next-race slot, or the
+    // race queue); the server allows backing out of all three, mid-race
+    // included (see RaceRoom's setStatus). `joinBtn.dataset.racing` already
+    // tracks exactly those three states, so we read it rather than recompute.
+    //
+    // Capture phase, so this runs BEFORE the bubble-phase Escape closers below
+    // (emoji picker / settings / compact sheet). When one of those is open,
+    // Escape means "close that" and we stand down here, letting its own handler
+    // run - so a single Escape never both closes a popover AND drops the race.
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !room) return;
+      if (emojiPicker.dataset.open === "1" || settingsPanel.dataset.open === "1" || sheetOpen) return;
+      if (joinBtn.dataset.racing !== "1") return; // not opted in - nothing to leave
+      e.preventDefault();
+      room.send("setStatus", { racing: false });
+    }, true);
 
     // Always available, regardless of phase or whether we're racing or
     // spectating (see RaceRoom.ts's "switchLobby" handler) - the server
@@ -7674,7 +7853,7 @@
       // The search box is still right there to tap. Narrowing a desktop window
       // changes nothing about this: it still has a keyboard, so typing is still
       // the fastest way in.
-      if (!touchInput.matches) emojiSearch.focus();
+      if (!isTouchMode()) emojiSearch.focus();
     }
 
     function closeEmojiPicker() {
@@ -7852,6 +8031,25 @@
       localStorage.setItem(WPM_KEY, showWpm ? "1" : "0");
       applyWpmToggleUi();
       if (room) render(room.state); // reflect immediately
+    };
+
+    // Warm-up typing toggle (Settings). When on, a racer can type along with the
+    // quote during the countdown as practice - purely local, nothing sent to the
+    // server (which ignores pre-race input anyway), wiped the instant the race
+    // goes live so everyone still starts from zero. OFF by default: most people
+    // would rather the countdown's keystrokes go to chat (see type-anywhere).
+    const WARMUP_KEY = "typingRace.warmup";
+    let warmupEnabled = localStorage.getItem(WARMUP_KEY) === "1";
+    function applyWarmupToggleUi() {
+      warmupToggle.dataset.on = warmupEnabled ? "1" : "0";
+      warmupToggle.setAttribute("aria-checked", warmupEnabled ? "true" : "false");
+    }
+    applyWarmupToggleUi();
+    warmupToggle.onclick = () => {
+      warmupEnabled = !warmupEnabled;
+      localStorage.setItem(WARMUP_KEY, warmupEnabled ? "1" : "0");
+      applyWarmupToggleUi();
+      if (room) render(room.state); // reflect immediately (enable/disable the box)
     };
 
     // Track display picker (Settings): "default" (a stacked track per racer,
@@ -8239,7 +8437,26 @@
       // first real keystroke - scoring most of a quote in one message. Clearing
       // rather than just returning is deliberate: it must not survive to be
       // sent later either.
-      if (!raceInputLive) { typeInput.value = ""; return; }
+      if (!raceInputLive) {
+        // Warm-up (countdown practice): behave exactly like the live path below
+        // EXCEPT for the server send - paint locally, but send NOTHING (the
+        // server ignores pre-race input) and DON'T clear (render() wipes at the
+        // gun). `lastKeystrokeAt` is stamped so the caret stays solid while
+        // typing and only blinks after idle, just like a real race; and
+        // refreshStartHint() runs so the "get ready" line vanishes on the very
+        // first keystroke rather than lingering until the next countdown tick.
+        if (raceInputWarmup) {
+          lastKeystrokeAt = Date.now();
+          const quote = room.state.quote;
+          absorbCorrectWords(quote);
+          enforceErrorCap(quote);
+          paintQuote(quote);
+          refreshStartHint();
+          return;
+        }
+        typeInput.value = "";
+        return;
+      }
       lastKeystrokeAt = Date.now();
       const quote = room.state.quote;
       absorbCorrectWords(quote);
@@ -8397,9 +8614,11 @@
       // The box is left enabled outside a live race on touch (see
       // keyboardParked) purely so the keyboard stays up. This is what makes it
       // inert. It blocks EVERY input type, not just insertions: with nothing
-      // able to go in there is nothing to delete either, and pre-typing the
-      // quote during the countdown must not be able to carry into the race.
-      if (!raceInputLive) { e.preventDefault(); return; }
+      // able to go in there is nothing to delete either. The one exception is an
+      // active warm-up (countdown practice), which is allowed to type freely -
+      // sendProgress paints it locally and sends nothing, and render() wipes it
+      // at the gun, so it still can't carry into the race.
+      if (!raceInputLive && !raceInputWarmup) { e.preventDefault(); return; }
       if (!e.inputType || !e.inputType.startsWith("insert")) return;
 
       const value = typeInput.value;
@@ -8425,8 +8644,9 @@
       // raceInputLive, not !typeInput.disabled: identical on desktop, but on
       // touch the box is enabled outside a live race to hold the keyboard, and
       // a caret must not start blinking on the quote during the countdown or
-      // the results screen.
-      if (room && raceInputLive && typeInput.dataset.visible === "1") {
+      // the results screen. An active warm-up is the deliberate exception - it
+      // wants the live caret while practicing.
+      if (room && (raceInputLive || raceInputWarmup) && typeInput.dataset.visible === "1") {
         paintQuote(room.state.quote);
       }
     }, 150);
