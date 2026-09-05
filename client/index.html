@@ -554,6 +554,10 @@
       display: none; position: relative; width: 100%; height: 14px;
     }
     #leaderboard[data-mode="shared"] #sharedTrack { display: block; }
+    /* Match "All tracks", which simply renders no rows when there's no one to
+       show: with an empty roster the shared track would otherwise sit there as a
+       bare rail. Hide it until at least one racer exists (see render). */
+    #leaderboard[data-mode="shared"][data-shared-empty="1"] #sharedTrack { display: none; }
     /* Square, not pill-shaped, to match the carets riding on it - those are
        straight bars too, so rounding just the track would clash. */
     #sharedTrackBase { height: 100%; background: #33291d; }
@@ -2302,6 +2306,15 @@
                 <div class="settings-label">Racer markers</div>
                 <div class="settings-hint">Ride a caret with the emoji above it, or sit the emoji straight on the track.</div>
                 <div id="sharedMarkerGroup" class="segmented" role="radiogroup" aria-label="Racer markers">
+                  <!-- Emoji is the default marker (see sharedMarker below), so it
+                       leads the group. -->
+                  <button type="button" class="segmented-btn" data-marker="emoji" role="radio" aria-checked="false">
+                    <span class="seg-glyph"><svg viewBox="0 0 26 14" aria-hidden="true">
+                      <rect x="0" y="9" width="26" height="3" rx="1.5"/>
+                      <circle cx="13" cy="7" r="4"/>
+                    </svg></span>
+                    <span>Emoji</span>
+                  </button>
                   <button type="button" class="segmented-btn" data-marker="caret" role="radio" aria-checked="false">
                     <span class="seg-glyph"><svg viewBox="0 0 26 14" aria-hidden="true">
                       <rect x="0" y="10" width="26" height="3" rx="1.5"/>
@@ -2309,13 +2322,6 @@
                       <circle cx="13" cy="3" r="3"/>
                     </svg></span>
                     <span>Caret</span>
-                  </button>
-                  <button type="button" class="segmented-btn" data-marker="emoji" role="radio" aria-checked="false">
-                    <span class="seg-glyph"><svg viewBox="0 0 26 14" aria-hidden="true">
-                      <rect x="0" y="9" width="26" height="3" rx="1.5"/>
-                      <circle cx="13" cy="7" r="4"/>
-                    </svg></span>
-                    <span>Emoji</span>
                   </button>
                 </div>
               </div>
@@ -2703,55 +2709,52 @@
     const USERNAME_KEY = "typingRace.username";
 
     // Randomly generated names combine one word from each list, e.g.
-    // "Misty Flint". Both lists are deliberately wholesome and neutral so that
-    // EVERY adjective+noun pairing is inoffensive - keep it that way when
-    // adding words. The lists are also big enough (~130 x ~150 = ~19k combos)
-    // that two people landing on the same name in one room is vanishingly rare
-    // (well under 1% even in a crowded lobby). Kept short so "Adjective Noun"
-    // never exceeds the 20-char username cap.
+    // "Sunny Meadow". Both lists are deliberately built from COMMON, everyday
+    // words - plain colors, moods, weather, places, plants and familiar animals -
+    // so a generated name always reads as something a person recognizes, never an
+    // obscure term ("Sonic Nautilus"). Both lists are also deliberately wholesome
+    // and neutral so that EVERY adjective+noun pairing is inoffensive - keep both
+    // of those properties (common AND clean) in mind when adding words. The lists
+    // are big enough (120 x 130 = 15,600 combos) that two people landing on the
+    // same name in one room is vanishingly rare (well under 1% even in a crowded
+    // lobby). Kept short so "Adjective Noun" never exceeds the 20-char cap.
     const NAME_ADJECTIVES = [
-      "Swift", "Nimble", "Rapid", "Brisk", "Quick", "Fleet", "Speedy", "Zippy",
-      "Turbo", "Blazing", "Racing", "Dashing", "Darting", "Bounding", "Soaring",
-      "Gliding", "Whirling", "Bustling", "Bright", "Shining", "Radiant",
-      "Gleaming", "Glowing", "Sunny", "Golden", "Silver", "Crimson", "Scarlet",
-      "Azure", "Cobalt", "Indigo", "Violet", "Amber", "Jade", "Emerald",
-      "Coral", "Ivory", "Pearly", "Rosy", "Sunlit", "Starlit", "Moonlit",
-      "Cosmic", "Stellar", "Lunar", "Solar", "Astral", "Electric", "Magnetic",
-      "Kinetic", "Sonic", "Atomic", "Frosty", "Icy", "Snowy", "Misty",
-      "Breezy", "Stormy", "Fiery", "Smoky", "Bold", "Brave", "Daring",
-      "Valiant", "Gallant", "Mighty", "Noble", "Regal", "Grand", "Epic",
-      "Prime", "Heroic", "Fearless", "Dauntless", "Stalwart", "Steadfast",
-      "Loyal", "Trusty", "Merry", "Jolly", "Cheery", "Chipper", "Jovial",
-      "Lively", "Spry", "Perky", "Feisty", "Plucky", "Peppy", "Bubbly",
-      "Sprightly", "Jaunty", "Buoyant", "Witty", "Clever", "Canny", "Sharp",
-      "Keen", "Wise", "Sage", "Astute", "Curious", "Eager", "Crafty",
-      "Quirky", "Snappy", "Dapper", "Calm", "Serene", "Tranquil", "Placid",
-      "Mellow", "Gentle", "Cozy", "Snug", "Velvet", "Silken", "Downy",
-      "Fluffy", "Dreamy", "Quiet", "Humble", "Tidy", "Neat", "Dandy",
-      "Verdant", "Lush", "Mossy", "Leafy", "Dewy", "Alpine", "Rustic",
+      "Swift", "Quick", "Fast", "Speedy", "Nimble", "Brisk", "Rapid", "Zippy",
+      "Racing", "Dashing", "Happy", "Jolly", "Merry", "Cheery", "Sunny",
+      "Lively", "Peppy", "Bouncy", "Chipper", "Snappy", "Calm", "Quiet",
+      "Gentle", "Cozy", "Snug", "Mellow", "Soft", "Smooth", "Tidy", "Neat",
+      "Brave", "Bold", "Mighty", "Grand", "Noble", "Royal", "Proud", "Lucky",
+      "Daring", "Heroic", "Clever", "Smart", "Wise", "Keen", "Eager",
+      "Curious", "Witty", "Sharp", "Handy", "Bright", "Sweet", "Kind", "Nice",
+      "Fair", "Good", "Jovial", "Cheeky", "Playful", "Friendly", "Silly",
+      "Funny", "Wild", "Free", "Busy", "Fancy", "Dandy", "Jaunty", "Spry",
+      "Perky", "Shiny", "Sparkly", "Glowing", "Golden", "Silver", "Radiant",
+      "Starry", "Cosmic", "Lunar", "Solar", "Stellar", "Red", "Blue", "Green",
+      "Yellow", "Orange", "Purple", "Pink", "Amber", "Coral", "Teal",
+      "Crimson", "Scarlet", "Violet", "Azure", "Jade", "Ivory", "Rosy", "Ruby",
+      "Emerald", "Warm", "Cool", "Fresh", "Clean", "Pure", "Rare", "Frosty",
+      "Icy", "Snowy", "Misty", "Breezy", "Cloudy", "Rainy", "Windy", "Dusty",
+      "Sandy", "Rocky", "Leafy", "Grassy", "Dewy", "Dreamy",
     ];
     const NAME_NOUNS = [
-      "Falcon", "Hawk", "Eagle", "Owl", "Raven", "Robin", "Sparrow", "Finch",
-      "Heron", "Crane", "Swan", "Lark", "Wren", "Kestrel", "Osprey", "Condor",
-      "Magpie", "Starling", "Swallow", "Puffin", "Toucan", "Pelican", "Ibis",
-      "Egret", "Fox", "Wolf", "Otter", "Beaver", "Badger", "Marten", "Lynx",
-      "Puma", "Cougar", "Panther", "Leopard", "Cheetah", "Jaguar", "Tiger",
-      "Lion", "Bear", "Bison", "Moose", "Elk", "Stag", "Ibex", "Gazelle",
-      "Antelope", "Mustang", "Stallion", "Bobcat", "Ocelot", "Ferret",
-      "Marmot", "Meerkat", "Hare", "Rabbit", "Squirrel", "Chipmunk", "Raccoon",
-      "Koala", "Panda", "Wombat", "Hedgehog", "Dolphin", "Orca", "Whale",
-      "Seal", "Marlin", "Salmon", "Trout", "Manta", "Nautilus", "Narwhal",
-      "Seahorse", "Starfish", "Urchin", "Gecko", "Iguana", "Cobra", "Viper",
-      "Python", "Mamba", "Dragon", "Griffin", "Phoenix", "Pegasus", "Hydra",
-      "Sphinx", "Wyvern", "Kraken", "Golem", "Comet", "Meteor", "Nova",
-      "Quasar", "Nebula", "Galaxy", "Cosmos", "Aurora", "Eclipse", "Zenith",
-      "Orbit", "Pulsar", "Halo", "Vertex", "Vortex", "Cyclone", "Tempest",
-      "Typhoon", "Blizzard", "Thunder", "Ember", "Cinder", "Blaze", "Spark",
-      "Glacier", "Summit", "Canyon", "Mesa", "Ridge", "Meadow", "Grove",
-      "Willow", "Cedar", "Birch", "Maple", "Aspen", "Alder", "Cypress",
-      "Juniper", "Fern", "Ivy", "Lotus", "Lily", "Poppy", "Daisy", "Clover",
-      "Opal", "Onyx", "Topaz", "Garnet", "Beryl", "Pearl", "Quartz", "Flint",
-      "Slate", "Jasper", "Agate", "Citrine",
+      "Sky", "Moon", "Sun", "Star", "Cloud", "Rain", "Snow", "Storm", "Wind",
+      "Breeze", "Dawn", "Dusk", "Sunset", "Sunrise", "Comet", "Meteor",
+      "Planet", "Galaxy", "Aurora", "Rainbow", "Street", "Road", "Path",
+      "Trail", "River", "Lake", "Ocean", "Sea", "Bay", "Beach", "Island",
+      "Mountain", "Hill", "Valley", "Forest", "Meadow", "Garden", "Field",
+      "Canyon", "Cliff", "Cave", "Harbor", "Bridge", "Tower", "Castle",
+      "Village", "Cabin", "Windmill", "Fountain", "Grove", "Tree", "Flower",
+      "Rose", "Daisy", "Lily", "Tulip", "Maple", "Willow", "Cedar", "Pine",
+      "Fern", "Leaf", "Vine", "Clover", "Petal", "Blossom", "Acorn", "Sprout",
+      "Berry", "Cherry", "Apple", "Peach", "Plum", "Lemon", "Honey", "Biscuit",
+      "Lantern", "Candle", "Compass", "Anchor", "Kite", "Balloon", "Rocket",
+      "Arrow", "Feather", "Pebble", "Marble", "Button", "Ribbon", "Bell",
+      "Drum", "Lamp", "Clock", "Coin", "Mirror", "Puzzle", "Fox", "Wolf",
+      "Bear", "Deer", "Rabbit", "Otter", "Owl", "Hawk", "Eagle", "Robin",
+      "Sparrow", "Swan", "Duck", "Pony", "Panda", "Koala", "Tiger", "Lion",
+      "Dolphin", "Whale", "Seal", "Turtle", "Frog", "Ladybug", "Squirrel",
+      "Hedgehog", "Badger", "Falcon", "Raven", "Heron", "Crane", "Finch",
+      "Wren", "Lark",
     ];
 
     function randomFrom(list) {
@@ -5202,7 +5205,13 @@
       fillNames(spectatorsList, spectators, "No one watching", peopleSignature(spectators));
       racerCountEl.textContent = `${state.racerCount} / ${MAX_RACERS}`;
       spectatorCountEl.textContent = spectators.length;
-      if (em === "shared") fillSharedTrack(trackEntries);
+      if (em === "shared") {
+        // Empty roster -> no track at all, so it matches "All tracks" (which
+        // just renders no rows) instead of showing a bare rail. See the
+        // [data-shared-empty] CSS above.
+        leaderboard.dataset.sharedEmpty = trackEntries.length === 0 ? "1" : "0";
+        fillSharedTrack(trackEntries);
+      }
       else if (em === "default") {
         // Live position ordering (Settings > Live positions) applies only
         // while a race is actually running: before it the join order stands,
@@ -8250,8 +8259,12 @@
       regenName.classList.remove("spinning");
       void regenName.offsetWidth;
       regenName.classList.add("spinning");
+      // Focus the field but DON'T select the text: a highlighted name reads as
+      // "about to be replaced" and looks like an accidental selection. Drop the
+      // caret at the end instead so it behaves like you just finished typing it.
       settingsUsername.focus();
-      settingsUsername.select();
+      const end = settingsUsername.value.length;
+      settingsUsername.setSelectionRange(end, end);
     });
     regenName.addEventListener("animationend", () => regenName.classList.remove("spinning"));
 

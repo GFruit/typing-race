@@ -3726,3 +3726,16 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   current value) with one motion-safe spin; it fills the field rather than saving
   immediately, so it commits like any name edit - on Enter or when Settings
   closes. Refactored the first-visit generator to share `generateRandomName()`.
+- 2026-09-05: Settings/track polish (client-only, no schema changes). (1) Rolling
+  a new random name no longer selects the field text - it focuses and drops the
+  caret at the end instead, so the freshly rolled name isn't left highlighted.
+  (2) The "Shared" track now hides its rail entirely when no one has joined
+  (`leaderboard.dataset.sharedEmpty` + a `[data-shared-empty="1"]` CSS rule),
+  matching "All tracks" (which just renders no rows) rather than showing a bare
+  empty track. (3) Reordered the "Racer markers" toggle so Emoji (the default)
+  leads and Caret follows. (4) Rebuilt `NAME_ADJECTIVES` (120) and `NAME_NOUNS`
+  (130) from common, everyday words (plain colors, moods, weather, places,
+  plants, familiar animals) so generated names always read as recognizable words
+  - no more obscure terms like "Sonic Nautilus". Still wholesome (every pairing
+  inoffensive), deduped, 15,600 combos, and every "Adjective Noun" stays under
+  the 20-char cap (verified programmatically).
