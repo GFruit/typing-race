@@ -594,6 +594,12 @@
        bar is hidden and the emoji recentered onto the track. fillSharedTrack sets
        a per-racer bar color inline, so hiding it here needs !important. */
     #sharedTrack[data-marker="emoji"] .shared-caret { background: transparent !important; }
+    /* With no caret bars riding on it (see above), the square edges no longer
+       have anything to match, so the track goes pill-shaped like the per-racer
+       "All tracks" rail. overflow:hidden clips the scaleX fill to the rounded
+       ends; the emoji sits on #sharedTrack (a sibling of the base), so it's
+       never clipped by this. */
+    #sharedTrack[data-marker="emoji"] #sharedTrackBase { border-radius: 999px; overflow: hidden; }
     /* The emoji rides directly ON the track and overhangs it top and bottom,
        exactly like the per-racer "All tracks" view (.racer-emoji on
        .racer-track): a 20px glyph on the 14px rail. Compact matches below. */
@@ -8643,8 +8649,8 @@
     // Purely a display preference (see the #sharedTrack[data-marker] CSS and
     // fillSharedTrack) - no schema fields, no room messages.
     const SHARED_MARKER_KEY = "typingRace.sharedMarker";
-    let sharedMarker = localStorage.getItem(SHARED_MARKER_KEY) || "caret";
-    if (!["caret", "emoji"].includes(sharedMarker)) sharedMarker = "caret";
+    let sharedMarker = localStorage.getItem(SHARED_MARKER_KEY) || "emoji";
+    if (!["caret", "emoji"].includes(sharedMarker)) sharedMarker = "emoji";
     const sharedMarkerBtns = Array.from(sharedMarkerGroup.querySelectorAll(".segmented-btn"));
 
     function applySharedMarkerUi() {
