@@ -312,6 +312,51 @@
       #regenName.spinning svg { animation: regen-spin .45s ease-out; }
     }
 
+    /* Background picker (Settings > Background): a drop/upload zone with a live
+       thumbnail, a link field, and a dim slider that appears once an image is
+       set. Shares the dark-inset + cyan-focus idiom of the name field. */
+    .bg-drop {
+      display: flex; align-items: center; gap: 10px;
+      background: #16130d; border: 1px dashed #4a3b29; border-radius: 10px;
+      padding: 8px; cursor: pointer;
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .bg-drop:hover, .bg-drop:focus-visible { border-color: #5ec9c2; outline: none; }
+    .bg-drop[data-drag="1"] { border-style: solid; border-color: #5ec9c2; background: #182420; }
+    .bg-preview {
+      flex-shrink: 0; width: 46px; height: 46px; border-radius: 8px;
+      background: #241c14 center / cover no-repeat; border: 1px solid #33291d;
+      display: grid; place-items: center; color: #6b5940; font-size: 18px;
+    }
+    .bg-preview::before { content: "🖼️"; }
+    .bg-preview[data-has="1"]::before { content: ""; }
+    .bg-drop-body { flex: 1; min-width: 0; }
+    .bg-drop-title { font-size: 12px; color: #c9bba2; font-weight: 600; }
+    .bg-drop-sub { font-size: 11px; color: #6b5940; margin-top: 1px; }
+    .bg-clear {
+      flex-shrink: 0; width: 26px; height: 26px; padding: 0; cursor: pointer;
+      display: grid; place-items: center; font-size: 12px; line-height: 1;
+      background: #33291d; color: #d8cdb8; border: 1px solid #4a3b29; border-radius: 8px;
+    }
+    .bg-clear:hover { background: #4a3b29; color: #ece4d6; }
+    .bg-clear:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 1px; }
+    .bg-url {
+      width: 100%; box-sizing: border-box; margin-top: 8px; padding: 9px 12px;
+      background: #16130d; color: #ece4d6; font: inherit; font-size: 13px;
+      border: 1px solid #4a3b29; border-radius: 10px; outline: none;
+      transition: border-color .15s ease;
+    }
+    .bg-url::placeholder { color: #6b5940; }
+    .bg-url:focus { border-color: #5ec9c2; }
+    .bg-dim-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+    .bg-dim-row .settings-label { flex-shrink: 0; }
+    .bg-dim { flex: 1; accent-color: #e2603f; cursor: pointer; }
+    #panelSeeThruValue {
+      flex-shrink: 0; min-width: 34px; text-align: right; font-size: 11px;
+      color: #b4a487; font-variant-numeric: tabular-nums;
+    }
+    .bg-error { font-size: 11px; color: #f0876a; margin-top: 6px; }
+
     /* On/off slider switch (Large WPM display, Show racers on text, Sound cues). */
     .switch {
       position: relative; flex-shrink: 0; width: 40px; height: 22px;
@@ -425,6 +470,10 @@
     .layout {
       flex: 1; min-height: 0;
       display: flex;
+      /* Positioning context for the sidebar re-open tab (#sidebarReopen), which
+         floats at the arena's right edge while the sidebar is collapsed. The
+         compact layout also relies on this for its sheet/scrim. */
+      position: relative;
     }
 
     .arena {
@@ -441,9 +490,65 @@
          force overflow-y, so the genuine short-phone vertical scroll still works. */
       overflow-x: clip;
       position: relative;
-      padding: 24px;
+      padding: 32px 24px 24px;
       display: flex; flex-direction: column; align-items: center;
+      /* The "wall" behind the typing panel, instead of a flat fill:
+         a warm plaster base with a soft picture-light bloom from above, a
+         faint fractal-noise plaster grain (tiled SVG data-URI, no asset to
+         ship) and a low floor vignette so the wall reads as a lit surface with
+         depth. The light theme restates all of it below. */
+      background-color: #191510;
+      background-image:
+        radial-gradient(1200px 720px at 50% -22%, rgba(255, 226, 178, .07), rgba(255, 226, 178, 0) 60%),
+        radial-gradient(1200px 820px at 50% 128%, rgba(0, 0, 0, .42), rgba(0, 0, 0, 0) 62%),
+        url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.85'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20type='matrix'%20values='0%200%200%200%201%200%200%200%200%200.92%200%200%200%200%200.82%200.13%200%200%200%200'/%3E%3C/filter%3E%3Crect%20width='160'%20height='160'%20filter='url(%23n)'/%3E%3C/svg%3E"),
+        linear-gradient(180deg, #1d1812 0%, #16110b 100%);
+      background-repeat: no-repeat, no-repeat, repeat, no-repeat;
+      background-size: auto, auto, 160px 160px, auto;
+      background-position: center top, center bottom, center, center;
     }
+    /* The typing test sits on its own panel, set apart from the arena "wall"
+       so any background - even a photo - can sit behind it without touching
+       the text. No frame: just a distinct rounded surface with a soft edge and
+       a low shadow that lifts it off the wall. Its background alpha is
+       --panel-alpha (1 = fully opaque, the default), which the Settings >
+       Typing panel see-through slider lowers to let the wall show through the
+       text to whatever degree the user wants. #raceTimer stays OUTSIDE the
+       panel, on the wall. Applies on desktop and compact alike (the compact
+       @media only trims its padding/margin). */
+    .stage {
+      position: relative;
+      width: 100%; max-width: 740px;
+      margin: 12px 0 16px;
+      padding: 22px 26px 24px;
+      display: flex; flex-direction: column; align-items: center;
+      border-radius: 16px;
+      background: linear-gradient(180deg,
+        rgba(32, 26, 17, var(--panel-alpha, 1)) 0%,
+        rgba(23, 17, 10, var(--panel-alpha, 1)) 100%);
+      /* A faint fixed-alpha edge so the panel outline stays visible even when
+         the fill is turned fully see-through. */
+      border: 1px solid rgba(255, 214, 150, .14);
+      box-shadow: 0 12px 30px -16px rgba(0, 0, 0, .7);
+    }
+    /* User-set background image (Settings > Background): a layer BEHIND the
+       panel, so only the "wall" changes - the panel (the background of the text
+       itself) sits on top and, at full opacity, hides the image behind the
+       text entirely. Absolutely positioned inside .arena; the panel
+       (.stage, position:relative) and #raceTimer paint over it because they
+       come later in the DOM at the same stacking level. The ::after scrim dims
+       the visible wall around the panel, its strength set by --wall-dim. Shown
+       under <html data-wall="1"> on every layout. */
+    .wall-img {
+      display: none; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+      background-image: var(--wall-img, none);
+      background-size: cover; background-position: center; background-repeat: no-repeat;
+    }
+    .wall-img::after {
+      content: ""; position: absolute; inset: 0;
+      background: rgba(15, 12, 8, var(--wall-dim, .35));
+    }
+    html[data-wall="1"] .wall-img { display: block; }
     /* Fixed-height slot holding the top-of-arena status: either the phase
        banner or the big readout (#bigReadout). 74px is the readout's full
        height (13 caption + 2 + 44 number + 2 + 13 caption), so swapping one
@@ -503,7 +608,8 @@
     /* Subtle race-timeout clock, tucked in the corner so it doesn't compete
        with the countdown/results banner for attention. */
     #raceTimer {
-      display: none; position: absolute; top: 14px; right: 18px;
+      /* right clears the #focusToggle button that sits in the corner. */
+      display: none; position: absolute; top: 18px; right: 54px;
       font-size: 12px; color: #6b5940; font-variant-numeric: tabular-nums;
     }
     #raceTimer[data-visible="1"] { display: block; }
@@ -830,17 +936,34 @@
     #inputWrap { display: none; position: relative; width: 100%; max-width: 640px; margin-top: 18px; }
     #inputWrap[data-visible="1"] { display: block; }
 
+    /* The type box, dressed to stand out on the panel rather than read as a
+       default field: a deep recessed well (dark fill + inset shadow) with a
+       warm hairline and a faint gilt top edge, and a terracotta focus glow to
+       match. */
     #typeInput {
-      display: block; width: 100%; padding: 12px 14px;
+      display: block; width: 100%; padding: 13px 16px;
       font-size: 16px; font-family: ui-monospace, "Cascadia Code", monospace;
-      background: #16130d; border: 1px solid #4a3b29; border-radius: 10px;
+      background: linear-gradient(180deg, #14100a 0%, #191309 100%);
+      border: 1px solid #59452e; border-radius: 12px;
       color: #ece4d6; outline: none;
+      box-shadow:
+        inset 0 2px 6px rgba(0, 0, 0, .55),
+        inset 0 0 0 1px rgba(255, 220, 160, .05),
+        0 1px 0 rgba(255, 236, 206, .04);
+      transition: border-color .18s ease, box-shadow .18s ease;
       /* The real caret can't be phase-synced with our custom one above (its
          blink timing is OS/browser-controlled, not exposed to the page), so
          instead there's only one visible cursor: hide this one entirely. */
       caret-color: transparent;
     }
-    #typeInput:focus { border-color: #5ec9c2; }
+    #typeInput::placeholder { color: #6b5940; }
+    #typeInput:focus {
+      border-color: #e2603f;
+      box-shadow:
+        inset 0 2px 6px rgba(0, 0, 0, .5),
+        0 0 0 3px rgba(226, 96, 63, .22),
+        0 6px 18px -8px rgba(226, 96, 63, .45);
+    }
 
     /* The Leave control that sits inside the typing input on the compact "race
        bar" (keyed off <html data-race-bar>); hidden otherwise. Matches the
@@ -906,6 +1029,83 @@
       display: flex; flex-direction: column; gap: 0;
       padding: 0; background: #1c1710; border-left: 1px solid #33291d;
     }
+
+    /* --- Collapse the sidebar (desktop) -----------------------------------
+       Hide the whole sidebar for a full-width, distraction-free racing view.
+       #sidebarCollapseBtn (in the lobby row) collapses it; the #sidebarReopen
+       tab floating at the arena's right edge brings it back. State lives in
+       <html data-sidebar="collapsed">, which JS only ever sets on the desktop
+       layout (the compact layout has its own bottom sheet and clears it), so
+       none of this touches the phone/short layouts. */
+    .sidebar { transition: width .22s ease, border-left-width .22s ease; }
+    html[data-sidebar="collapsed"] .sidebar { width: 0; border-left-width: 0; overflow: hidden; }
+    /* A quiet icon button pinned to the right of the lobby row (which is
+       position:relative and centre-justifies Switch Lobby, so this rides the
+       edge without shifting it). Desktop only; hidden by the compact @media. */
+    #sidebarCollapseBtn {
+      position: absolute; top: 50%; right: 12px; transform: translateY(-50%);
+      width: 26px; height: 26px; padding: 0; display: grid; place-items: center;
+      background: transparent; color: #8c7a5f; border: 0; border-radius: 7px; cursor: pointer;
+      transition: background .12s ease, color .12s ease;
+    }
+    #sidebarCollapseBtn:hover { background: #33291d; color: #ece4d6; }
+    #sidebarCollapseBtn:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 1px; }
+    #sidebarCollapseBtn svg { display: block; }
+    /* The re-open tab: a slim handle on the arena's right edge, shown only while
+       collapsed. Rounded on its left side so it reads as a pull-tab for the
+       hidden panel. */
+    #sidebarReopen {
+      display: none; position: absolute; top: 50%; right: 0; z-index: 30;
+      transform: translateY(-50%);
+      width: 22px; height: 52px; padding: 0; place-items: center;
+      background: #1c1710; color: #c9bba2;
+      border: 1px solid #33291d; border-right: 0; border-radius: 9px 0 0 9px;
+      cursor: pointer; box-shadow: -5px 0 16px -9px rgba(0, 0, 0, .8);
+      transition: background .12s ease, color .12s ease, width .12s ease;
+    }
+    #sidebarReopen:hover { background: #2b2218; color: #ece4d6; width: 26px; }
+    #sidebarReopen:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 2px; }
+    #sidebarReopen svg { display: block; }
+    html[data-sidebar="collapsed"] #sidebarReopen { display: grid; }
+    /* Unread-chat dot on the tab, mirroring #lobbyUnread's role on compact. */
+    #sidebarReopenUnread {
+      position: absolute; top: 5px; right: 4px; width: 7px; height: 7px;
+      border-radius: 50%; background: #e2603f; box-shadow: 0 0 0 2px #1c1710;
+    }
+    #sidebarReopenUnread[hidden] { display: none; }
+
+    /* --- Full-screen ("focus") typing view --------------------------------
+       #focusToggle pins to the arena's top-right corner and toggles
+       <html data-focus="1">, which maximises the typing view: the header is
+       hidden (both layouts) and, on desktop, the sidebar is collapsed too. The
+       button itself always stays (its icon swaps to a "restore" glyph), so
+       there's always a way back. It's independent of the manual sidebar
+       collapse above - focus mode leaves that preference untouched. */
+    #focusToggle {
+      position: absolute; top: 12px; right: 14px; z-index: 5;
+      display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
+      cursor: pointer; color: #6b5940; background: transparent;
+      border: 1px solid transparent; border-radius: 8px;
+      transition: background .15s ease-out, color .15s ease-out, border-color .15s ease-out;
+    }
+    #focusToggle:hover { background: #221c12; color: #ece4d6; border-color: #33291d; }
+    #focusToggle:focus-visible { outline: 2px solid #5ec9c2; outline-offset: 2px; }
+    #focusToggle svg { display: block; }
+    #focusToggle .focus-exit { display: none; }
+    html[data-focus="1"] #focusToggle .focus-enter { display: none; }
+    html[data-focus="1"] #focusToggle .focus-exit { display: block; }
+    /* Hide the header on every layout while focused. */
+    html[data-focus="1"] header { display: none; }
+    /* Collapse the sidebar on desktop (same shape as the manual collapse). The
+       compact sidebar is a bottom sheet that's already tucked off-screen, so
+       the compact @media below restores its width to keep the sheet usable. */
+    html[data-focus="1"] .sidebar { width: 0; border-left-width: 0; overflow: hidden; }
+    /* Full-screen owns the sidebar while it's on, so the manual re-open tab is
+       suppressed here: without this it can still show (if the sidebar was
+       manually collapsed before entering focus) but clicking it does nothing -
+       focus mode's width:0 above wins - which is the confusing dead control.
+       The focus button is the single way back in full-screen. */
+    html[data-focus="1"] #sidebarReopen { display: none; }
     /* --- Primary action: the "Join Race" button ---------------------------
        The one real CTA in the sidebar, so it's dressed up: a lit terracotta
        gradient with a glossy top edge, a slow idle glow that quietly breathes
@@ -1311,6 +1511,24 @@
          seconds it takes to reconnect. */
       .arena { overscroll-behavior: contain; }
 
+      /* The typing panel carries over from the base .stage on compact too; a
+         phone just can't spare the desktop padding/margin, so those shrink. The
+         quote-window math measures real available height, so it simply windows
+         down to its two-line floor to pay for the panel's few pixels. The
+         user's wall image shows here as well - the panel sits on top of it, so
+         the text stays backed by the panel just like on desktop. */
+      .stage { margin: 4px 0 8px; padding: 12px 14px 14px; }
+      /* The sidebar collapse is a desktop affordance; the compact layout has
+         its own bottom-sheet toggle, so hide the collapse button here (JS also
+         never sets data-sidebar on compact, so the re-open tab never shows). */
+      #sidebarCollapseBtn { display: none; }
+      /* Focus mode only hides the header on compact - the sidebar here is a
+         bottom sheet that's already tucked away, so restore its width (the
+         desktop collapse rule would otherwise zero the opened sheet). */
+      html[data-focus="1"] .sidebar { width: auto; overflow: visible; }
+      /* The maximize button rides a touch nearer the corner on a phone. */
+      #focusToggle { top: 9px; right: 10px; width: 28px; height: 28px; }
+
       /* Every tap target opts out of the double-tap-to-zoom delay. */
       button, .btn, li, #usernameDisplay { touch-action: manipulation; }
 
@@ -1360,7 +1578,7 @@
          glyph riding on it at .racer-emoji's compact size, matching desktop. */
       #sharedTrack[data-marker="emoji"] { height: 11px; }
       #sharedTrack[data-marker="emoji"] .shared-caret-emoji { font-size: 17px; }
-      #raceTimer { top: 10px; right: 12px; font-size: 11px; }
+      #raceTimer { top: 13px; right: 44px; font-size: 11px; }
 
       #quote { font-size: 17px; letter-spacing: 0; }
       #quote[data-placeholder="1"] { font-size: 15px; }
@@ -1969,6 +2187,19 @@
       background: #d0512e; box-shadow: 0 0 6px 1px rgba(208, 81, 46, .4);
     }
 
+    /* Focus-mode button, light theme. */
+    html[data-theme="light"] #focusToggle { color: var(--l-faint); }
+    html[data-theme="light"] #focusToggle:hover { background: var(--l-inset); color: var(--l-ink); border-color: var(--l-line); }
+
+    /* Sidebar collapse controls, light theme. */
+    html[data-theme="light"] #sidebarCollapseBtn { color: var(--l-soft); }
+    html[data-theme="light"] #sidebarCollapseBtn:hover { background: var(--l-inset); color: var(--l-ink); }
+    html[data-theme="light"] #sidebarReopen {
+      background: var(--l-shell); color: var(--l-soft); border-color: var(--l-line);
+    }
+    html[data-theme="light"] #sidebarReopen:hover { background: var(--l-inset); color: var(--l-ink); }
+    html[data-theme="light"] #sidebarReopenUnread { box-shadow: 0 0 0 2px var(--l-shell); }
+
     /* --- Switches / segmented pickers ------------------------------------- */
     html[data-theme="light"] .switch { background: var(--l-line2); }
     html[data-theme="light"] .switch::after { background: #fff; }
@@ -1991,6 +2222,28 @@
     html[data-theme="light"] #bigReadout .readout-number { color: var(--l-ok); }
     html[data-theme="light"] #bigReadout[data-mode="countdown"] .readout-number { color: var(--l-count); }
     html[data-theme="light"] #raceTimer { color: var(--l-faint); }
+    /* Light theme: a lit cream-plaster wall (top light bloom, brown-fleck
+       grain, soft floor shade) with a warm-white typing panel on top. Only the
+       wall and the panel's fill/edge/shadow are restated; the panel's shape
+       and --panel-alpha see-through carry over from the base rules. */
+    html[data-theme="light"] .arena {
+      background-color: #ece2cf;
+      background-image:
+        radial-gradient(1200px 720px at 50% -22%, rgba(255, 251, 240, .85), rgba(255, 251, 240, 0) 58%),
+        radial-gradient(1200px 820px at 50% 128%, rgba(120, 92, 52, .12), rgba(120, 92, 52, 0) 62%),
+        url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.9'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20type='matrix'%20values='0%200%200%200%200.36%200%200%200%200%200.27%200%200%200%200%200.16%200.10%200%200%200%200'/%3E%3C/filter%3E%3Crect%20width='160'%20height='160'%20filter='url(%23n)'/%3E%3C/svg%3E"),
+        linear-gradient(180deg, #f1e7d5 0%, #e6dac2 100%);
+      background-repeat: no-repeat, no-repeat, repeat, no-repeat;
+      background-size: auto, auto, 160px 160px, auto;
+      background-position: center top, center bottom, center, center;
+    }
+    html[data-theme="light"] .stage {
+      background: linear-gradient(180deg,
+        rgba(255, 253, 247, var(--panel-alpha, 1)) 0%,
+        rgba(248, 241, 228, var(--panel-alpha, 1)) 100%);
+      border-color: rgba(120, 90, 50, .20);
+      box-shadow: 0 12px 26px -16px rgba(60, 40, 20, .35);
+    }
     html[data-theme="light"] #quote { color: var(--l-soft); }
     html[data-theme="light"] #quote[data-placeholder="1"] { color: var(--l-faint); }
     html[data-theme="light"] #quote span.ok { color: var(--l-ok); }
@@ -2028,8 +2281,21 @@
     html[data-theme="light"] .shared-caret-emoji { filter: none; }
 
     /* --- Typing input / hints ---------------------------------------------- */
-    html[data-theme="light"] #typeInput { background: var(--l-card); border-color: var(--l-line2); color: var(--l-ink); }
-    html[data-theme="light"] #typeInput:focus { border-color: var(--l-cyan); }
+    html[data-theme="light"] #typeInput {
+      background: linear-gradient(180deg, #fbf5ea 0%, #fffdf7 100%); border-color: var(--l-line2); color: var(--l-ink);
+      box-shadow:
+        inset 0 2px 5px rgba(120, 90, 50, .14),
+        inset 0 0 0 1px rgba(255, 255, 255, .5),
+        0 1px 0 rgba(255, 255, 255, .6);
+    }
+    html[data-theme="light"] #typeInput::placeholder { color: var(--l-faint); }
+    html[data-theme="light"] #typeInput:focus {
+      border-color: #e2603f;
+      box-shadow:
+        inset 0 2px 5px rgba(120, 90, 50, .12),
+        0 0 0 3px rgba(226, 96, 63, .18),
+        0 6px 16px -8px rgba(226, 96, 63, .35);
+    }
     /* Desktop is deliberately left untouched: the input wrapper has NO
        background in the base theme (the input's own rounded box fills it), and
        giving it one would show past the input's rounded corners. Only the
@@ -2103,6 +2369,17 @@
     html[data-theme="light"] #nameCount { color: var(--l-faint); }
     html[data-theme="light"] #regenName { color: var(--l-faint); }
     html[data-theme="light"] #regenName:hover { background: var(--l-inset); color: var(--l-ink); }
+    /* Background picker, light theme. */
+    html[data-theme="light"] .bg-drop { background: var(--l-card); border-color: var(--l-line2); }
+    html[data-theme="light"] .bg-drop[data-drag="1"] { background: #eef6f4; border-color: var(--l-cyan); }
+    html[data-theme="light"] .bg-preview { background-color: var(--l-inset); border-color: var(--l-line); color: var(--l-faint); }
+    html[data-theme="light"] .bg-drop-title { color: var(--l-ink); }
+    html[data-theme="light"] .bg-drop-sub { color: var(--l-faint); }
+    html[data-theme="light"] .bg-clear { background: var(--l-line); color: var(--l-ink); border-color: var(--l-line2); }
+    html[data-theme="light"] .bg-clear:hover { background: var(--l-line2); }
+    html[data-theme="light"] .bg-url { background: var(--l-card); border-color: var(--l-line2); color: var(--l-ink); }
+    html[data-theme="light"] .bg-url::placeholder { color: var(--l-faint); }
+    html[data-theme="light"] .bg-url:focus { border-color: var(--l-cyan); }
     html[data-theme="light"] #soundVolumeValue { color: var(--l-soft); }
     html[data-theme="light"] #soundVolumeSlider {
       background: linear-gradient(#e2603f, #e2603f) 0 / var(--pct, 70%) 100% no-repeat, var(--l-line2);
@@ -2177,6 +2454,36 @@
       if (savedTheme && savedTheme !== "dark") {
         document.documentElement.setAttribute("data-theme", savedTheme);
       }
+      // Same idea for a saved wall background: apply --wall-img/--wall-dim +
+      // data-wall before paint so a custom wall doesn't flash the default one.
+      var savedBg = localStorage.getItem("typingRace.bgImage");
+      if (savedBg) {
+        var el = document.documentElement;
+        el.style.setProperty("--wall-img", 'url("' + savedBg.replace(/["\\\n\r]/g, "") + '")');
+        var d = localStorage.getItem("typingRace.bgDim");
+        var dim = d === null ? 35 : Math.max(0, Math.min(80, Number(d) || 0));
+        el.style.setProperty("--wall-dim", (dim / 100).toFixed(2));
+        el.setAttribute("data-wall", "1");
+      }
+      // Same pre-paint apply for a saved typing-panel see-through, so a
+      // partly-transparent panel doesn't flash opaque on load. Independent of a
+      // wall image (it also lets the plain plaster wall show through).
+      var st = localStorage.getItem("typingRace.panelSeeThru");
+      if (st !== null) {
+        var see = Math.max(0, Math.min(100, Number(st) || 0));
+        document.documentElement.style.setProperty("--panel-alpha", ((100 - see) / 100).toFixed(2));
+      }
+      // Same no-flash treatment for a collapsed sidebar - but only on the
+      // desktop layout (the compact bottom sheet has its own toggle). Mirror
+      // the JS's compactLayout query so the two never disagree.
+      if (localStorage.getItem("typingRace.sidebarCollapsed") === "1" &&
+          !window.matchMedia("(max-width: 820px), (max-height: 520px) and (pointer: coarse)").matches) {
+        document.documentElement.setAttribute("data-sidebar", "collapsed");
+      }
+      // No-flash apply for the full-screen "focus" typing view (both layouts).
+      if (localStorage.getItem("typingRace.focusMode") === "1") {
+        document.documentElement.setAttribute("data-focus", "1");
+      }
     } catch (e) { /* private mode / storage disabled: fall back to default */ }
   </script>
 </head>
@@ -2238,6 +2545,45 @@
                     <span class="seg-emoji" aria-hidden="true">☀️</span>
                     <span>Light</span>
                   </button>
+                </div>
+              </div>
+              <!-- Background: a picture behind the whole arena (the typing
+                   panel sits on top of it - see the Typing panel field below).
+                   Set it any of the usual ways - click to upload, paste a link,
+                   or paste/drop an image - and it's saved on this device. The
+                   dim slider tones down a busy background. See the initBg()
+                   wiring. -->
+              <div class="settings-field">
+                <div class="settings-label">Background</div>
+                <div class="settings-hint">A picture behind the arena. Upload, paste a link, or paste/drop an image. Saved on this device.</div>
+                <div id="bgDrop" class="bg-drop" tabindex="0" role="button" aria-label="Add a background image: click to upload, or paste or drop an image">
+                  <div id="bgPreview" class="bg-preview" data-has="0" aria-hidden="true"></div>
+                  <div class="bg-drop-body">
+                    <div class="bg-drop-title" id="bgDropTitle">Drop an image, paste, or click to upload</div>
+                    <div class="bg-drop-sub">PNG, JPG, GIF or WebP</div>
+                  </div>
+                  <button id="bgClear" class="bg-clear" type="button" title="Remove background" aria-label="Remove background" hidden>✕</button>
+                </div>
+                <input id="bgUrl" class="bg-url" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="…or paste an image link (https://…)" />
+                <input id="bgFile" type="file" accept="image/*" hidden />
+                <div id="bgDimRow" class="bg-dim-row" hidden>
+                  <label class="settings-label" for="bgDim">Dim</label>
+                  <input id="bgDim" class="bg-dim" type="range" min="0" max="80" step="5" value="35" aria-label="Dim the background" />
+                </div>
+                <div id="bgError" class="bg-error" role="alert" hidden></div>
+              </div>
+              <!-- Typing panel see-through: how much of the background shows
+                   THROUGH the panel behind the text. 0% (default) = a solid
+                   panel, so the background never touches the text; raising it
+                   fades the panel toward transparent (--panel-alpha = 1 minus
+                   this). See applyPanelSeeThru(). -->
+              <div class="settings-field">
+                <div class="settings-label">Typing panel</div>
+                <div class="settings-hint">How much of the background shows through the panel behind the text. 0% keeps it solid.</div>
+                <div class="bg-dim-row">
+                  <label class="settings-label" for="panelSeeThru">See-through</label>
+                  <input id="panelSeeThru" class="bg-dim" type="range" min="0" max="100" step="5" value="0" aria-label="Typing panel see-through" />
+                  <span id="panelSeeThruValue">0%</span>
                 </div>
               </div>
             </div>
@@ -2445,6 +2791,28 @@
   <div class="layout">
     <!-- Left: the "stream". Race text is always visible here for everyone. -->
     <section class="arena">
+      <!-- Optional user-set background image (Settings > Background), painted
+           behind everything else in the arena, so the typing panel sits on top
+           of it. Empty/hidden until a wall is chosen. -->
+      <div id="wallImg" class="wall-img" aria-hidden="true"></div>
+      <!-- Race clock: absolutely positioned to the arena's top-right corner,
+           so it lives OUTSIDE .stage (which would re-anchor it to the panel). -->
+      <div id="raceTimer"></div>
+      <!-- Maximize: toggles the full-screen "focus" typing view (hides the
+           header, and the sidebar on desktop). Pinned to the arena's top-right
+           corner; the icon swaps to a restore glyph while focused. -->
+      <button id="focusToggle" type="button" aria-label="Maximize the typing view" aria-pressed="false" title="Maximize the typing view">
+        <svg class="focus-enter" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/>
+        </svg>
+        <svg class="focus-exit" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 4v3a2 2 0 0 1-2 2H4M20 9h-3a2 2 0 0 1-2-2V4M4 15h3a2 2 0 0 1 2 2v3M15 20v-3a2 2 0 0 1 2-2h3"/>
+        </svg>
+      </button>
+      <!-- The typing "stage": a distinct panel behind the test, set apart from
+           the arena wall (see .stage / .arena in the stylesheet). Same on
+           desktop and compact; --panel-alpha controls its see-through. -->
+      <div class="stage">
       <div id="statusSlot">
         <div id="phaseBanner"></div>
         <div id="bigReadout">
@@ -2453,7 +2821,6 @@
           <div class="readout-cap" id="readoutBottom">WPM</div>
         </div>
       </div>
-      <div id="raceTimer"></div>
       <div id="leaderboard">
         <div id="sharedTrack">
           <div id="sharedTrackBase"><div id="sharedTrackFill"></div></div>
@@ -2532,6 +2899,7 @@
           </button>
         </div>
       </div>
+      </div><!-- /.stage -->
     </section>
 
     <!-- Right: sidebar. On desktop it's one column, top-down: the join/spectate
@@ -2613,6 +2981,15 @@
           </svg>
           <span id="sheetViewUnread" hidden></span>
         </button>
+        <!-- Desktop only: collapse the whole sidebar for a full-width racing
+             view. Rides the right edge of the lobby row (hidden on compact,
+             which has its own bottom-sheet toggle). See applySidebarCollapsed. -->
+        <button id="sidebarCollapseBtn" type="button" aria-label="Hide the sidebar" aria-expanded="true"
+                title="Hide the sidebar for a full-width racing view">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="9 6 15 12 9 18"/>
+          </svg>
+        </button>
       </div>
 
       <div class="roster">
@@ -2662,6 +3039,18 @@
       </div>
       </div><!-- /.sidebar-scroll -->
     </div>
+
+    <!-- Desktop only: the pull-tab that brings the collapsed sidebar back.
+         Floats at the arena's right edge; shown only while the sidebar is
+         collapsed (html[data-sidebar="collapsed"]). Carries an unread-chat dot
+         so a message arriving behind the collapsed sidebar isn't missed. -->
+    <button id="sidebarReopen" type="button" aria-label="Show the sidebar"
+            title="Show the sidebar (players and chat)">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="15 6 9 12 15 18"/>
+      </svg>
+      <span id="sidebarReopenUnread" hidden aria-hidden="true"></span>
+    </button>
 
     <!-- Compact layout only: dims the arena behind the sidebar sheet and
          closes it on tap. Inside .layout (not the body) so it covers the
@@ -3451,6 +3840,7 @@
     const sharedMarkerGroup = document.getElementById("sharedMarkerGroup");
     const sharedMarkerField = document.getElementById("sharedMarkerField");
     const themeGroup  = document.getElementById("themeGroup");
+    const focusToggle = document.getElementById("focusToggle");
     const quoteEl     = document.getElementById("quote");
     const quoteWrap   = document.getElementById("quoteWrap");    // the fixed window on compact layouts
     const quoteScroll = document.getElementById("quoteScroll");  // what slides inside it
@@ -3489,10 +3879,16 @@
     const sheetScrim = document.getElementById("sheetScrim");
     const sheetViewToggle = document.getElementById("sheetViewToggle");
     const sheetViewUnread = document.getElementById("sheetViewUnread");
+    const sidebarCollapseBtn = document.getElementById("sidebarCollapseBtn");
+    const sidebarReopen = document.getElementById("sidebarReopen");
+    const sidebarReopenUnread = document.getElementById("sidebarReopenUnread");
     const sheetClose = document.getElementById("sheetClose");
     const raceLeaveBtn = document.getElementById("raceLeaveBtn");
     const tapHintWrap = inputWrap; // #tapHint's visibility is driven off the wrapper
     const arenaEl    = document.querySelector(".arena");
+    // The typing panel. It's #inputWrap's markup home (see placeInputBar) on
+    // both layouts; appending here lands the input at the bottom of the panel.
+    const stageEl    = document.querySelector(".stage");
     const headerEl   = document.querySelector("header");
 
     // --- Compact (mobile) layout ----------------------------------------------
@@ -3861,7 +4257,14 @@
     // missed is what opening/switching is for.
     let chatUnread = false;
     function noteChatUnread() {
-      if (!compactLayout.matches) return;
+      if (!compactLayout.matches) {
+        // Desktop with the sidebar collapsed: chat is hidden off to the side,
+        // so dot the re-open tab instead (same "a dot, not a count" idea).
+        if (document.documentElement.dataset.sidebar === "collapsed" && sidebarReopenUnread) {
+          sidebarReopenUnread.hidden = false;
+        }
+        return;
+      }
       if (!sheetOpen) {
         if (chatUnread) return;
         chatUnread = true;
@@ -3876,6 +4279,7 @@
       chatUnread = false;
       lobbyUnread.hidden = true;
       clearSheetChatUnread();
+      if (sidebarReopenUnread) sidebarReopenUnread.hidden = true;
     }
     function clearSheetChatUnread() {
       sheetViewUnread.hidden = true;
@@ -3921,9 +4325,10 @@
       if (merged) {
         // Into the Join button's slot (before the chat toggle). Idempotent.
         if (inputWrap.parentElement !== mobileBar) mobileBar.insertBefore(inputWrap, lobbyToggle);
-      } else if (inputWrap.parentElement !== arenaEl) {
-        // Back to the bottom of the arena (its markup home).
-        arenaEl.appendChild(inputWrap);
+      } else if (inputWrap.parentElement !== stageEl) {
+        // Back to the bottom of the typing panel (its markup home) - the input
+        // sits inside the panel on both desktop and compact.
+        stageEl.appendChild(inputWrap);
       }
     }
     // Re-place on a layout-height cross even with no state change of its own.
@@ -8730,6 +9135,339 @@
         applyThemeUi();
       };
     });
+
+    // ---- Background image (Settings > Background) --------------------------
+    // A picture behind the arena (the typing panel sits on top of it).
+    // Set it by uploading a file, pasting a link, or pasting/dropping an image;
+    // stored per-device in localStorage and applied via --wall-img + a data-wall
+    // flag on <html> (the pre-paint <head> script applies a saved one so there's
+    // no flash). Uploaded/pasted images are downscaled + re-encoded so they fit
+    // the storage quota; a pasted link is stored verbatim. Desktop only in the
+    // CSS - the compact layout hides .wall-img since it has no frame.
+    const BG_IMG_KEY = "typingRace.bgImage";
+    const BG_DIM_KEY = "typingRace.bgDim";
+    // How see-through the typing panel is, 0-100 (0 = solid, the default).
+    const PANEL_SEETHRU_KEY = "typingRace.panelSeeThru";
+    const BG_MAX_EDGE = 1920;   // longest edge kept; larger images are scaled down
+    const bgDrop = document.getElementById("bgDrop");
+    const bgPreview = document.getElementById("bgPreview");
+    const bgFile = document.getElementById("bgFile");
+    const bgUrlInput = document.getElementById("bgUrl");
+    const bgDimInput = document.getElementById("bgDim");
+    const bgDimRow = document.getElementById("bgDimRow");
+    const panelSeeThruInput = document.getElementById("panelSeeThru");
+    const panelSeeThruValue = document.getElementById("panelSeeThruValue");
+    const bgClear = document.getElementById("bgClear");
+    const bgError = document.getElementById("bgError");
+    const bgDropTitle = document.getElementById("bgDropTitle");
+
+    // Wrap a source for use in url(); drop the few characters that could break
+    // out of the quotes (data URLs are base64 so they never contain them).
+    const bgCssUrl = (src) => 'url("' + String(src).replace(/["\\\n\r]/g, "") + '")';
+    function setBgError(msg) {
+      bgError.textContent = msg || "";
+      bgError.hidden = !msg;
+    }
+    function reflectBgUi(src) {
+      const has = !!src;
+      document.documentElement.dataset.wall = has ? "1" : "0";
+      bgPreview.dataset.has = has ? "1" : "0";
+      bgPreview.style.backgroundImage = has ? bgCssUrl(src) : "";
+      bgClear.hidden = !has;
+      bgDimRow.hidden = !has;
+      bgDropTitle.textContent = has ? "Change image" : "Drop an image, paste, or click to upload";
+    }
+    // A short-lived blob: URL is what we APPLY for uploaded/pasted images (a
+    // multi-megabyte data: URL set as a CSS variable can silently fail to render
+    // - the wall just goes dark - which is what broke uploaded GIFs). We persist
+    // the data URL separately, and only when it's small enough to store.
+    let bgBlobUrl = null;
+    function bgRevokeBlob() {
+      if (bgBlobUrl) { URL.revokeObjectURL(bgBlobUrl); bgBlobUrl = null; }
+    }
+    // Visual apply only - set (or clear) --wall-img and sync the picker UI.
+    function applyBgSrc(src) {
+      if (src) document.documentElement.style.setProperty("--wall-img", bgCssUrl(src));
+      else document.documentElement.style.removeProperty("--wall-img");
+      reflectBgUi(src);
+    }
+    // Store (or clear) the persisted source; returns whether it stuck.
+    function persistBg(src) {
+      try {
+        if (src) localStorage.setItem(BG_IMG_KEY, src);
+        else localStorage.removeItem(BG_IMG_KEY);
+        return true;
+      } catch (e) { return false; }
+    }
+    // Apply AND persist the same source (links, static JPEGs, clearing). Used
+    // when the applied value is small enough to also be the stored value.
+    function setBg(src) {
+      bgRevokeBlob();
+      applyBgSrc(src);
+      setBgError(persistBg(src) ? "" : "Applied, but couldn't be saved on this device (image may be too large to store).");
+    }
+    function applyBgDim(pct) {
+      const v = Math.max(0, Math.min(80, Number(pct) || 0));
+      document.documentElement.style.setProperty("--wall-dim", (v / 100).toFixed(2));
+      if (bgDimInput) bgDimInput.value = String(v);
+      try { localStorage.setItem(BG_DIM_KEY, String(v)); } catch (e) { /* ignore */ }
+    }
+    // See-through amount for the typing panel (Settings > Typing panel): 0 keeps
+    // it solid (the default), 100 makes it fully transparent. The panel's fill
+    // alpha is 1 minus this, exposed as --panel-alpha for .stage's background.
+    function applyPanelSeeThru(pct) {
+      const v = Math.max(0, Math.min(100, Number(pct) || 0));
+      document.documentElement.style.setProperty("--panel-alpha", ((100 - v) / 100).toFixed(2));
+      if (panelSeeThruInput) panelSeeThruInput.value = String(v);
+      if (panelSeeThruValue) panelSeeThruValue.textContent = v + "%";
+      try { localStorage.setItem(PANEL_SEETHRU_KEY, String(v)); } catch (e) { /* ignore */ }
+    }
+
+    // Downscale a loaded image to <=BG_MAX_EDGE and re-encode as JPEG, retrying
+    // at lower quality if the string is still large enough to risk the quota.
+    function bgEncodeScaled(img, quality) {
+      let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      const scale = Math.min(1, BG_MAX_EDGE / w, BG_MAX_EDGE / h);
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      return c.toDataURL("image/jpeg", quality);
+    }
+    function bgReadDataUrl(blob) {
+      return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(blob);
+      });
+    }
+    // Threshold below which a data URL is small enough to both render as a CSS
+    // variable and fit the storage quota. Larger animated images still SHOW
+    // (via their blob URL) but aren't persisted across reloads.
+    const BG_STORE_MAX = 2.2e6; // ~2.2M chars of data URL (~1.6MB of bytes)
+    function bgUseBlob(blob) {
+      setBgError("Reading image…");
+      const type = (blob.type || "").toLowerCase();
+      // Animated formats (GIF, animated WebP/PNG) can't survive a re-encode
+      // through <canvas> - it captures a single frame, which is why an uploaded
+      // GIF showed up frozen. Show them from their ORIGINAL bytes so the
+      // animation is preserved. We DISPLAY via a short blob: URL (a giant data:
+      // URL set as a CSS variable can silently fail to paint - the wall just
+      // goes dark), and separately persist the data URL when it's small enough.
+      if (/image\/(gif|webp|apng)/.test(type)) {
+        bgRevokeBlob();
+        bgBlobUrl = URL.createObjectURL(blob);
+        applyBgSrc(bgBlobUrl);
+        setBgError("");
+        bgReadDataUrl(blob).then((data) => {
+          if (data.length > BG_STORE_MAX || !persistBg(data)) {
+            persistBg(null); // don't leave a stale different image to load on reload
+            setBgError("Showing it now, but this image is too large to save — it won't come back after a reload.");
+          }
+        }).catch(() => { /* display already works from the blob */ });
+        return;
+      }
+      const objUrl = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let data = bgEncodeScaled(img, 0.85);
+          if (data.length > 3.5e6) data = bgEncodeScaled(img, 0.7);
+          setBg(data);
+        } catch (e) {
+          setBgError("Couldn't read that image.");
+        }
+        URL.revokeObjectURL(objUrl);
+      };
+      img.onerror = () => { setBgError("Couldn't read that image."); URL.revokeObjectURL(objUrl); };
+      img.src = objUrl;
+    }
+    function bgUseUrl(raw) {
+      const src = String(raw || "").trim();
+      if (!src) return;
+      if (/^data:image\//i.test(src)) { setBg(src); return; }
+      if (!/^https?:\/\//i.test(src)) { setBgError("Enter an image link starting with http:// or https://"); return; }
+      setBgError("Loading link…");
+      const img = new Image();
+      img.onload = () => setBg(src);
+      img.onerror = () => setBgError("That link didn't load as an image.");
+      img.src = src;
+    }
+    // Pull the first image out of a FileList/DataTransfer; returns whether one
+    // was found (so callers can fall through to a dropped URL otherwise).
+    function bgUseFirstImage(files) {
+      const f = Array.from(files || []).find((x) => x.type && x.type.indexOf("image/") === 0);
+      if (f) { bgUseBlob(f); return true; }
+      return false;
+    }
+
+    if (bgDrop) {
+      bgDrop.addEventListener("click", (e) => {
+        if (e.target.closest("#bgClear")) return; // the clear button isn't "upload"
+        bgFile.click();
+      });
+      bgDrop.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bgFile.click(); }
+      });
+      ["dragenter", "dragover"].forEach((t) => bgDrop.addEventListener(t, (e) => {
+        e.preventDefault(); bgDrop.dataset.drag = "1";
+      }));
+      ["dragleave", "dragend", "drop"].forEach((t) => bgDrop.addEventListener(t, () => { bgDrop.dataset.drag = "0"; }));
+      bgDrop.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const dt = e.dataTransfer;
+        if (!dt) return;
+        if (bgUseFirstImage(dt.files)) return;           // a dropped file
+        const link = dt.getData("text/uri-list") || dt.getData("text/plain");
+        if (link) bgUseUrl(link);                        // an image dragged from another tab
+      });
+      // Paste an image (or a link) while the drop zone is focused.
+      bgDrop.addEventListener("paste", (e) => {
+        const items = e.clipboardData && e.clipboardData.items;
+        if (items) {
+          for (const it of Array.from(items)) {
+            if (it.type && it.type.indexOf("image/") === 0) {
+              e.preventDefault(); const b = it.getAsFile(); if (b) bgUseBlob(b); return;
+            }
+          }
+        }
+        const text = e.clipboardData && e.clipboardData.getData("text");
+        if (text && /^(https?:\/\/|data:image\/)/i.test(text.trim())) { e.preventDefault(); bgUseUrl(text); }
+      });
+      bgFile.addEventListener("change", () => { bgUseFirstImage(bgFile.files); bgFile.value = ""; });
+      bgClear.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setBg(null);
+        if (bgUrlInput) bgUrlInput.value = "";
+        setBgError("");
+      });
+    }
+    if (bgUrlInput) {
+      bgUrlInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); bgUseUrl(bgUrlInput.value); }
+      });
+      bgUrlInput.addEventListener("change", () => {
+        if (bgUrlInput.value.trim()) bgUseUrl(bgUrlInput.value);
+      });
+      // Pasting an actual image into the link box still works (grabs the image,
+      // not the text); pasting a link falls through to the normal text paste.
+      bgUrlInput.addEventListener("paste", (e) => {
+        const items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        for (const it of Array.from(items)) {
+          if (it.type && it.type.indexOf("image/") === 0) {
+            e.preventDefault(); const b = it.getAsFile(); if (b) bgUseBlob(b); return;
+          }
+        }
+      });
+    }
+    if (bgDimInput) bgDimInput.addEventListener("input", () => applyBgDim(bgDimInput.value));
+    if (panelSeeThruInput) panelSeeThruInput.addEventListener("input", () => applyPanelSeeThru(panelSeeThruInput.value));
+
+    // Paste an image ANYWHERE while Settings is open - the common way to drop in
+    // a screenshot or a copied image. Text pastes (with no image) are ignored
+    // here so typing into the link field still behaves normally.
+    document.addEventListener("paste", (e) => {
+      if (e.defaultPrevented) return;                    // already handled (drop zone / link box)
+      if (!settingsPanel || settingsPanel.dataset.open !== "1") return;
+      if (document.activeElement === bgUrlInput) return; // let its own handler decide
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      for (const it of Array.from(items)) {
+        if (it.type && it.type.indexOf("image/") === 0) {
+          e.preventDefault(); const b = it.getAsFile(); if (b) bgUseBlob(b); return;
+        }
+      }
+    });
+
+    // Sync the Settings UI to whatever's stored (the <head> script already
+    // applied --wall-img/--wall-dim + data-wall before paint, so we don't
+    // re-set --wall-img here and risk altering the exact stored string).
+    (function initBgUi() {
+      let saved = null, dim = 35, seeThru = 0;
+      try { saved = localStorage.getItem(BG_IMG_KEY); } catch (e) { /* ignore */ }
+      try { const d = localStorage.getItem(BG_DIM_KEY); if (d !== null) dim = Number(d); } catch (e) { /* ignore */ }
+      try { const s = localStorage.getItem(PANEL_SEETHRU_KEY); if (s !== null) seeThru = Number(s); } catch (e) { /* ignore */ }
+      applyBgDim(dim);
+      applyPanelSeeThru(seeThru);
+      reflectBgUi(saved || null);
+    })();
+
+    // ---- Collapse the sidebar (desktop) -----------------------------------
+    // Hide the whole sidebar for a full-width racing view. The state is per
+    // device (localStorage) and desktop-only: data-sidebar is only ever set
+    // when NOT on the compact layout, so the phone's bottom sheet is untouched.
+    // Crossing the compact boundary re-evaluates it (so a saved "collapsed"
+    // comes back when you widen the window, and is dropped when you narrow it).
+    const SIDEBAR_KEY = "typingRace.sidebarCollapsed";
+    let sidebarCollapsed = false;
+    try { sidebarCollapsed = localStorage.getItem(SIDEBAR_KEY) === "1"; } catch (e) { /* ignore */ }
+
+    function applySidebarCollapsed() {
+      const on = sidebarCollapsed && !compactLayout.matches;
+      if (on) document.documentElement.dataset.sidebar = "collapsed";
+      else delete document.documentElement.dataset.sidebar;
+      if (sidebarCollapseBtn) sidebarCollapseBtn.setAttribute("aria-expanded", on ? "false" : "true");
+      // Chat is visible again the moment it's expanded, so clear its unread dot.
+      if (!on && typeof clearChatUnread === "function") clearChatUnread();
+    }
+    function setSidebarCollapsed(next) {
+      sidebarCollapsed = next;
+      try { localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0"); } catch (e) { /* ignore */ }
+      applySidebarCollapsed();
+    }
+    if (sidebarCollapseBtn) {
+      sidebarCollapseBtn.addEventListener("click", () => {
+        setSidebarCollapsed(true);
+        if (sidebarReopen) sidebarReopen.focus();   // keep focus on a visible control
+      });
+    }
+    if (sidebarReopen) {
+      sidebarReopen.addEventListener("click", () => {
+        setSidebarCollapsed(false);
+        if (sidebarCollapseBtn) sidebarCollapseBtn.focus();
+      });
+    }
+    // A layout that crosses the compact boundary must re-apply (drop the
+    // collapse on compact, restore it on desktop).
+    compactLayout.addEventListener("change", applySidebarCollapsed);
+    applySidebarCollapsed();
+
+    // ---- Full-screen ("focus") typing view --------------------------------
+    // Maximise the typing view: hide the header (both layouts) and, via CSS,
+    // collapse the sidebar on desktop. State is per device and independent of
+    // the manual sidebar collapse above. The button is the only way in/out (no
+    // Escape binding - Escape already means "leave the race"), so it always
+    // stays visible and just swaps its glyph. The <head> script applied the
+    // saved state before paint; this syncs the button and keeps it in step.
+    const FOCUS_KEY = "typingRace.focusMode";
+    let focusMode = false;
+    try { focusMode = localStorage.getItem(FOCUS_KEY) === "1"; } catch (e) { /* ignore */ }
+    function applyFocusMode() {
+      if (focusMode) document.documentElement.dataset.focus = "1";
+      else delete document.documentElement.dataset.focus;
+      if (focusToggle) {
+        focusToggle.setAttribute("aria-pressed", focusMode ? "true" : "false");
+        focusToggle.setAttribute("aria-label", focusMode ? "Restore the normal view" : "Maximize the typing view");
+        focusToggle.title = focusMode ? "Restore the normal view" : "Maximize the typing view";
+      }
+      // The arena's height changed (header/sidebar came or went), so the quote
+      // window's line count and the ghost carets must be recomputed against it.
+      if (typeof updateQuoteWindow === "function") updateQuoteWindow();
+      if (room && typeof renderGhostCarets === "function") renderGhostCarets(room.state);
+      if (typeof refreshRaceChrome === "function") refreshRaceChrome();
+    }
+    function setFocusMode(next) {
+      focusMode = next;
+      try { localStorage.setItem(FOCUS_KEY, next ? "1" : "0"); } catch (e) { /* ignore */ }
+      applyFocusMode();
+    }
+    if (focusToggle) {
+      focusToggle.addEventListener("click", () => setFocusMode(!focusMode));
+    }
+    applyFocusMode();
 
     // Sound cue toggle (Settings). On by default; persisted per browser.
     function applySoundToggleUi() {

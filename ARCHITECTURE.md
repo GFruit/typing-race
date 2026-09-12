@@ -3739,3 +3739,103 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   - no more obscure terms like "Sonic Nautilus". Still wholesome (every pairing
   inoffensive), deduped, 15,600 combos, and every "Adjective Noun" stays under
   the 20-char cap (verified programmatically).
+- 2026-09-11: Arena redesign (client-only, no schema changes). The typing area
+  is now framed as a raised "stage" card (`.stage`: warm surface, hairline
+  border, 18px radius, drop shadow) floating on an ambient arena background -
+  the flat `#16130d` fill became "stage lighting": a soft terracotta glow from
+  the top-centre, a warm wash from the bottom-right, and a faint dot grain, all
+  pure-CSS gradients (no image asset). `.stage` wraps the readout, shared track,
+  quote and input; `#raceTimer` stays outside it so it keeps anchoring to the
+  arena corner. Crucially the frame is desktop-only: the compact `@media` flips
+  `.stage` to `display:contents`, so every phone/short-viewport layout and the
+  JS measurement/reparent code (updateQuoteWindow, refreshRaceChrome,
+  placeInputBar) still see the children as direct arena flex items - unchanged.
+  `placeInputBar`'s desktop branch now re-homes `#inputWrap` into `.stage`
+  (`stageEl`) instead of the arena. Light theme restates the glow (dialled down)
+  and the card as a warm-white surface.
+- 2026-09-11: Frame reworked into a literal "picture on a wall" + a custom
+  background-image setting (client-only). `.stage` is now a wooden picture frame
+  (wood-grain `border-image`, gilt inner liner, shadow cast on the wall) around
+  a themed canvas; the arena background became a lit plaster "wall" (top light
+  bloom + fractal-noise grain SVG + floor vignette). The type box (`#typeInput`)
+  was restyled to stand out: a recessed well with a warm hairline and a
+  terracotta focus glow. NEW Settings > Background (in Appearance): upload a
+  file, paste an image link, or paste/drop an image (global paste while Settings
+  is open, drag-and-drop, file picker), with a live thumbnail, a Dim slider and
+  a Remove button. Applied as a `.wall-img` layer BEHIND the frame (never the
+  text's canvas) via `--wall-img`/`--wall-dim` + `<html data-wall="1">`; a
+  pre-paint `<head>` script applies a saved one to avoid a flash. Uploaded/
+  pasted images are canvas-downscaled (<=1920px longest edge) and re-encoded to
+  JPEG so they fit the localStorage quota; a link is stored verbatim. Keys:
+  `typingRace.bgImage`, `typingRace.bgDim`. Desktop only - the compact `@media`
+  hides `.wall-img` (no frame there, so text would sit on the image). The
+  hanging-wire/nail experiment was cut as too gimmicky; the frame stands alone.
+- 2026-09-11: Background GIFs fixed + desktop sidebar collapse (client-only).
+  (1) Animated backgrounds froze because `bgUseBlob` re-encoded every image
+  through a `<canvas>` (one frame). Fix (two passes): GIF/animated-WebP/APNG now
+  keep their ORIGINAL bytes, and - since a multi-MB data: URL set as the
+  `--wall-img` CSS variable silently fails to paint (wall just goes dark) - they
+  are DISPLAYED from a short `blob:` URL and the data URL is persisted separately
+  only when under ~2.2M chars (larger ones show for the session with a notice,
+  and don't persist). Static images are still canvas-downscaled + JPEG'd.
+  `applyBgSrc`/`persistBg` split the visual apply from storage; `bgBlobUrl` is
+  revoked when replaced. (2) NEW: collapse the whole sidebar for a
+  full-width racing view. `#sidebarCollapseBtn` (right of the lobby row)
+  collapses it (`.sidebar` width→0), and `#sidebarReopen` - a pull-tab floating
+  at the arena's right edge, vertically centred - brings it back. State is
+  `<html data-sidebar="collapsed">`, set ONLY on the desktop layout: JS gates on
+  `!compactLayout.matches` and re-applies on the media change, so the compact
+  bottom sheet is never touched (collapse button hidden there too). Per-device
+  (`typingRace.sidebarCollapsed`) + a pre-paint `<head>` apply for no flash.
+  Unread chat arriving behind a collapsed sidebar lights a dot on the tab
+  (`noteChatUnread`/`clearChatUnread` extended for the desktop-collapsed case);
+  expanding clears it. Trade-off accepted: Join/roster/chat are one click away
+  behind the tab while collapsed, rather than always visible.
+- 2026-09-12: The wooden frame and the custom `.wall-img` background now show on
+  the compact (mobile / short-viewport) layout too, not just desktop
+  (client-only, CSS). Previously the compact `@media` flipped `.stage` to
+  `display:contents` (dropping the frame) and hid `.wall-img`. Now the compact
+  block keeps the frame with a slimmed-down border (9px), padding (12/12/14) and
+  margin plus a lighter shadow, and no longer hides the wall image - so a phone
+  shows the same "picture on a wall" as desktop. The quote-window math already
+  measures live available height, so it just windows down toward its two-line
+  floor to pay for the frame's few pixels; `#raceTimer` still lives outside the
+  frame and `placeInputBar` still moves `#inputWrap` in/out of `.stage`
+  (now a real box on compact, still the bottom of the framed area).
+- 2026-09-12: Ditched the wooden frame; the typing test now sits on a plain
+  distinct "panel" instead (client-only, CSS + one setting). `.stage` lost its
+  wood-grain `border-image` and heavy shadow and became a rounded surface with
+  a faint fixed-alpha edge and a low shadow, set apart from the arena "wall" so
+  ANY background (even a photo) sits behind it without touching the text. Same
+  panel on desktop and compact (compact only trims padding/margin), so the
+  earlier "frame on mobile" entry above is moot. NEW Settings > Appearance >
+  Typing panel "See-through" slider (0-100%, default 0): drives `--panel-alpha`
+  (= 1 - see-through/100) on the panel's rgba background gradient, so 0% is a
+  solid panel (background never shows through the text) and higher values fade
+  it toward transparent to reveal the wall/photo behind the text. Key
+  `typingRace.panelSeeThru`; applied pre-paint in the `<head>` script (no flash)
+  and wired via `applyPanelSeeThru()`/`initBgUi()`. The existing Background
+  "Dim" slider (outer `--wall-dim` scrim) is unchanged and complementary. The
+  Background field is no longer desktop-only or "behind the frame"; its hint/
+  comments were updated accordingly.
+- 2026-09-12: Full-screen "focus" typing view (client-only). NEW #focusToggle
+  button pinned to the arena's top-right corner (icon swaps expand<->restore)
+  toggles <html data-focus="1">, which hides the header on every layout and,
+  via CSS, collapses the sidebar on desktop (the compact sidebar is a bottom
+  sheet already tucked away, so the compact @media restores its width so the
+  sheet stays usable). The button always stays visible, so it's the only way
+  in/out - deliberately NO Escape binding, since Escape already means "leave the
+  race". State is per device (`typingRace.focusMode`), applied pre-paint in the
+  <head> script (no flash) and wired via applyFocusMode()/setFocusMode(); the
+  toggle recomputes the quote window + ghost carets + refreshRaceChrome since
+  the arena height changes. Independent of the manual sidebar collapse
+  (data-sidebar), so entering/leaving focus never clobbers that preference.
+  #raceTimer shifted left to clear the corner button.
+- 2026-09-12: Fixed a focus-mode / sidebar-collapse overlap. If the sidebar was
+  manually collapsed (data-sidebar="collapsed", so #sidebarReopen tab showing)
+  before entering full-screen, the tab stayed visible in focus mode but clicking
+  it couldn't reopen the sidebar (focus mode's width:0 wins) - a dead control.
+  Now `html[data-focus="1"] #sidebarReopen { display: none }` suppresses the tab
+  while full-screen: focus mode is a single toggle that owns header+sidebar, and
+  its button is the only way back in. The manual-collapse preference is still
+  preserved underneath and returns when you leave full-screen.
