@@ -74,6 +74,63 @@
     /* Right-aligned header cluster: the emoji avatar picker + the settings
        (gear) button, pushed to the right edge together. */
     #identityBox { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+
+    /* Rolling average WPM chip, leftmost in the identity cluster (just left of
+       the avatar). --wpm-rest is the resting number colour so the flash
+       keyframes can dip to a gain/loss hue and return to the right base in
+       either theme without hard-coding it. */
+    #wpmStat {
+      --wpm-rest: #5ec9c2;
+      position: relative; display: flex; align-items: baseline; gap: 6px;
+      margin-right: 8px; padding: 4px 11px;
+      background: #16130d; border: 1px solid #33291d; border-radius: 11px;
+      cursor: default; user-select: none;
+      transition: transform .18s ease-out, border-color .35s ease, box-shadow .35s ease;
+    }
+    #wpmStatValue {
+      font-size: 21px; font-weight: 700; line-height: 1;
+      color: var(--wpm-rest); font-variant-numeric: tabular-nums;
+    }
+    /* Empty state (no finished races yet): the dash reads as inert, not a zero. */
+    #wpmStat[data-empty="1"] #wpmStatValue { color: #6b5940; }
+    #wpmStatCap {
+      display: flex; flex-direction: column; line-height: 1.02;
+      font-size: 8px; font-weight: 700; letter-spacing: .07em;
+      text-transform: uppercase; color: #8c7a5f;
+      transform: translateY(-1px);
+    }
+    /* Floating +/- badge: rides just above the chip and drifts up as it fades,
+       so a change is legible at a glance without shoving the layout around. */
+    #wpmStatDelta {
+      position: absolute; top: -7px; right: 8px;
+      font-size: 11px; font-weight: 700; line-height: 1;
+      font-variant-numeric: tabular-nums;
+      padding: 1px 6px; border-radius: 999px;
+      opacity: 0; pointer-events: none;
+    }
+    #wpmStatDelta[data-dir="up"]   { color: #0e2114; background: #7fc98f; }
+    #wpmStatDelta[data-dir="down"] { color: #2a0e0e; background: #f28b82; }
+
+    @media (prefers-reduced-motion: no-preference) {
+      #wpmStat[data-pulse] { animation: wpmPop .5s ease-out; }
+      #wpmStat[data-pulse="up"]   { border-color: #7fc98f; box-shadow: 0 0 0 1px #7fc98f55, 0 0 14px #7fc98f44; }
+      #wpmStat[data-pulse="down"] { border-color: #f28b82; box-shadow: 0 0 0 1px #f28b8255, 0 0 14px #f28b8244; }
+      #wpmStat[data-pulse="up"]   #wpmStatValue { animation: wpmFlashUp .6s ease-out; }
+      #wpmStat[data-pulse="down"] #wpmStatValue { animation: wpmFlashDown .6s ease-out; }
+      #wpmStatDelta[data-anim="1"] { animation: wpmDeltaFloat 1.7s ease-out; }
+    }
+    @keyframes wpmPop {
+      0% { transform: scale(1); } 32% { transform: scale(1.13); } 100% { transform: scale(1); }
+    }
+    @keyframes wpmFlashUp   { 0%,100% { color: var(--wpm-rest); } 28% { color: #7fc98f; } }
+    @keyframes wpmFlashDown { 0%,100% { color: var(--wpm-rest); } 28% { color: #f28b82; } }
+    @keyframes wpmDeltaFloat {
+      0%   { opacity: 0; transform: translateY(5px)  scale(.9); }
+      16%  { opacity: 1; transform: translateY(-2px) scale(1); }
+      68%  { opacity: 1; transform: translateY(-2px) scale(1); }
+      100% { opacity: 0; transform: translateY(-13px) scale(.95); }
+    }
+
     #settingsBox { position: relative; }
     #settingsBtn {
       cursor: pointer; font-size: 18px; line-height: 1;
@@ -513,7 +570,10 @@
        a low shadow that lifts it off the wall. Its background alpha is
        --panel-alpha (1 = fully opaque, the default), which the Settings >
        Typing panel see-through slider lowers to let the wall show through the
-       text to whatever degree the user wants. #raceTimer stays OUTSIDE the
+       text to whatever degree the user wants. The fills that sit ON the
+       panel - the type box (#typeInput) and the race-track rails
+       (.racer-track, #sharedTrackBase) - carry the same alpha, so they fade
+       with it instead of staying as opaque blocks. #raceTimer stays OUTSIDE the
        panel, on the wall. Applies on desktop and compact alike (the compact
        @media only trims its padding/margin). */
     .stage {
@@ -666,7 +726,7 @@
     #leaderboard[data-mode="shared"][data-shared-empty="1"] #sharedTrack { display: none; }
     /* Square, not pill-shaped, to match the carets riding on it - those are
        straight bars too, so rounding just the track would clash. */
-    #sharedTrackBase { height: 100%; background: #33291d; }
+    #sharedTrackBase { height: 100%; background: rgba(51, 41, 29, var(--panel-alpha, 1)); }
     /* No transition, deliberately - see .shared-caret below: my own caret
        shares this exact value every render, and even a smoothing transition
        that both nominally share can drift the two apart by a visible sliver
@@ -733,7 +793,7 @@
        exists to keep the fill inside the rounded track. position:relative
        anchors the absolutely-positioned emoji to the track's width. */
     .racer-track-wrap { position: relative; }
-    .racer-track { background: #33291d; border-radius: 999px; height: 14px; overflow: hidden; }
+    .racer-track { background: rgba(51, 41, 29, var(--panel-alpha, 1)); border-radius: 999px; height: 14px; overflow: hidden; }
     /* The width/left MOVEMENT transitions live under the [data-smooth-carets]
        gate below (the "Smooth motion" setting) rather than here, so turning the
        setting off snaps these the same way the shared track and quote caret do.
@@ -937,34 +997,30 @@
     #inputWrap { display: none; position: relative; width: 100%; max-width: 640px; margin-top: 18px; }
     #inputWrap[data-visible="1"] { display: block; }
 
-    /* The type box, dressed to stand out on the panel rather than read as a
-       default field: a deep recessed well (dark fill + inset shadow) with a
-       warm hairline and a faint gilt top edge, and a terracotta focus glow to
-       match. */
+    /* The type box: a plain, flat field - one flat fill a step darker than the
+       panel, a single warm hairline, and a faint inset so it reads as recessed
+       rather than raised. Deliberately NO gradient, bevel highlights or drop
+       shadow: those made it look like a button. Focus just brightens the
+       hairline - no accent colour, no ring, nothing that lifts it off the
+       panel. The fill follows
+       the panel see-through (--panel-alpha), like the track rails; the hairline
+       and inset stay at fixed alpha so the field keeps its outline once the fill
+       is gone, as the panel does. */
     #typeInput {
       display: block; width: 100%; padding: 13px 16px;
       font-size: 16px; font-family: ui-monospace, "Cascadia Code", monospace;
-      background: linear-gradient(180deg, #14100a 0%, #191309 100%);
-      border: 1px solid #59452e; border-radius: 12px;
+      background: rgba(20, 16, 10, var(--panel-alpha, 1));
+      border: 1px solid rgba(255, 214, 150, .16); border-radius: 10px;
       color: #ece4d6; outline: none;
-      box-shadow:
-        inset 0 2px 6px rgba(0, 0, 0, .55),
-        inset 0 0 0 1px rgba(255, 220, 160, .05),
-        0 1px 0 rgba(255, 236, 206, .04);
-      transition: border-color .18s ease, box-shadow .18s ease;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35);
+      transition: border-color .18s ease;
       /* The real caret can't be phase-synced with our custom one above (its
          blink timing is OS/browser-controlled, not exposed to the page), so
          instead there's only one visible cursor: hide this one entirely. */
       caret-color: transparent;
     }
     #typeInput::placeholder { color: #6b5940; }
-    #typeInput:focus {
-      border-color: #e2603f;
-      box-shadow:
-        inset 0 2px 6px rgba(0, 0, 0, .5),
-        0 0 0 3px rgba(226, 96, 63, .22),
-        0 6px 18px -8px rgba(226, 96, 63, .45);
-    }
+    #typeInput:focus { border-color: rgba(255, 214, 150, .42); }
 
     /* The Leave control that sits inside the typing input on the compact "race
        bar" (keyed off <html data-race-bar>); hidden otherwise. Matches the
@@ -985,10 +1041,11 @@
        past an uncorrected mistake (see ERROR_TAIL_CAP). Inset by 1px so it
        covers the input's padding box but not its border; the gradient lets any
        text scrolled underneath fade out rather than collide with the label. */
+    /* Bare text, no backing: the input's fill follows the panel see-through,
+       so any fade-to-fill behind the notice would show as a mismatched block. */
     #errorNotice {
       display: none; position: absolute; right: 1px; top: 1px; bottom: 1px;
-      align-items: center; padding: 0 14px 0 30px; border-radius: 0 9px 9px 0;
-      background: linear-gradient(to right, rgba(22, 19, 13, 0), #16130d 24px);
+      align-items: center; padding: 0 14px;
       color: #f87171; font-size: 13px; font-weight: 600; white-space: nowrap;
       pointer-events: none;
     }
@@ -999,8 +1056,8 @@
     @keyframes notice-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
     /* Centered over the (empty) box. No background: the box behind it holds
-       nothing to mask, so leaving it clear keeps the border - blue when focused
-       - fully visible even through the "go" blink. Sans font, not the input's
+       nothing to mask, so leaving it clear keeps the border - brighter when
+       focused - fully visible even through the "go" blink. Sans font, not the input's
        monospace, so the longer "get ready" line fits a narrow phone. */
     #startHint {
       display: none; position: absolute; top: 1px; right: 1px; bottom: 1px; left: 1px;
@@ -1535,7 +1592,11 @@
 
       header { padding: 9px 12px; gap: 6px; }
       h1 { font-size: 21px; }
-      #usernameDisplay { max-width: 92px; font-size: 12px; padding: 4px 6px; }
+      #usernameDisplay { max-width: 76px; font-size: 12px; padding: 4px 6px; }
+      /* Tighten the WPM chip on phones so wordmark + chip + avatar + name +
+         gear all still clear each other; it's the same number, just smaller. */
+      #wpmStat { margin-right: 5px; padding: 3px 8px; gap: 4px; }
+      #wpmStatValue { font-size: 18px; }
       #emojiBtn { font-size: 22px; padding: 5px 6px; }
       #settingsBtn { font-size: 19px; padding: 5px 6px; }
 
@@ -2166,6 +2227,12 @@
     html[data-theme="light"] #usernameDisplay:hover { background: var(--l-inset); border-color: var(--l-line); }
     html[data-theme="light"] #emojiBtn:hover,
     html[data-theme="light"] #settingsAvatar:hover { background: var(--l-inset); }
+    html[data-theme="light"] #wpmStat {
+      --wpm-rest: var(--l-finished);
+      background: var(--l-inset); border-color: var(--l-line);
+    }
+    html[data-theme="light"] #wpmStat[data-empty="1"] #wpmStatValue { color: var(--l-soft); }
+    html[data-theme="light"] #wpmStatCap { color: var(--l-soft); }
 
     /* --- Buttons (terracotta primary is unchanged; only the neutral states move) - */
     html[data-theme="light"] .btn[data-racing="1"] { background: var(--l-line); color: var(--l-ink); }
@@ -2278,13 +2345,33 @@
     html[data-ink="dark"] #quote[data-placeholder="1"] { color: #4a4230; }
     html[data-ink="dark"] #quote span.ok { color: #2f6b1f; }
     html[data-ink="dark"] #quote span.bad { color: #b31f1f; }
+    /* The rest of the arena's type shares the quote's palette (muted captions,
+       "ok" green, countdown amber) and sits on the same see-through ground, so
+       it follows the same ink: the phase banner ("Waiting for racers…", "Next
+       race in…"), the big readout's captions/number, the corner race timer and
+       the focus toggle's idle glyph (its hover paints its own background, so
+       that keeps each theme's colours). */
+    html[data-ink="light"] #phaseBanner,
+    html[data-ink="light"] #bigReadout .readout-cap,
+    html[data-ink="light"] #raceTimer,
+    html[data-ink="light"] #focusToggle:not(:hover) { color: #c9bda3; }
+    html[data-ink="light"] #phaseBanner[data-phase="racing"],
+    html[data-ink="light"] #bigReadout .readout-number { color: #bfe098; }
+    html[data-ink="light"] #bigReadout[data-mode="countdown"] .readout-number { color: #fdba74; }
+    html[data-ink="dark"] #phaseBanner,
+    html[data-ink="dark"] #bigReadout .readout-cap,
+    html[data-ink="dark"] #raceTimer,
+    html[data-ink="dark"] #focusToggle:not(:hover) { color: #4a4230; }
+    html[data-ink="dark"] #phaseBanner[data-phase="racing"],
+    html[data-ink="dark"] #bigReadout .readout-number { color: #2f6b1f; }
+    html[data-ink="dark"] #bigReadout[data-mode="countdown"] .readout-number { color: var(--l-count); }
 
     /* --- Leaderboard tracks (terracotta fills stay base) ------------------- */
-    html[data-theme="light"] .racer-track { background: var(--l-line); }
+    html[data-theme="light"] .racer-track { background: rgba(227, 216, 196, var(--panel-alpha, 1)); }
     html[data-theme="light"] .racer-fill.finished { background: var(--l-finished); }
     html[data-theme="light"] .racer-fill.afk { background: var(--l-line2); }
     html[data-theme="light"] .racer-wpm { color: var(--l-soft); }
-    html[data-theme="light"] #sharedTrackBase { background: var(--l-line); }
+    html[data-theme="light"] #sharedTrackBase { background: rgba(227, 216, 196, var(--panel-alpha, 1)); }
     html[data-theme="light"] #sharedTrackFill.finished { background: var(--l-finished); }
     html[data-theme="light"] #sharedTrackFill.afk { background: var(--l-line2); }
     html[data-theme="light"] .shared-caret.finished { background: var(--l-finished); }
@@ -2299,21 +2386,22 @@
     html[data-theme="light"] .shared-caret-emoji { filter: none; }
 
     /* --- Typing input / hints ---------------------------------------------- */
+    /* Same flat field as the base theme: one fill, one hairline, faint inset. */
     html[data-theme="light"] #typeInput {
-      background: linear-gradient(180deg, #fbf5ea 0%, #fffdf7 100%); border-color: var(--l-line2); color: var(--l-ink);
-      box-shadow:
-        inset 0 2px 5px rgba(120, 90, 50, .14),
-        inset 0 0 0 1px rgba(255, 255, 255, .5),
-        0 1px 0 rgba(255, 255, 255, .6);
+      background: rgba(255, 253, 247, var(--panel-alpha, 1));
+      border-color: rgba(120, 90, 50, .28); color: var(--l-ink);
+      box-shadow: inset 0 1px 3px rgba(120, 90, 50, .10);
     }
     html[data-theme="light"] #typeInput::placeholder { color: var(--l-faint); }
-    html[data-theme="light"] #typeInput:focus {
-      border-color: #e2603f;
-      box-shadow:
-        inset 0 2px 5px rgba(120, 90, 50, .12),
-        0 0 0 3px rgba(226, 96, 63, .18),
-        0 6px 16px -8px rgba(226, 96, 63, .35);
-    }
+    /* Adaptive ink for the type box (see the #quote data-ink rules above): its
+       fill fades with the panel too, so its text and placeholder need the same
+       treatment or they can vanish against the wall. After the light-theme rule
+       so it wins at equal specificity in either theme. */
+    html[data-ink="light"] #typeInput { color: #ece4d6; }
+    html[data-ink="light"] #typeInput::placeholder { color: #a89a80; }
+    html[data-ink="dark"] #typeInput { color: #35301f; }
+    html[data-ink="dark"] #typeInput::placeholder { color: #6a6048; }
+    html[data-theme="light"] #typeInput:focus { border-color: rgba(120, 90, 50, .55); }
     /* Desktop is deliberately left untouched: the input wrapper has NO
        background in the base theme (the input's own rounded box fills it), and
        giving it one would show past the input's rounded corners. Only the
@@ -2331,11 +2419,17 @@
        leaving beige triangles at each corner. Keep it transparent so the bar's
        matching card colour shows through instead. */
     html[data-theme="light"][data-race-bar="1"] #inputWrap { background: transparent; }
-    html[data-theme="light"] #errorNotice {
-      background: linear-gradient(to right, rgba(255, 255, 255, 0), var(--l-card) 24px); color: var(--l-bad);
-    }
+    html[data-theme="light"] #errorNotice { color: var(--l-bad); }
     html[data-theme="light"] #startHint[data-mode="ready"] { color: var(--l-soft); }
     html[data-theme="light"] #startHint[data-mode="go"] { color: var(--l-warn); }
+    /* Adaptive ink for the prompt in the empty box, same as #quote's placeholder
+       line: the box's fill fades with the panel, so the prompt sits on the wall
+       too. The "go" nudge keeps an amber in each ink, picked for that ground.
+       After the light-theme rules so it wins in either theme. */
+    html[data-ink="light"] #startHint[data-mode="ready"] { color: #c9bda3; }
+    html[data-ink="light"] #startHint[data-mode="go"] { color: #fbbf24; }
+    html[data-ink="dark"] #startHint[data-mode="ready"] { color: #4a4230; }
+    html[data-ink="dark"] #startHint[data-mode="go"] { color: var(--l-warn); }
 
     /* --- Sidebar, roster, chat --------------------------------------------- */
     html[data-theme="light"] .sidebar {
@@ -2514,6 +2608,16 @@
          here are gone: the count is the sidebar's "Racers 3 / 5" row, and the
          room id was only ever dev/QA visibility. -->
     <div id="identityBox">
+      <!-- Personal-best-of-the-moment: the rolling average of your last 10
+           finished races, sat immediately left of your avatar. The proudest
+           number in the app, so it gets the boldest treatment; a floating +/-
+           badge and a colour pulse fire whenever a fresh result moves it. -->
+      <div id="wpmStat" data-empty="1" aria-live="polite"
+           title="Your average WPM over your last 10 finished races">
+        <span id="wpmStatValue">–</span>
+        <span id="wpmStatCap"><span>avg</span><span>wpm</span></span>
+        <span id="wpmStatDelta" aria-hidden="true"></span>
+      </div>
       <div id="emojiBox">
         <button id="emojiBtn" type="button" title="Choose your racer avatar">🚀</button>
         <div id="emojiPicker"></div>
@@ -3877,6 +3981,86 @@
     const startHint   = document.getElementById("startHint");
     const emojiBtn    = document.getElementById("emojiBtn");
     const emojiPicker = document.getElementById("emojiPicker");
+    const wpmStat      = document.getElementById("wpmStat");
+    const wpmStatValue = document.getElementById("wpmStatValue");
+    const wpmStatDelta = document.getElementById("wpmStatDelta");
+
+    // --- Rolling last-10 average WPM ---------------------------------------
+    // Purely client-side: the server owns per-race stats, but "how am I doing
+    // lately" is a personal, cross-session number, so it lives in localStorage
+    // keyed to this browser rather than in the synced room state. We only ever
+    // average the most recent WPM_WINDOW finished races.
+    const WPM_HISTORY_KEY = "typingRace.wpmHistory";
+    const WPM_WINDOW = 10;
+    let wpmHistory = loadWpmHistory();
+    // The average currently painted, so a fresh result knows which way - and by
+    // how much - the number moved. null until the first paint.
+    let shownWpmAvg = null;
+    let wpmPulseTimer = 0, wpmDeltaTimer = 0;
+
+    function loadWpmHistory() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(WPM_HISTORY_KEY));
+        if (!Array.isArray(raw)) return [];
+        // Finite non-negative integers only, capped at the window, so a
+        // corrupted or oversized store can't poison the average or grow.
+        return raw.filter((n) => Number.isFinite(n) && n >= 0)
+                  .map((n) => Math.round(n))
+                  .slice(-WPM_WINDOW);
+      } catch (_) { return []; }
+    }
+
+    function averageWpm(list) {
+      if (!list.length) return null;
+      return Math.round(list.reduce((a, b) => a + b, 0) / list.length);
+    }
+
+    // Paint the chip from wpmHistory. `animate` fires the pop + floating +/-
+    // delta; only recordWpmResult (a genuinely new result) passes true.
+    function renderWpmStat(animate) {
+      const avg = averageWpm(wpmHistory);
+      wpmStat.dataset.empty = avg === null ? "1" : "0";
+      wpmStatValue.textContent = avg === null ? "–" : avg;
+      wpmStat.title = avg === null
+        ? "Your average WPM over your last 10 finished races"
+        : `Your average WPM over your last ${wpmHistory.length} finished race` +
+          (wpmHistory.length === 1 ? "" : "s") + ` (up to ${WPM_WINDOW})`;
+
+      if (animate && avg !== null && shownWpmAvg !== null && avg !== shownWpmAvg) {
+        const delta = avg - shownWpmAvg;
+        const dir = delta > 0 ? "up" : "down";
+        wpmStatDelta.textContent = (delta > 0 ? "+" : "−") + Math.abs(delta);
+        wpmStatDelta.dataset.dir = dir;
+        // Restart the animations: clear the trigger attrs, force a reflow, then
+        // re-set them, so a second change in quick succession replays instead
+        // of the attr value staying the same and the keyframes not re-firing.
+        clearTimeout(wpmPulseTimer); clearTimeout(wpmDeltaTimer);
+        wpmStat.removeAttribute("data-pulse");
+        wpmStatDelta.removeAttribute("data-anim");
+        void wpmStat.offsetWidth;
+        wpmStat.dataset.pulse = dir;
+        wpmStatDelta.dataset.anim = "1";
+        // Drop the trigger attrs once each animation is done. The chip's glow is
+        // a static [data-pulse] style (not a keyframe), so it lingers until the
+        // attr is removed - and the chip's border/shadow transition then fades
+        // it out smoothly rather than snapping.
+        wpmPulseTimer = setTimeout(() => wpmStat.removeAttribute("data-pulse"), 650);
+        wpmDeltaTimer = setTimeout(() => wpmStatDelta.removeAttribute("data-anim"), 1750);
+      }
+      shownWpmAvg = avg;
+    }
+
+    // Called once per finished race I actually completed (see render's phase
+    // edge). Pushes my final WPM, trims to the window, persists, repaints.
+    function recordWpmResult(wpm) {
+      if (!Number.isFinite(wpm) || wpm < 0) return;
+      wpmHistory.push(Math.round(wpm));
+      if (wpmHistory.length > WPM_WINDOW) wpmHistory = wpmHistory.slice(-WPM_WINDOW);
+      try { localStorage.setItem(WPM_HISTORY_KEY, JSON.stringify(wpmHistory)); } catch (_) {}
+      renderWpmStat(true);
+    }
+
+    renderWpmStat(false);
     const settingsBtn   = document.getElementById("settingsBtn");
     const settingsPanel = document.getElementById("settingsPanel");
     const settingsUsername = document.getElementById("settingsUsername");
@@ -5765,6 +5949,15 @@
       // in a race already in progress isn't a start, so it mustn't sound like one.
       if (state.phase === "racing" && lastPhase !== null && lastPhase !== "racing" && iAmRacing) {
         cueGo();
+      }
+      // Log my result the instant a race I completed ends, feeding the header's
+      // rolling last-10 average. `me.finished` gates out a DNF (bailed, kicked
+      // or timed out) - the average is "races I actually finished". Edge-
+      // triggered off lastPhase so it fires once, and `lastPhase !== null`
+      // skips the first patch after a (re)connect landing on a finished screen.
+      if (state.phase === "finished" && lastPhase !== null && lastPhase !== "finished" &&
+          me && me.finished) {
+        recordWpmResult(me.wpm);
       }
       lastPhase = state.phase;
 

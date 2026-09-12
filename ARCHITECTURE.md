@@ -3857,3 +3857,57 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   (`sampleBgLuminance` resolves null). Honest limit: one colour per line can't win
   over a genuinely busy image (bright and dark under the same line), but it never
   alters the background layer and adds no effects - text-colour only, by request.
+- 2026-09-12: Fixed the type box and race-track rails ignoring the panel
+  see-through (client-only). `.stage`'s fill used `--panel-alpha`, but the
+  fills sitting ON it - `#typeInput`'s gradient, `.racer-track` and
+  `#sharedTrackBase` - were solid hex/`--l-line` in both themes, so at any
+  see-through they stayed as opaque blocks over the wall. All six fills are now
+  `rgba(<same colour>, var(--panel-alpha, 1))` so they fade with the panel;
+  borders, inset shadows and the progress/caret fills stay at fixed alpha (they
+  are outline/content, like the panel's own edge). Since the box's fill can now
+  vanish, `html[data-ink="…"] #typeInput{,::placeholder}` give its text the
+  same adaptive ink as `#quote`, placed after the light-theme `#typeInput` rule
+  so it wins in either theme. Untouched: the compact layout's sticky
+  `#inputWrap`/`#quoteTopMask` fills stay opaque on purpose - they exist to hide
+  quote text scrolling under the bar, so the box just shows the bar colour there.
+- 2026-09-12: Flattened the type box (client-only). It had been styled like a
+  button: gradient fill, a bevel (inner gilt ring + outer 1px bottom highlight),
+  and a focus drop-shadow that lifted it off the panel. Now a plain field in
+  both themes - one flat `rgba(..., var(--panel-alpha))` fill, a single
+  fixed-alpha hairline, a faint 1px inset, 10px radius; focus is a
+  border-colour change plus a soft 2px terracotta ring, no lift. `#errorNotice`'s
+  `0 9px 9px 0` inner radius now matches the box's 10px outer radius exactly.
+- 2026-09-12: Type box follow-ups (client-only). (1) Dropped the terracotta
+  focus state (accent border + ring); focus now just raises the hairline's
+  alpha (.16→.42 dark, .28→.55 light) - still a visible focus cue, no accent.
+  (2) The empty-box prompt (`#startHint`, "Type the text above as soon as the
+  race starts!") was missed by the adaptive-ink pass: added
+  `html[data-ink="…"] #startHint[data-mode="ready"|"go"]` after the light-theme
+  rules, matching `#quote`'s placeholder ink for "ready" and an amber picked per
+  ink for "go" (`#fbbf24` on dark ground, `--l-warn` on bright).
+- 2026-09-12: Extended the adaptive ink to the rest of the arena's type
+  (client-only): `#phaseBanner` (idle/results line + its racing green),
+  `#bigReadout`'s captions, number and countdown amber, `#raceTimer`, and
+  `#focusToggle`'s idle glyph (`:not(:hover)`, so the hover state - which paints
+  its own background - keeps each theme's colours). Same `html[data-ink="…"]`
+  block as `#quote`, same swatches per role.
+- 2026-09-12: Header "rolling last-10 average WPM" chip (client-only, no server
+  or schema change). Sits leftmost in `#identityBox`, immediately left of the
+  avatar. Purely personal + cross-session, so it lives in `localStorage`
+  (`typingRace.wpmHistory`, capped at the last 10 finished races) rather than in
+  synced state - the server still owns per-race stats; this is just a private
+  "how am I doing lately" readout. `render()` records `me.wpm` on the
+  `→ finished` phase edge, but only when `me.finished` (a DNF/bail/kick/timeout
+  doesn't count) and `lastPhase !== null` (skips the first patch after a
+  reconnect onto a results screen, so it's not double-counted). On a change the
+  chip pops, its number flashes the gain/loss hue, and a floating `+N`/`−N`
+  badge drifts up and fades (all `prefers-reduced-motion`-gated); the delta is
+  vs. the previously shown average. Resting number colour is a `--wpm-rest`
+  custom prop so the flash keyframes return to the right base in both themes.
+  Compact layout shrinks the chip and the name's max-width so the header cluster
+  still clears itself on phones.
+- 2026-09-12: `#errorNotice` ("Fix errors to continue") lost its backing
+  (client-only). It had a fade-to-fill gradient (`#16130d` dark, `--l-card`
+  light) matched to the old opaque box; with the see-through fill it read as a
+  mismatched block. Now bare text over the input, padding trimmed to what the
+  text needs.
