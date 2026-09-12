@@ -3839,3 +3839,21 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   while full-screen: focus mode is a single toggle that owns header+sidebar, and
   its button is the only way back in. The manual-collapse preference is still
   preserved underneath and returns when you leave full-screen.
+
+- 2026-09-12: Adaptive text COLOUR over a see-through panel (client-only, no
+  schema changes). When the typing panel is made see-through, the wall image
+  bleeds through behind the glyphs and can wreck readability. Rather than touch
+  the user's Dim or See-through - or add any shadow/outline - ONLY the text
+  colour changes: `recomputeInk()` estimates the luminance behind the text (the
+  image, sampled to a 32×32 canvas central 60% whenever a source is applied,
+  darkened by the dim scrim, with the semi-transparent panel fill composited on
+  top) and sets `data-ink` on `<html>` to `light` (light text for a dark
+  background) or `dark` (dark text for a bright one). CSS rules
+  `html[data-ink="…"] #quote{,span.ok,span.bad,[data-placeholder]}` sit after the
+  light-theme quote rules so they win in either theme; absent (the default, and
+  whenever the panel is <40% see-through) each theme keeps its own colours.
+  Recomputed on background/dim/see-through/theme change and on load. Cross-origin
+  image links that taint the canvas fall back to a per-theme mid luminance
+  (`sampleBgLuminance` resolves null). Honest limit: one colour per line can't win
+  over a genuinely busy image (bright and dark under the same line), but it never
+  alters the background layer and adds no effects - text-colour only, by request.

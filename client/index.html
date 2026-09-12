@@ -855,6 +855,7 @@
          preserves every space's width (letting it hang past the edge instead
          of collapsing) while still wrapping normally at word boundaries. */
       white-space: pre-wrap;
+      transition: color .15s ease-out;
     }
     #quote[data-placeholder="1"] { color: #6b5940; font-style: italic; font-size: 16px; font-family: inherit; text-align: center; }
     #quote span.ok { color: #a7c585; }
@@ -2260,6 +2261,23 @@
     html[data-theme="light"]:not([data-smooth-carets="1"]) #quote span.cursor.blinking { animation-name: caret-blink-light; }
     html[data-theme="light"] .ghost-caret { background: var(--l-cyan); }
     html[data-theme="light"] #selfCaret { background: var(--l-cyan); }
+
+    /* Adaptive text colour over a see-through panel. When the typing panel is
+       made see-through and a background image shows through behind the glyphs,
+       JS sets data-ink on <html> to "light" (light text, for a dark background)
+       or "dark" (dark text, for a bright one), chosen from the luminance behind
+       the text. ONLY the text colour changes - no shadow, no background touched.
+       Placed after the light-theme #quote rules so it wins in either theme at
+       equal specificity; absent (the default) leaves each theme's own colours.
+       See recomputeInk(). */
+    html[data-ink="light"] #quote { color: #ddd2bd; }
+    html[data-ink="light"] #quote[data-placeholder="1"] { color: #c9bda3; }
+    html[data-ink="light"] #quote span.ok { color: #bfe098; }
+    html[data-ink="light"] #quote span.bad { color: #ff9d9d; }
+    html[data-ink="dark"] #quote { color: #35301f; }
+    html[data-ink="dark"] #quote[data-placeholder="1"] { color: #4a4230; }
+    html[data-ink="dark"] #quote span.ok { color: #2f6b1f; }
+    html[data-ink="dark"] #quote span.bad { color: #b31f1f; }
 
     /* --- Leaderboard tracks (terracotta fills stay base) ------------------- */
     html[data-theme="light"] .racer-track { background: var(--l-line); }
@@ -9133,6 +9151,7 @@
         theme = btn.dataset.themeChoice;
         localStorage.setItem(THEME_KEY, theme);
         applyThemeUi();
+        recomputeInk();   // panel-fill luminance differs per theme
       };
     });
 
@@ -9190,6 +9209,7 @@
       if (src) document.documentElement.style.setProperty("--wall-img", bgCssUrl(src));
       else document.documentElement.style.removeProperty("--wall-img");
       reflectBgUi(src);
+      updateInkForSrc(src || null);
     }
     // Store (or clear) the persisted source; returns whether it stuck.
     function persistBg(src) {
@@ -9211,6 +9231,7 @@
       document.documentElement.style.setProperty("--wall-dim", (v / 100).toFixed(2));
       if (bgDimInput) bgDimInput.value = String(v);
       try { localStorage.setItem(BG_DIM_KEY, String(v)); } catch (e) { /* ignore */ }
+      recomputeInk();
     }
     // See-through amount for the typing panel (Settings > Typing panel): 0 keeps
     // it solid (the default), 100 makes it fully transparent. The panel's fill
@@ -9221,6 +9242,95 @@
       if (panelSeeThruInput) panelSeeThruInput.value = String(v);
       if (panelSeeThruValue) panelSeeThruValue.textContent = v + "%";
       try { localStorage.setItem(PANEL_SEETHRU_KEY, String(v)); } catch (e) { /* ignore */ }
+      recomputeInk();
+    }
+
+    // ---- Adaptive text contrast over a see-through panel ------------------
+    // When the panel is made see-through, the wall image shows through behind
+    // the glyphs and can wreck readability. Rather than touch the user's dim or
+    // see-through, we add a contrasting outline (a text-shadow "halo") to #quote
+    // only: its direction (light vs dark) comes from the luminance of what
+    // actually sits behind the text - the image, darkened by the dim scrim, with
+    // the semi-transparent panel fill composited on top - and its strength grows
+    // as the panel gets more see-through. At an opaque panel (the default) it's
+    // off entirely, so nothing changes. Honest limit: a single outline can't win
+    // over a genuinely busy image (bright and dark under the same line), but it
+    // covers the ordinary cases well and never alters the background layer.
+    let curBgSrc = null;   // source currently applied to --wall-img
+    let curBgLum = null;   // avg luminance 0..1 of that image, or null if unread
+
+    // Average perceived luminance (0 black .. 1 white) of an image's central
+    // region, where the centered panel sits. Resolves null if the pixels can't
+    // be read - a cross-origin link with no CORS headers taints the canvas - so
+    // the caller can fall back. A tiny canvas is plenty for a coarse average.
+    function sampleBgLuminance(src) {
+      return new Promise((resolve) => {
+        if (!src) { resolve(null); return; }
+        const img = new Image();
+        // blob:/data: are same-origin; http(s) links need this to (maybe) yield
+        // readable pixels instead of tainting the canvas.
+        if (/^https?:/i.test(src)) img.crossOrigin = "anonymous";
+        img.onload = () => {
+          try {
+            const S = 32;
+            const c = document.createElement("canvas");
+            c.width = S; c.height = S;
+            const ctx = c.getContext("2d");
+            ctx.drawImage(img, 0, 0, S, S);
+            const lo = Math.floor(S * 0.2), side = Math.ceil(S * 0.6);
+            const d = ctx.getImageData(lo, lo, side, side).data;
+            let sum = 0, n = 0;
+            for (let i = 0; i < d.length; i += 4) {
+              sum += (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+              n++;
+            }
+            resolve(n ? sum / n : null);
+          } catch (e) { resolve(null); }   // tainted canvas / decode failure
+        };
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+    }
+
+    function inkNum(name, fallback) {
+      const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+      return Number.isFinite(v) ? v : fallback;
+    }
+
+    // Recompute the text colour from the current image, dim, see-through, theme.
+    function recomputeInk() {
+      const root = document.documentElement;
+      const panelAlpha = inkNum("--panel-alpha", 1);   // 1 = fully opaque panel
+      const hasWall = root.dataset.wall === "1" && !!curBgSrc;
+      // Opaque panel, or no image behind it: the text sits on the designed panel
+      // fill exactly as before - use each theme's own colours, change nothing.
+      if (!hasWall || panelAlpha >= 0.6) { delete root.dataset.ink; return; }
+      const wallDim = inkNum("--wall-dim", 0.35);      // 0 .. 0.8
+      const isLight = root.dataset.theme === "light";
+      const panelLum = isLight ? 0.97 : 0.09;          // luminance of the panel fill
+      const scrimLum = 0.05;                            // the dim overlay is near-black
+      // If we couldn't read the image, assume a middling luminance for the theme.
+      const imgLum = (curBgLum == null) ? (isLight ? 0.5 : 0.25) : curBgLum;
+      const dimmed = imgLum * (1 - wallDim) + scrimLum * wallDim;
+      const eff = panelLum * panelAlpha + dimmed * (1 - panelAlpha);
+      // Dark background -> light text; bright background -> dark text.
+      root.dataset.ink = eff < 0.5 ? "light" : "dark";
+    }
+
+    // Adopt a newly-applied wall source: recompute at once for responsiveness,
+    // then again once its luminance has been sampled (ignoring a stale sample if
+    // a newer image was set meanwhile).
+    function updateInkForSrc(src) {
+      curBgSrc = src || null;
+      curBgLum = null;
+      recomputeInk();
+      if (!curBgSrc) return;
+      const forSrc = curBgSrc;
+      sampleBgLuminance(curBgSrc).then((lum) => {
+        if (forSrc !== curBgSrc) return;
+        curBgLum = lum;
+        recomputeInk();
+      });
     }
 
     // Downscale a loaded image to <=BG_MAX_EDGE and re-encode as JPEG, retrying
@@ -9393,6 +9503,9 @@
       applyBgDim(dim);
       applyPanelSeeThru(seeThru);
       reflectBgUi(saved || null);
+      // The <head> script already applied a saved --wall-img; adopt it here so
+      // the halo is sampled and set for the restored image + see-through.
+      updateInkForSrc(saved || null);
     })();
 
     // ---- Collapse the sidebar (desktop) -----------------------------------
