@@ -3911,3 +3911,16 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   light) matched to the old opaque box; with the see-through fill it read as a
   mismatched block. Now bare text over the input, padding trimmed to what the
   text needs.
+- 2026-09-12: Background image now spans the whole viewport, not just the arena
+  (client-only). `#wallImg` moved out of `.arena` to a `<body>`-level
+  `position:fixed; inset:0; z-index:-1` layer, so every see-through surface over
+  it reveals one continuous picture. Under `data-wall="1"` the arena drops its
+  plaster fill (`background:transparent`) and, on compact, the bottom action bar
+  (`#mobileBar`) drops its solid fill too - so the image continues unbroken into
+  the footer behind Join/Spectate instead of ending at a flat white card.
+  Gated entirely on `data-wall`, so the no-image look is untouched. Also fixed
+  the "white race track" over a see-through panel: the rails now carry
+  `--rail-alpha` (`--panel-alpha` squared) instead of `--panel-alpha`, so a rail
+  fades faster than the panel it stacks on (identical at full opacity, near-gone
+  once see-through is raised) rather than compositing to ~2x the panel's opacity
+  and banding across the image as a pale bar.

@@ -571,11 +571,12 @@
        --panel-alpha (1 = fully opaque, the default), which the Settings >
        Typing panel see-through slider lowers to let the wall show through the
        text to whatever degree the user wants. The fills that sit ON the
-       panel - the type box (#typeInput) and the race-track rails
-       (.racer-track, #sharedTrackBase) - carry the same alpha, so they fade
-       with it instead of staying as opaque blocks. #raceTimer stays OUTSIDE the
-       panel, on the wall. Applies on desktop and compact alike (the compact
-       @media only trims its padding/margin). */
+       panel fade with it too: the type box (#typeInput) carries the same alpha,
+       and the race-track rails (.racer-track, #sharedTrackBase) carry --rail-alpha
+       (the panel alpha squared - see there for why a rail needs to fade faster
+       than the panel it stacks on). #raceTimer stays OUTSIDE the panel, on the
+       wall. Applies on desktop and compact alike (the compact @media only trims
+       its padding/margin). */
     .stage {
       position: relative;
       width: 100%; max-width: 740px;
@@ -591,16 +592,21 @@
       border: 1px solid rgba(255, 214, 150, .14);
       box-shadow: 0 12px 30px -16px rgba(0, 0, 0, .7);
     }
-    /* User-set background image (Settings > Background): a layer BEHIND the
-       panel, so only the "wall" changes - the panel (the background of the text
-       itself) sits on top and, at full opacity, hides the image behind the
-       text entirely. Absolutely positioned inside .arena; the panel
-       (.stage, position:relative) and #raceTimer paint over it because they
-       come later in the DOM at the same stacking level. The ::after scrim dims
-       the visible wall around the panel, its strength set by --wall-dim. Shown
-       under <html data-wall="1"> on every layout. */
+    /* User-set background image (Settings > Background): a single fixed layer
+       pinned to the VIEWPORT behind everything (z-index:-1), not clipped to the
+       arena. It's a direct child of <body> (see the markup), so every surface
+       that goes see-through over it - the arena wall, and on compact the bottom
+       action bar - reveals the same continuous picture; the opaque header and
+       sidebar paint over it, and the typing panel at full opacity hides it
+       behind the text. The arena's own plaster fill is dropped under
+       data-wall="1" (below) so this layer shows through it. The ::after scrim
+       dims the visible wall, its strength set by --wall-dim. Shown under
+       <html data-wall="1"> on every layout.
+       position:fixed (a real fixed ELEMENT, cover-sized) rather than a
+       background-attachment:fixed paint, which mobile Safari quietly drops to
+       scroll - the element is reliable where the paint-mode isn't. */
     .wall-img {
-      display: none; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+      display: none; position: fixed; inset: 0; z-index: -1; pointer-events: none;
       background-image: var(--wall-img, none);
       background-size: cover; background-position: center; background-repeat: no-repeat;
     }
@@ -726,7 +732,17 @@
     #leaderboard[data-mode="shared"][data-shared-empty="1"] #sharedTrack { display: none; }
     /* Square, not pill-shaped, to match the carets riding on it - those are
        straight bars too, so rounding just the track would clash. */
-    #sharedTrackBase { height: 100%; background: rgba(51, 41, 29, var(--panel-alpha, 1)); }
+    /* The track rails sit ON the panel and used to carry its exact --panel-alpha.
+       That made them fade WITH the panel - but because a rail is a second cream
+       layer stacked on the already-cream panel, at any partial see-through the
+       rail composited to roughly twice the panel's opacity and stood out as a
+       pale/white bar over a background image (worst right where the user wants
+       the picture to show). Squaring the alpha makes the rail fade FASTER than
+       the panel: identical at full opacity (1²=1, the solid look is unchanged),
+       but near-gone once see-through is raised, so the rail melts into the image
+       instead of banding across it. Defined once here; both themes' rails use it. */
+    html { --rail-alpha: calc(var(--panel-alpha, 1) * var(--panel-alpha, 1)); }
+    #sharedTrackBase { height: 100%; background: rgba(51, 41, 29, var(--rail-alpha, 1)); }
     /* No transition, deliberately - see .shared-caret below: my own caret
        shares this exact value every render, and even a smoothing transition
        that both nominally share can drift the two apart by a visible sliver
@@ -793,7 +809,7 @@
        exists to keep the fill inside the rounded track. position:relative
        anchors the absolutely-positioned emoji to the track's width. */
     .racer-track-wrap { position: relative; }
-    .racer-track { background: rgba(51, 41, 29, var(--panel-alpha, 1)); border-radius: 999px; height: 14px; overflow: hidden; }
+    .racer-track { background: rgba(51, 41, 29, var(--rail-alpha, 1)); border-radius: 999px; height: 14px; overflow: hidden; }
     /* The width/left MOVEMENT transitions live under the [data-smooth-carets]
        gate below (the "Smooth motion" setting) rather than here, so turning the
        setting off snaps these the same way the shared track and quote caret do.
@@ -2305,6 +2321,11 @@
       background-size: auto, auto, 160px 160px, auto;
       background-position: center top, center bottom, center, center;
     }
+    /* With a user wall set, drop the arena's own plaster fill so the fixed
+       #wallImg layer behind it (z-index:-1) shows through. Placed after both the
+       base and light-theme .arena rules so it wins in either theme at equal
+       specificity; the ::after scrim on #wallImg still does the dimming. */
+    html[data-wall="1"] .arena { background: transparent; }
     html[data-theme="light"] .stage {
       background: linear-gradient(180deg,
         rgba(255, 253, 247, var(--panel-alpha, 1)) 0%,
@@ -2367,11 +2388,11 @@
     html[data-ink="dark"] #bigReadout[data-mode="countdown"] .readout-number { color: var(--l-count); }
 
     /* --- Leaderboard tracks (terracotta fills stay base) ------------------- */
-    html[data-theme="light"] .racer-track { background: rgba(227, 216, 196, var(--panel-alpha, 1)); }
+    html[data-theme="light"] .racer-track { background: rgba(227, 216, 196, var(--rail-alpha, 1)); }
     html[data-theme="light"] .racer-fill.finished { background: var(--l-finished); }
     html[data-theme="light"] .racer-fill.afk { background: var(--l-line2); }
     html[data-theme="light"] .racer-wpm { color: var(--l-soft); }
-    html[data-theme="light"] #sharedTrackBase { background: rgba(227, 216, 196, var(--panel-alpha, 1)); }
+    html[data-theme="light"] #sharedTrackBase { background: rgba(227, 216, 196, var(--rail-alpha, 1)); }
     html[data-theme="light"] #sharedTrackFill.finished { background: var(--l-finished); }
     html[data-theme="light"] #sharedTrackFill.afk { background: var(--l-line2); }
     html[data-theme="light"] .shared-caret.finished { background: var(--l-finished); }
@@ -2528,6 +2549,15 @@
     html[data-theme="light"] #lobbyUnread { border-color: var(--l-card); }
     html[data-theme="light"] #sheetViewToggle { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft); }
     html[data-theme="light"] #sheetViewUnread { border-color: var(--l-card); }
+    /* With a user wall set, the bottom action bar drops its solid fill so the
+       fixed #wallImg layer shows behind it - the picture continues unbroken from
+       the arena into the footer instead of ending at a flat card. The buttons
+       keep their own fills, so Join/Spectate stays legible over the image; the
+       top border softens to a translucent hairline (a hard line over a photo
+       reads as a seam). Compact-only in practice - #mobileBar is display:none
+       otherwise - but written theme-agnostically so it wins in both. Placed
+       after the light-theme #mobileBar rule so it overrides at equal specificity. */
+    html[data-wall="1"] #mobileBar { background: transparent; border-top-color: rgba(255, 255, 255, .12); }
     html[data-theme="light"] .race-bar-btn { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft); }
     html[data-theme="light"] .race-bar-btn:hover { background: var(--l-line); color: var(--l-ink); }
 
@@ -2600,6 +2630,14 @@
   </script>
 </head>
 <body>
+  <!-- Optional user-set background image (Settings > Background). A single
+       viewport-wide fixed layer behind EVERYTHING (z-index:-1), so it shows
+       through every see-through surface that sits over it - the arena wall and,
+       on the compact layout, the bottom action bar too - as one continuous
+       picture rather than being clipped to the arena. The opaque header and
+       sidebar paint over it; the typing panel sits on top and, at full opacity,
+       hides it behind the text. Empty/hidden until a wall is chosen. -->
+  <div id="wallImg" class="wall-img" aria-hidden="true"></div>
   <header>
     <h1>Ty<span class="brand-accent">pro</span></h1>
     <!-- Nothing sits between the wordmark and the identity box on purpose.
@@ -2913,10 +2951,6 @@
   <div class="layout">
     <!-- Left: the "stream". Race text is always visible here for everyone. -->
     <section class="arena">
-      <!-- Optional user-set background image (Settings > Background), painted
-           behind everything else in the arena, so the typing panel sits on top
-           of it. Empty/hidden until a wall is chosen. -->
-      <div id="wallImg" class="wall-img" aria-hidden="true"></div>
       <!-- Race clock: absolutely positioned to the arena's top-right corner,
            so it lives OUTSIDE .stage (which would re-anchor it to the panel). -->
       <div id="raceTimer"></div>
