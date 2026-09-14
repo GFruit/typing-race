@@ -3924,3 +3924,54 @@ The scaffold may instead generate the older `@colyseus/tools` style with
   fades faster than the panel it stacks on (identical at full opacity, near-gone
   once see-through is raised) rather than compositing to ~2x the panel's opacity
   and banding across the image as a pale bar.
+- 2026-09-14: Fixed a phantom "empty race track" bar above the quote on the
+  compact layout (client-only). It was `#quoteTopMask` - the 12px ghost-caret
+  top band reserved when "Show racers on text" is on - painting a hardcoded
+  opaque `#16130d`. That matched the old solid wall but, over the now
+  see-through panel + full-viewport image, stood out as a dark bar; and the
+  compact rule showed it unconditionally, so it appeared even idle with nobody
+  joined (and any ghost lollipop then rode above it, reading as a second,
+  detached track). The mask only ever needs to hide the outgoing line's text
+  sliver while the quote is actually scrolling, so it's now driven by a
+  `--quote-mask` var: transparent unless `html[data-race-live="1"]` (set in
+  render for phases `racing`/`finished`), and when filled it fades with the
+  panel via `--rail-alpha` like the rails - fully opaque at the solid default
+  (hides text as before), melting into a see-through wall otherwise. Idle it's
+  transparent, so the reserved band just shows the wall and no bar appears.
+- 2026-09-14: Frosted-glass typing panel (client-only). New Settings > Typing
+  panel > "Frost" slider (0-100%, default 60, `typingRace.panelFrost`) drives
+  `--panel-frost` (0..1), which `.stage` turns into
+  `backdrop-filter: blur(frost*20px) saturate(1+frost*.3)` - the wall image,
+  its dim scrim and the plaster grain are blurred BEHIND the panel, so a
+  see-through panel reads as a slab of frosted glass rather than a tint over a
+  sharp photo, and the text keeps an even ground however far See-through is
+  pushed. Two inset shadows (a 1px light rim + a top-edge highlight) are the
+  glass "tells"; both scale with `1 - --panel-alpha`, so the solid default is
+  pixel-identical to before. The effective frost is forced to 0 while
+  See-through is 0 (nothing to blur, and no GPU pass paid for an invisible
+  filter); the Frost row is dimmed/disabled until See-through is raised. Frost
+  0 with See-through >0 is exactly the previous clear-glass look. Applied
+  pre-paint by the `<head>` script like see-through, so no flash on load.
+  Adaptive ink is untouched - a blurred backdrop only averages the sampled
+  luminance, so it stays right.
+- 2026-09-14: Glass chrome over a wall image (client-only). With a background
+  image set (`html[data-wall="1"]`), the header and sidebar take the same
+  frosted material as the typing panel: `backdrop-filter` blur driven by
+  `--chrome-frost` (the raw Frost slider, 0..1 - NOT zeroed by a solid panel
+  like `--panel-frost` is) plus a fixed tint - header a light wash (.35 dark /
+  .55 light), sidebar ~82-84% opaque so the picture reads as soft colour
+  behind chat/roster but never as detail under small type. Deliberately gated
+  on the wall, not on See-through (that slider is about the text). The
+  sidebar's opaque sub-surfaces (Auto-continue row incl. its checked tint,
+  the chat `.panel`) drop to faint translucent tints so the glass shows
+  through; Join/Send/inputs keep their fills. Compact: the bottom-sheet
+  sidebar keeps the tint but drops the blur (a near-full-screen backdrop blur
+  is the expensive case on phones); the thin header keeps it. The Frost row
+  is now enabled when See-through > 0 OR a wall is set (reflectBgUi re-syncs).
+  Pre-paint applied by the `<head>` script. No image = unchanged solid chrome.
+  Follow-up fix: `backdrop-filter` makes the header a stacking context, which
+  trapped its popovers (Settings panel, emoji picker - z-index 60 inside it)
+  beneath the later-painted glass panel and sidebar, so Settings couldn't be
+  used with an image set. `header` now carries `position: relative;
+  z-index: 60` unconditionally, restoring the old layering (above the
+  sidebar/bottom bar at 40/50, below the compact short-viewport sheet at 70).

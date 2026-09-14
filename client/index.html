@@ -52,6 +52,14 @@
       flex-shrink: 0;
       padding: 14px 24px; border-bottom: 1px solid #33291d;
       display: flex; align-items: center; gap: 12px;
+      /* The header is a stacking context once it takes the glass backdrop
+         filter (over a wall image), which would trap its popovers - the
+         Settings panel and emoji picker, z-index 60 inside it - beneath the
+         later-painted arena panel and sidebar. Lifting the header itself to 60
+         keeps them where they've always sat: above the sidebar/bottom bar
+         (40/50), below the compact short-viewport sheet (70). Unconditional so
+         the layering is the same with or without an image. */
+      position: relative; z-index: 60;
     }
     /* Full-screen race on a very short viewport: when an active racer can't fit
        the status line, the shared track and the two-line quote with the header
@@ -408,7 +416,8 @@
     .bg-dim-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
     .bg-dim-row .settings-label { flex-shrink: 0; }
     .bg-dim { flex: 1; accent-color: #e2603f; cursor: pointer; }
-    #panelSeeThruValue {
+    .bg-dim:disabled { cursor: default; }
+    #panelSeeThruValue, #panelFrostValue {
       flex-shrink: 0; min-width: 34px; text-align: right; font-size: 11px;
       color: #b4a487; font-variant-numeric: tabular-nums;
     }
@@ -590,7 +599,23 @@
       /* A faint fixed-alpha edge so the panel outline stays visible even when
          the fill is turned fully see-through. */
       border: 1px solid rgba(255, 214, 150, .14);
-      box-shadow: 0 12px 30px -16px rgba(0, 0, 0, .7);
+      /* Frosted glass. --panel-frost (0..1, Settings > Typing panel > Frost)
+         blurs and mildly saturates whatever is painted BEHIND the panel - the
+         wall image, its dim scrim, the plaster grain - so a see-through panel
+         reads as a slab of frosted glass in front of the wall rather than a
+         tint over a sharp photo, and the text sits on an even ground however
+         far see-through is pushed. The JS forces it to 0 while the panel is
+         solid (nothing to see through, so nothing to blur - and no GPU pass
+         paid for an invisible effect). The two inset shadows are the glass
+         "tells": a 1px light rim and a top-edge highlight. Both scale with
+         (1 - --panel-alpha) so they're absent at the solid default - the
+         opaque look is unchanged - and come up as the panel goes clear. */
+      backdrop-filter: blur(calc(var(--panel-frost, 0) * 20px)) saturate(calc(1 + var(--panel-frost, 0) * .3));
+      -webkit-backdrop-filter: blur(calc(var(--panel-frost, 0) * 20px)) saturate(calc(1 + var(--panel-frost, 0) * .3));
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, calc(.14 * (1 - var(--panel-alpha, 1)))),
+        inset 0 1px 0 rgba(255, 255, 255, calc(.12 * (1 - var(--panel-alpha, 1)))),
+        0 12px 30px -16px rgba(0, 0, 0, .7);
     }
     /* User-set background image (Settings > Background): a single fixed layer
        pinned to the VIEWPORT behind everything (z-index:-1), not clipped to the
@@ -742,6 +767,15 @@
        but near-gone once see-through is raised, so the rail melts into the image
        instead of banding across it. Defined once here; both themes' rails use it. */
     html { --rail-alpha: calc(var(--panel-alpha, 1) * var(--panel-alpha, 1)); }
+    /* The ghost-caret top-band mask (#quoteTopMask). Transparent whenever the
+       band has nothing to hide (see the data-race-live flag set in render); when
+       a race is live it fills with the wall colour, fading with the panel via
+       --rail-alpha exactly like the rails above so it melts into a see-through
+       wall rather than banding a solid bar across the top of the quote. Fully
+       opaque at the default solid panel, so it hides the outgoing line as before. */
+    html { --quote-mask: transparent; }
+    html[data-race-live="1"] { --quote-mask: rgba(24, 19, 12, var(--rail-alpha, 1)); }
+    html[data-theme="light"][data-race-live="1"] { --quote-mask: rgba(248, 241, 228, var(--rail-alpha, 1)); }
     #sharedTrackBase { height: 100%; background: rgba(51, 41, 29, var(--rail-alpha, 1)); }
     /* No transition, deliberately - see .shared-caret below: my own caret
        shares this exact value every render, and even a smoothing transition
@@ -877,9 +911,8 @@
     #quoteWrap[data-windowed="1"]:has(#quote[data-ghosts="1"]) { --ghost-room: 12px; margin-top: -6px; }
     #quoteWrap[data-windowed="1"] #quoteTopMask {
       display: block; position: absolute; top: 0; left: 0; right: 0;
-      height: var(--ghost-room, 0px); background: #16130d; z-index: 2; pointer-events: none;
+      height: var(--ghost-room, 0px); background: var(--quote-mask); z-index: 2; pointer-events: none;
     }
-    html[data-theme="light"] #quoteWrap[data-windowed="1"] #quoteTopMask { background: var(--l-bg); }
     /* Sizes to the quote and is the ghost layer's containing block, so the two
        share an origin. The slide transition makes a line advance read as a step
        on both layouts; it's inert until updateQuoteWindow actually translates it. */
@@ -1743,7 +1776,7 @@
          the current top line's lollipop still paints over it. */
       #quoteTopMask {
         display: block; position: absolute; top: 0; left: 0; right: 0;
-        height: var(--ghost-room, 0px); background: #16130d; z-index: 2;
+        height: var(--ghost-room, 0px); background: var(--quote-mask); z-index: 2;
         pointer-events: none;
       }
 
@@ -2331,7 +2364,12 @@
         rgba(255, 253, 247, var(--panel-alpha, 1)) 0%,
         rgba(248, 241, 228, var(--panel-alpha, 1)) 100%);
       border-color: rgba(120, 90, 50, .20);
-      box-shadow: 0 12px 26px -16px rgba(60, 40, 20, .35);
+      /* Same glass rim/highlight as the base rule (white reads on cream too),
+         over this theme's softer drop shadow. */
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, calc(.55 * (1 - var(--panel-alpha, 1)))),
+        inset 0 1px 0 rgba(255, 255, 255, calc(.45 * (1 - var(--panel-alpha, 1)))),
+        0 12px 26px -16px rgba(60, 40, 20, .35);
     }
     html[data-theme="light"] #quote { color: var(--l-soft); }
     html[data-theme="light"] #quote[data-placeholder="1"] { color: var(--l-faint); }
@@ -2428,11 +2466,11 @@
        giving it one would show past the input's rounded corners. Only the
        compact layout's sticky bar needs a fill, handled in the @media below. */
     @media (max-width: 820px), (max-height: 520px) and (pointer: coarse) {
-      /* On mobile the input is a sticky bar and the ghost top-mask is opaque,
-         to hide quote text scrolling under them. The base theme uses a solid
-         matching its #16130d body; here just match the light body colour. */
-      html[data-theme="light"] #inputWrap,
-      html[data-theme="light"] #quoteTopMask { background: var(--l-bg); }
+      /* On mobile the input is a sticky bar that hides quote text scrolling
+         under it. The base theme uses a solid matching its #16130d body; here
+         just match the light body colour. (The ghost top-mask matches the wall
+         via --quote-mask now, so it isn't set here anymore - see that CSS.) */
+      html[data-theme="light"] #inputWrap { background: var(--l-bg); }
     }
     /* ...except in the race-bar layout, where the wrapper is transparent and
        sits inside #mobileBar (an --l-card fill). The beige rule above would
@@ -2558,6 +2596,43 @@
        otherwise - but written theme-agnostically so it wins in both. Placed
        after the light-theme #mobileBar rule so it overrides at equal specificity. */
     html[data-wall="1"] #mobileBar { background: transparent; border-top-color: rgba(255, 255, 255, .12); }
+
+    /* --- Glass chrome over a wall image ------------------------------------ */
+    /* With a user wall set, the header and sidebar become the same frosted
+       material as the typing panel, so the picture isn't chopped off by a
+       solid slab on the right and the WPM chip / name up top stop sitting on
+       raw image detail. Gated on data-wall only - not on the panel's
+       See-through, which is about how much shows through the TEXT; the chrome
+       keeps a fixed tint chosen for its small type (the header a light wash,
+       the sidebar ~82% opaque so the picture reads as soft colour behind chat
+       and roster, never as detail). Blur strength is --chrome-frost, the raw
+       Frost slider (0..1) - the one "how glassy" knob - unlike --panel-frost it
+       isn't zeroed by a solid panel. Join/Send/inputs keep their own fills.
+       The sidebar's opaque sub-surfaces (the Auto-continue row, the chat
+       .panel) drop to faint tints so the glass shows through them too. No
+       image set = nothing here applies, the solid chrome is unchanged. */
+    html[data-wall="1"] header,
+    html[data-wall="1"] .sidebar {
+      backdrop-filter: blur(calc(var(--chrome-frost, 0) * 20px)) saturate(calc(1 + var(--chrome-frost, 0) * .3));
+      -webkit-backdrop-filter: blur(calc(var(--chrome-frost, 0) * 20px)) saturate(calc(1 + var(--chrome-frost, 0) * .3));
+    }
+    html[data-wall="1"] header { background: rgba(22, 19, 13, .35); border-bottom-color: rgba(255, 255, 255, .10); }
+    html[data-wall="1"] .sidebar { background: rgba(28, 23, 16, .82); border-left-color: rgba(255, 255, 255, .10); border-top-color: rgba(255, 255, 255, .10); }
+    html[data-wall="1"] .auto-continue:not(:hover) { background: rgba(255, 235, 200, .05); }
+    html[data-wall="1"] .auto-continue[aria-checked="true"]:not(:hover) { background: rgba(239, 125, 90, .12); }
+    html[data-wall="1"] .panel { background: rgba(255, 235, 200, .03); }
+    html[data-wall="1"][data-theme="light"] header { background: rgba(255, 253, 247, .55); border-bottom-color: rgba(120, 90, 50, .18); }
+    html[data-wall="1"][data-theme="light"] .sidebar { background: rgba(250, 244, 232, .84); border-left-color: rgba(120, 90, 50, .18); border-top-color: rgba(120, 90, 50, .18); }
+    html[data-wall="1"][data-theme="light"] .auto-continue:not(:hover) { background: transparent; }
+    html[data-wall="1"][data-theme="light"] .auto-continue[aria-checked="true"]:not(:hover) { background: rgba(198, 90, 52, .10); }
+    html[data-wall="1"][data-theme="light"] .panel { background: rgba(255, 255, 255, .35); }
+    /* The compact layout's sidebar is a near-full-screen bottom sheet, and a
+       backdrop blur that size is the one place the filter gets expensive on a
+       phone - so the sheet keeps just the tint there. The header strip is
+       thin enough to keep its blur. */
+    @media (max-width: 820px), (max-height: 520px) and (pointer: coarse) {
+      html[data-wall="1"] .sidebar { backdrop-filter: none; -webkit-backdrop-filter: none; }
+    }
     html[data-theme="light"] .race-bar-btn { background: var(--l-inset); border-color: var(--l-line2); color: var(--l-soft); }
     html[data-theme="light"] .race-bar-btn:hover { background: var(--l-line); color: var(--l-ink); }
 
@@ -2611,9 +2686,19 @@
       // partly-transparent panel doesn't flash opaque on load. Independent of a
       // wall image (it also lets the plain plaster wall show through).
       var st = localStorage.getItem("typingRace.panelSeeThru");
+      var see = st === null ? 0 : Math.max(0, Math.min(100, Number(st) || 0));
       if (st !== null) {
-        var see = Math.max(0, Math.min(100, Number(st) || 0));
         document.documentElement.style.setProperty("--panel-alpha", ((100 - see) / 100).toFixed(2));
+      }
+      // ...and its frost (glass blur). The panel only takes it while it's
+      // actually see-through; the header/sidebar glass (--chrome-frost, gated
+      // on data-wall in the CSS) takes the raw value. Mirrors applyPanelFrost()
+      // and syncPanelFrost(), default 60.
+      var fr = localStorage.getItem("typingRace.panelFrost");
+      var frost = fr === null ? 60 : Math.max(0, Math.min(100, Number(fr) || 0));
+      document.documentElement.style.setProperty("--chrome-frost", (frost / 100).toFixed(2));
+      if (see > 0) {
+        document.documentElement.style.setProperty("--panel-frost", (frost / 100).toFixed(2));
       }
       // Same no-flash treatment for a collapsed sidebar - but only on the
       // desktop layout (the compact bottom sheet has its own toggle). Mirror
@@ -2739,11 +2824,20 @@
                    this). See applyPanelSeeThru(). -->
               <div class="settings-field">
                 <div class="settings-label">Typing panel</div>
-                <div class="settings-hint">How much of the background shows through the panel behind the text. 0% keeps it solid.</div>
+                <div class="settings-hint">How much of the background shows through the panel behind the text. 0% keeps it solid. Frost blurs what shows through, like frosted glass - and, with a background image set, frosts the header and sidebar too.</div>
                 <div class="bg-dim-row">
                   <label class="settings-label" for="panelSeeThru">See-through</label>
                   <input id="panelSeeThru" class="bg-dim" type="range" min="0" max="100" step="5" value="0" aria-label="Typing panel see-through" />
                   <span id="panelSeeThruValue">0%</span>
+                </div>
+                <!-- Frost: blur strength of the glass, 0-100 (default 60). Has
+                     an effect once See-through is above 0 (the panel) or a
+                     background image is set (header + sidebar); the row is
+                     dimmed while neither holds. See applyPanelFrost(). -->
+                <div id="panelFrostRow" class="bg-dim-row">
+                  <label class="settings-label" for="panelFrost">Frost</label>
+                  <input id="panelFrost" class="bg-dim" type="range" min="0" max="100" step="5" value="60" aria-label="Typing panel frost" />
+                  <span id="panelFrostValue">60%</span>
                 </div>
               </div>
             </div>
@@ -6008,6 +6102,15 @@
       // visible status line. innerHTML for the waiting state only: it carries
       // the animated dots (plain text elsewhere, so nothing is injectable).
       phaseBanner.dataset.phase = state.phase;
+      // The ghost-caret top band (#quoteTopMask) only has an outgoing text
+      // sliver to hide while the quote is actually being scrolled through a
+      // race - racing, or held on the results screen where it stopped. Idle
+      // (nobody's joined, or a race hasn't started) it covers nothing, so it
+      // stays transparent and the reserved band just shows the wall behind it,
+      // instead of standing an opaque bar over a see-through wall. See the
+      // --quote-mask CSS.
+      document.documentElement.dataset.raceLive =
+        (state.phase === "racing" || state.phase === "finished") ? "1" : "0";
       if (state.phase === "finished") {
         phaseBanner.textContent = `Next race in ${state.countdown}…`;
       } else if (state.phase !== "racing" && state.phase !== "countdown") {
@@ -9394,6 +9497,9 @@
     const BG_DIM_KEY = "typingRace.bgDim";
     // How see-through the typing panel is, 0-100 (0 = solid, the default).
     const PANEL_SEETHRU_KEY = "typingRace.panelSeeThru";
+    // Glass blur strength for a see-through panel, 0-100 (default 60).
+    const PANEL_FROST_KEY = "typingRace.panelFrost";
+    const PANEL_FROST_DEFAULT = 60;
     const BG_MAX_EDGE = 1920;   // longest edge kept; larger images are scaled down
     const bgDrop = document.getElementById("bgDrop");
     const bgPreview = document.getElementById("bgPreview");
@@ -9403,6 +9509,9 @@
     const bgDimRow = document.getElementById("bgDimRow");
     const panelSeeThruInput = document.getElementById("panelSeeThru");
     const panelSeeThruValue = document.getElementById("panelSeeThruValue");
+    const panelFrostInput = document.getElementById("panelFrost");
+    const panelFrostValue = document.getElementById("panelFrostValue");
+    const panelFrostRow = document.getElementById("panelFrostRow");
     const bgClear = document.getElementById("bgClear");
     const bgError = document.getElementById("bgError");
     const bgDropTitle = document.getElementById("bgDropTitle");
@@ -9422,6 +9531,7 @@
       bgClear.hidden = !has;
       bgDimRow.hidden = !has;
       bgDropTitle.textContent = has ? "Change image" : "Drop an image, paste, or click to upload";
+      syncPanelFrost();   // the Frost row's enabled state depends on the wall
     }
     // A short-lived blob: URL is what we APPLY for uploaded/pasted images (a
     // multi-megabyte data: URL set as a CSS variable can silently fail to render
@@ -9463,13 +9573,42 @@
     // See-through amount for the typing panel (Settings > Typing panel): 0 keeps
     // it solid (the default), 100 makes it fully transparent. The panel's fill
     // alpha is 1 minus this, exposed as --panel-alpha for .stage's background.
+    let panelSeeThruPct = 0;
+    let panelFrostPct = PANEL_FROST_DEFAULT;
     function applyPanelSeeThru(pct) {
       const v = Math.max(0, Math.min(100, Number(pct) || 0));
+      panelSeeThruPct = v;
       document.documentElement.style.setProperty("--panel-alpha", ((100 - v) / 100).toFixed(2));
       if (panelSeeThruInput) panelSeeThruInput.value = String(v);
       if (panelSeeThruValue) panelSeeThruValue.textContent = v + "%";
       try { localStorage.setItem(PANEL_SEETHRU_KEY, String(v)); } catch (e) { /* ignore */ }
+      syncPanelFrost();
       recomputeInk();
+    }
+    // Frost (glass blur) for the see-through panel: 0 = clear glass (the sharp
+    // wall shows through, the pre-frost look), 100 = heavy blur. Exposed as
+    // --panel-frost (0..1) which .stage's backdrop-filter scales.
+    function applyPanelFrost(pct) {
+      const v = Math.max(0, Math.min(100, Number(pct) || 0));
+      panelFrostPct = v;
+      if (panelFrostInput) panelFrostInput.value = String(v);
+      if (panelFrostValue) panelFrostValue.textContent = v + "%";
+      try { localStorage.setItem(PANEL_FROST_KEY, String(v)); } catch (e) { /* ignore */ }
+      syncPanelFrost();
+    }
+    // The panel's effective frost is 0 while it's solid: there's nothing to see
+    // through, so nothing to blur - and this way the (GPU-costly) backdrop
+    // filter is off entirely at the default. The header/sidebar glass takes the
+    // raw value as --chrome-frost (the CSS gates it on data-wall). The Frost
+    // row is dimmed while neither surface can show it.
+    function syncPanelFrost() {
+      const panelOn = panelSeeThruPct > 0;
+      const chromeOn = document.documentElement.dataset.wall === "1";
+      const on = panelOn || chromeOn;
+      document.documentElement.style.setProperty("--panel-frost", panelOn ? (panelFrostPct / 100).toFixed(2) : "0");
+      document.documentElement.style.setProperty("--chrome-frost", (panelFrostPct / 100).toFixed(2));
+      if (panelFrostRow) panelFrostRow.style.opacity = on ? "" : ".45";
+      if (panelFrostInput) panelFrostInput.disabled = !on;
     }
 
     // ---- Adaptive text contrast over a see-through panel ------------------
@@ -9702,6 +9841,7 @@
     }
     if (bgDimInput) bgDimInput.addEventListener("input", () => applyBgDim(bgDimInput.value));
     if (panelSeeThruInput) panelSeeThruInput.addEventListener("input", () => applyPanelSeeThru(panelSeeThruInput.value));
+    if (panelFrostInput) panelFrostInput.addEventListener("input", () => applyPanelFrost(panelFrostInput.value));
 
     // Paste an image ANYWHERE while Settings is open - the common way to drop in
     // a screenshot or a copied image. Text pastes (with no image) are ignored
@@ -9723,11 +9863,13 @@
     // applied --wall-img/--wall-dim + data-wall before paint, so we don't
     // re-set --wall-img here and risk altering the exact stored string).
     (function initBgUi() {
-      let saved = null, dim = 35, seeThru = 0;
+      let saved = null, dim = 35, seeThru = 0, frost = PANEL_FROST_DEFAULT;
       try { saved = localStorage.getItem(BG_IMG_KEY); } catch (e) { /* ignore */ }
       try { const d = localStorage.getItem(BG_DIM_KEY); if (d !== null) dim = Number(d); } catch (e) { /* ignore */ }
       try { const s = localStorage.getItem(PANEL_SEETHRU_KEY); if (s !== null) seeThru = Number(s); } catch (e) { /* ignore */ }
+      try { const f = localStorage.getItem(PANEL_FROST_KEY); if (f !== null) frost = Number(f); } catch (e) { /* ignore */ }
       applyBgDim(dim);
+      applyPanelFrost(frost);
       applyPanelSeeThru(seeThru);
       reflectBgUi(saved || null);
       // The <head> script already applied a saved --wall-img; adopt it here so
